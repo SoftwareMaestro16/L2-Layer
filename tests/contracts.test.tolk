@@ -21,8 +21,8 @@ get fun `test rollup root deploy exposes status`() {
 }
 
 get fun `test sequencer commits and finalizes batch after challenge window`() {
-    val (root, sequencer, _) = setupRoot(10);
     testing.setNow(100);
+    val (root, sequencer, _) = setupRoot(10);
 
     val rootsA = BatchRootsA {
         prevStateRoot: 0,
@@ -61,12 +61,13 @@ get fun `test sequencer commits and finalizes batch after challenge window`() {
 get fun `test vault deposit locks ton and emits deposit log`() {
     val deployer = testing.treasury("vault-deployer");
     val rollupRoot = testing.treasury("rollup-root");
+    val wrappedGasMinter = testing.treasury("wrapped-gas-minter");
     val user = testing.treasury("deposit-user");
 
     val vault = AssetVault.fromStorage({
         admin: deployer.address,
         rollupRoot: rollupRoot.address,
-        wrappedGasMinter: createAddressNone(),
+        wrappedGasMinter: wrappedGasMinter.address,
         paused: false,
         lockedTon: 0,
         releaseFailures: [],
@@ -88,12 +89,11 @@ get fun `test vault deposit locks ton and emits deposit log`() {
 
 fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
     val deployer = testing.treasury("root-deployer");
-    val sequencer = testing.treasury("sequencer");
     val vault = testing.treasury("asset-vault");
 
     val root = RollupRoot.fromStorage({
         admin: deployer.address,
-        sequencer: sequencer.address,
+        sequencer: deployer.address,
         assetVault: vault.address,
         challengeWindowSec,
         lastCommitted: 0,
@@ -107,5 +107,5 @@ fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
         to: root.address,
     });
 
-    return (root, sequencer, vault.address);
+    return (root, deployer, vault.address);
 }
