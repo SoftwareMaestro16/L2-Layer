@@ -2,6 +2,9 @@ import { Address, beginCell } from "@ton/core";
 import { createHash } from "node:crypto";
 import nacl from "tweetnacl";
 
+export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
+export * as RollupRootL1 from "./generated/RollupRoot.gen.js";
+
 export type Hash32 = string;
 
 export const L2_NATIVE_GAS_ASSET = 0;
