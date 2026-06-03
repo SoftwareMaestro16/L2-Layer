@@ -4,6 +4,9 @@ import "@shared/proofs"
 import "@shared/storage"
 
 contract RollupRoot {
+    author: "Fabolous @SoftwareMaestro"
+    version: "0.0.1"
+    description: "TON L1 settlement root for optimistic L2 batch commitments, finalization, and withdrawal claims."
     storage: RollupStorage
     incomingMessages: RootMessage
 }

@@ -4,6 +4,9 @@ import "@shared/messages"
 import "@shared/storage"
 
 contract AssetVault {
+    author: "Fabolous @SoftwareMaestro"
+    version: "0.0.1"
+    description: "TON L1 custody vault for L2 deposits, locked TON accounting, and authorized withdrawal releases."
     storage: AssetVaultStorage
     incomingMessages: VaultMessage
 }
