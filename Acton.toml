@@ -1,0 +1,38 @@
+[package]
+name = "ton-l2-rollup-contracts"
+version = "0.1.0"
+description = "Tolk L1 settlement contracts for a TON-anchored optimistic L2 rollup"
+license = "Apache-2.0"
+
+[toolchain]
+acton = "1.1.0"
+
+[contracts.RollupRoot]
+display-name = "Rollup Root"
+src = "contracts/l1/rollup-root/rollup_root.tolk"
+depends = []
+
+[contracts.AssetVault]
+display-name = "Asset Vault"
+src = "contracts/l1/asset-vault/asset_vault.tolk"
+depends = []
+
+[fmt]
+width = 100
+ignore = []
+
+[wrappers.tolk]
+output-dir = "wrappers"
+
+[wrappers.typescript]
+output-dir = "sdk/src/generated"
+
+[test]
+
+[import-mappings]
+acton = ".acton"
+shared = "contracts/l1/shared"
+contracts = "contracts/l1"
+gen = "gen"
+tests = "tests"
+wrappers = "wrappers"

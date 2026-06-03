@@ -1,0 +1,65 @@
+# Operating system / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs and local diagnostics
+*.log
+logs/
+*.trace
+*.profraw
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.mnemonic
+*.seed
+*.secret
+*.wallet
+*mnemonic*
+*seed-phrase*
+*private-key*
+*secret-key*
+keys/
+secrets/
+wallets/
+
+# TON / Acton local state and generated artifacts
+/.acton/
+/build/
+/gen/
+*.boc
+*.fif
+*.fc.map
+*.source.map
+
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / TypeScript
+node_modules/
+/sdk/node_modules/
+/sdk/dist/
+/sdk/coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local databases / node state
+*.db
+*.sqlite
+*.sqlite3
+data/
+tmp/
+temp/
