@@ -92,6 +92,15 @@ stored through the deposit table before it is handed to the sequencer, so replay
 `l1_tx_hash + lt` events are idempotent. Malformed expected logs do not advance the
 cursor; temporary TON API failures are logged and do not block block production.
 
+## L1 Deployment
+
+The L1 pair uses a two-step root-to-vault link because TON addresses are derived
+from `StateInit`. A root and vault cannot both include each other's final address
+in initial data without a circular fixed point. Deployment therefore creates
+`RollupRoot` with a zero-address vault sentinel, creates `AssetVault` with the
+computed root address, then sends admin-only `SetAssetVault(vault)` to the root.
+The link is one-time and must happen before any batch is committed.
+
 ## Batch Relaying
 
 Each persisted L2 block creates a pending `l1_batch_commits` row. The relayer

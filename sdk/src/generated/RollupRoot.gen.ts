@@ -319,6 +319,43 @@ export const CommitBatch = {
 }
 
 /**
+ > struct (0x4c324c09) SetAssetVault {
+ >     assetVault: address
+ > }
+ */
+export interface SetAssetVault {
+    readonly $: 'SetAssetVault'
+    assetVault: c.Address
+}
+
+export const SetAssetVault = {
+    PREFIX: 0x4c324c09,
+
+    create(args: {
+        assetVault: c.Address
+    }): SetAssetVault {
+        return {
+            $: 'SetAssetVault',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): SetAssetVault {
+        loadAndCheckPrefix32(s, 0x4c324c09, 'SetAssetVault');
+        return {
+            $: 'SetAssetVault',
+            assetVault: s.loadAddress(),
+        }
+    },
+    store(self: SetAssetVault, b: c.Builder): void {
+        b.storeUint(0x4c324c09, 32);
+        b.storeAddress(self.assetVault);
+    },
+    toCell(self: SetAssetVault): c.Cell {
+        return makeCellFrom<SetAssetVault>(self, SetAssetVault.store);
+    }
+}
+
+/**
  > struct (0x4c324602) FinalizeBatch {
  >     batchNo: uint64
  > }
@@ -822,7 +859,7 @@ function calculateDeployedAddress(code: c.Cell, data: c.Cell, options: DeployedA
 }
 
 export class RollupRoot implements c.Contract {
-    static CodeCell = c.Cell.fromBase64('te6ccgECGwEABQYAART/APSkE/S88sgLAQIBYgIDAgLOBAUCAVgWFwIBIAYHAgEgExQEaz4kY6W1ywn////9PK/10zQ1ywiYZKQNOMCMOAg1ywiYZIYDOMC1ywiYZIwFOMC1ywiYZK4JIAgJCgsAKSpOACYAcjL/8v/+RbhyMv/y//5FoAH80//TH/pI+gAw+JLtRND6SPpI+kjTH9M/0z/SAPQE9AT0BYEQAVG4xwUb8vRT0IMH9A5voYEQCjLy9FR4dlR4dlR4dlYSVhfwA/gjL8jL/x/LHx36UlAL+gLPhAYcyx8ayx/JQLeDB/QXBMj6UhP6UvpSyx8Syz8Vyz8SygASDAH+MdM/1NdM+JLtRND6SPpI+kjWH9M/1j/SAPQEgRACI7Py9IEQAVGoxwUa8vSBEAMkpC268vQjjjdRM4BA9A5voYEQBQHy9IEQBAHU0dDU1DHTHzHSADHR0NP/MdP/0/8x0SvQ0//T/zHT/zHRuvL0kTPi+CMKyMwZzBnLH8+ByQ0A9jHXCz/tRND6SPpI+kjTH9Y/0z/SAPQEgRACI7Py9FORgED0Dm+hgRAFAfL01NHQ1NTTH9IA0YEQBwGz8vSBEAb4I1MqoL7y9ALIzMzLH8+DyVQgo4BA9BdTk7yTMxAokTniB8j6Uhb6UhT6UhLLH87LP8oAEvQAzsntVAIm4wLXLCJhkrgs4wIwhA8BxwDy9A4PABL0APQA9ADJ7VQAPFKSgED0FwTI+lIT+lL6Us4Vyz8TzsoAEvQAzsntVAH+MdM/0//U10ztRND6SPpI+kjWn9IA9AT0BIEQAiSz8vRRsoBA9A5voYEQBQHy9NTR0NQx1NMfMdIA0YEQCAHy9FOhgwf0Dm+hgRAJMrPy9IEQCgHQ0/8x0//T/zHRVCCq8AIY8vQH0NcsImGSkDTyv9P/0x/6SPoAMIEQClFMuhAC/DHXC//tRND6SPpI+kjWn9IA9AT0BPQFgRACJLPy9FOAgwf0Dm+hgRANAfL01NHQ0//TH/pI+gDTBzHTHzHTHzHRU8WDB/QOb6GBEAoy8vRQxIMH9GZvoVsKyPpSGfpSUnD6UhbOFMoAEvQA9AAV9ADJ7VSCEATEtADIic8WEhESALAU8vTIz4NUILqDB/RDB8j6Uhb6UlJA+lITzsoAFvQAE/QAFs7J7VSCEATEtADIz5EwyUgaFcv/Fcsf+lIB+gLJyM+FiBP6UgH6As+Bc/oCcc8LZczJcPsAAAhMMlIGAEjL/xPLHxT6Ulj6AsnIz4WIE/pSAfoCz4Fz+gJxzwtlzMlw+wABYTtou370NM/0w/0BNED+QAhnGwhAW6TusMAkltw4uGTIcIAiuhsIQFuk7rDAJJbcOKAVAFEUJpfCYMH9A5voY4Z1NHQ0/8x0x8x+kgx+gAx0wcx0x8x0x/RpOAwcIADiI26VXwVw2zHgA9DTB9P/0//T//QE0SSVJMIDwwCRf+KRf5VTRbzDAOKVXwlw2zHgcCXCAJ0wVBc28AEFqwAFBnEDkTTiJMIBnlQXJvABBasAAqQQVkAVkTLiA8ICnFQVJPABA6sABKQQNJEy4hKhUAMBRbnebtRND6SDH6SDH6SDHToDH0BYBA9A5voZR/AdTR4DBwiIGgIBIBgZACu0SX2omh9JBj9JH0kaY/pn+mf64UAQAU222h2omh9JBj9JBj9JBjp0Bj6APoA+gLBg/oHN9DKP4DqaPAYOERAaAAA=');
+    static CodeCell = c.Cell.fromBase64('te6ccgECHQEABWgAART/APSkE/S88sgLAQIBYgIDAgLOBAUCAVgYGQIBIAYHAgEgFRYEaz4kY6W1ywn////9PK/10zQ1ywiYZKQNOMCMOAg1ywiYZIYDOMC1ywiYZJgTOMC1ywiYZIwFIAgJCgsAKSpOACYAcjL/8v/+RbhyMv/y//5FoAH80//TH/pI+gAw+JLtRND6SPpI+kjTH9M/0z/SAPQE9AT0BYEQAVG4xwUb8vRT0IMH9A5voYEQCjLy9FR4dlR4dlR4dlYSVhfwA/gjL8jL/x/LHx36UlAL+gLPhAYcyx8ayx/JQLeDB/QXBMj6UhP6UvpSyx8Syz8Vyz8SygASDAH+MdM/1NdM+JLtRND6SPpI+kjWH9M/1j/SAPQEgRACI7Py9IEQAVGoxwUa8vSBEAMkpC268vQjjjdRM4BA9A5voYEQBQHy9IEQBAHU0dDU1DHTHzHSADHR0NP/MdP/0/8x0SvQ0//T/zHT/zHRuvL0kTPi+CMKyMwZzBnLH8+ByQ0ApDH6SDD4ku1E0PpI+kj6SCDTHzHTP9cLP4EQAVF2xwUX8vSBEBSLAhTHBRPy9IEQE4sCJ8cFs/L0gRAUWPLygRAUUATy8gHI+lL6UhL6Us7J7VQC/o57MdcLP+1E0PpI+kj6SNMf1j/TP9IA9ASBEAIjs/L0U5GAQPQOb6GBEAUB8vTU0dDU1NMf0gDRgRAHAbPy9IEQBvgjUyqgvvL0AsjMzMsfz4PJVCCjgED0F1OTvJMzECiROeIHyPpSFvpSFPpSEssfzss/ygAS9ADOye1U4IkODwAS9AD0APQAye1UADxSkoBA9BcEyPpSE/pS+lLOFcs/E87KABL0AM7J7VQACEwyVwQCKtcn4wLXLCJhkrgs4wIwhA8BxwDy9BARAf4x0z/T/9TXTO1E0PpI+kj6SNaf0gD0BPQEgRACJLPy9FGygED0Dm+hgRAFAfL01NHQ1DHU0x8x0gDRgRAIAfL0U6GDB/QOb6GBEAkys/L0gRAKAdDT/zHT/9P/MdFUIKrwAhjy9AfQ1ywiYZKQNPK/0//TH/pI+gAwgRAKUUy6EgL8MdcL/+1E0PpI+kj6SNaf0gD0BPQE9AWBEAIks/L0U4CDB/QOb6GBEA0B8vTU0dDT/9Mf+kj6ANMHMdMfMdMfMdFTxYMH9A5voYEQCjLy9FDEgwf0Zm+hWwrI+lIZ+lJScPpSFs4UygAS9AD0ABX0AMntVIIQBMS0AMiJzxYSExQAsBTy9MjPg1QguoMH9EMHyPpSFvpSUkD6UhPOygAW9AAT9AAWzsntVIIQBMS0AMjPkTDJSBoVy/8Vyx/6UgH6AsnIz4WIE/pSAfoCz4Fz+gJxzwtlzMlw+wAACEwyUgYASMv/E8sfFPpSWPoCycjPhYgT+lIB+gLPgXP6AnHPC2XMyXD7AAFhO2i7fvQ0z/TD/QE0QP5ACGcbCEBbpO6wwCSW3Di4ZMhwgCK6GwhAW6TusMAkltw4oBcAURQml8Jgwf0Dm+hjhnU0dDT/zHTHzH6SDH6ADHTBzHTHzHTH9Gk4DBwgAOIjbpVfBXDbMeAD0NMH0//T/9P/9ATRJJUkwgPDAJF/4pF/lVNFvMMA4pVfCXDbMeBwJcIAnTBUFzbwAQWrAAUGcQORNOIkwgGeVBcm8AEFqwACpBBWQBWRMuIDwgKcVBUk8AEDqwAEpBA0kTLiEqFQAwFFud5u1E0PpIMfpIMfpIMdOgMfQFgED0Dm+hlH8B1NHgMHCIgcAgEgGhsAK7RJfaiaH0kGP0kfSRpj+mf6Z/rhQBABTbbaHaiaH0kGP0kGP0kGOnQGPoA+gD6AsGD+gc30Mo/gOpo8Bg4REBwAAA==');
 
     static Errors = {
         'Errors.Unauthorized': 4097,
@@ -836,6 +873,8 @@ export class RollupRoot implements c.Contract {
         'Errors.AlreadyClaimed': 4105,
         'Errors.BadWithdrawalProof': 4106,
         'Errors.NoFailedWithdrawal': 4109,
+        'Errors.BadAssetConfig': 4115,
+        'Errors.AlreadyConfigured': 4116,
         'Errors.UnknownOpcode': 65535,
     }
 
@@ -879,6 +918,12 @@ export class RollupRoot implements c.Contract {
         return CommitBatch.toCell(CommitBatch.create(body));
     }
 
+    static createCellOfSetAssetVault(body: {
+        assetVault: c.Address
+    }) {
+        return SetAssetVault.toCell(SetAssetVault.create(body));
+    }
+
     static createCellOfFinalizeBatch(body: {
         batchNo: uint64
     }) {
@@ -916,6 +961,16 @@ export class RollupRoot implements c.Contract {
         return provider.internal(via, {
             value: msgValue,
             body: CommitBatch.toCell(CommitBatch.create(body)),
+            ...extraOptions
+        });
+    }
+
+    async sendSetAssetVault(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        assetVault: c.Address
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: SetAssetVault.toCell(SetAssetVault.create(body)),
             ...extraOptions
         });
     }
