@@ -41,6 +41,7 @@ TON_L2_SKILLS = {
     "Acton is the unified TON smart-contract CLI around Tolk: scaffold, build, test, script, wallet, verify, lint, format, and low-level tooling.",
     "Local first checks: acton --version, acton doctor, inspect Acton.toml, then acton build / acton test / acton check / acton fmt --check.",
     "On Windows, official Acton docs require WSL Ubuntu 22+; native Windows is unsupported.",
+    "Acton contract test getters must use names beginning with `test`; otherwise a `.test.tolk` file may compile while reporting zero executed tests.",
     "Do not broadcast mainnet scripts before build, test, local emulation, and testnet validation.",
     "Regenerate wrappers when ABI changes; do not hand-edit generated wrappers unless unavoidable."
   ],
