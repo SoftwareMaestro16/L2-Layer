@@ -450,46 +450,67 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
             .pop_batch(state.mempool_pop_batch_size)
             .await?;
         let mut sequencer = state.sequencer.write().await;
-        for tx in queued {
-            sequencer.submit_tx(tx);
+        let mut candidate = sequencer.clone();
+        for tx in queued.iter().cloned() {
+            candidate.submit_tx(tx);
         }
-        Ok::<_, ApiError>(sequencer.produce_block(timestamp))
+
+        let Some(block) = candidate.produce_block(timestamp) else {
+            return Ok(None);
+        };
+
+        tracing::info!(
+            height = block.header.height,
+            state_root = %block.header.state_root,
+            "produced l2 block"
+        );
+        let da_started = Instant::now();
+        let da_ref = match state.da.write_batch_payload(&block).await {
+            Ok(da_ref) => da_ref,
+            Err(error) => {
+                for tx in queued {
+                    sequencer.submit_tx(tx);
+                }
+                return Err(error.into());
+            }
+        };
+        state.metrics.record_da_write_latency(da_started.elapsed());
+        tracing::info!(
+            height = da_ref.block_height,
+            data_hash = %da_ref.data_hash,
+            payload_bytes = da_ref.payload_size,
+            "published l2 batch data"
+        );
+        let storage_started = Instant::now();
+        if let Err(error) = state.storage.save_block(block.clone()).await {
+            for tx in queued {
+                sequencer.submit_tx(tx);
+            }
+            return Err(error.into());
+        }
+        state
+            .metrics
+            .record_storage_save_block_latency(storage_started.elapsed());
+        *sequencer = candidate;
+        Ok(Some(block))
     }
     .await;
     let _ = state.mempool.release_leader_lock(LEADER_OWNER).await;
 
-    let Some(block) = (match result {
-        Ok(block) => block,
+    match result {
+        Ok(Some(block)) => {
+            state.metrics.record_block_produced(block.header.height);
+            Ok(Some(block))
+        }
+        Ok(None) => {
+            state.metrics.record_empty_block();
+            Ok(None)
+        }
         Err(error) => {
             state.metrics.record_block_error();
-            return Err(error);
+            Err(error)
         }
-    }) else {
-        state.metrics.record_empty_block();
-        return Ok(None);
-    };
-
-    tracing::info!(
-        height = block.header.height,
-        state_root = %block.header.state_root,
-        "produced l2 block"
-    );
-    let da_started = Instant::now();
-    let da_ref = state.da.write_batch_payload(&block).await?;
-    state.metrics.record_da_write_latency(da_started.elapsed());
-    tracing::info!(
-        height = da_ref.block_height,
-        data_hash = %da_ref.data_hash,
-        payload_bytes = da_ref.payload_size,
-        "published l2 batch data"
-    );
-    let storage_started = Instant::now();
-    state.storage.save_block(block.clone()).await?;
-    state
-        .metrics
-        .record_storage_save_block_latency(storage_started.elapsed());
-    state.metrics.record_block_produced(block.header.height);
-    Ok(Some(block))
+    }
 }
 
 fn current_unix_time() -> u64 {

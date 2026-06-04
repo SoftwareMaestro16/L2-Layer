@@ -350,6 +350,39 @@ async fn batch_da_payload_hash_lookup_rejects_invalid_or_missing_hash() {
 }
 
 #[tokio::test]
+async fn failed_da_write_does_not_commit_sequencer_state() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let deposit = deposit_event();
+    let recipient = deposit.recipient;
+    admin_deposit(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(deposit),
+    )
+    .await
+    .expect("deposit");
+    state
+        .storage
+        .save_batch_payload(crate::storage::StoredBatchPayload {
+            block_height: 0,
+            block_hash: sha256_bytes(b"old-block"),
+            data_hash: sha256_bytes(b"old-data"),
+            payload_bytes: vec![1, 2, 3],
+            public_ref: None,
+            public_uri: None,
+        })
+        .await
+        .expect("conflicting old payload");
+
+    let error = produce_block_once(&state).await.unwrap_err();
+
+    assert_eq!(error.message, "data availability error");
+    let sequencer = state.sequencer.read().await;
+    assert!(sequencer.state.account(recipient).is_none());
+    assert!(!sequencer.mempool.is_empty());
+}
+
+#[tokio::test]
 async fn submit_tx_rejects_duplicate_before_block() {
     let state = test_state(Some(ADMIN_TOKEN));
     let signing_key = SigningKey::generate(&mut OsRng);

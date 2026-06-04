@@ -93,6 +93,7 @@ TON_L2_SKILLS = {
     "Sequencer owns ordering in the MVP: ingest deposits, validate L2 txs, sort/canonicalize, execute deterministically, produce receipts and state root.",
     "Batch building should include previous state root, new state root, tx root, receipt root, withdrawal root, DA hash, and monotonic batch number.",
     "Deterministic batch building is isolated from mempool, execution, storage, Redis, network, and wall-clock reads; it consumes ordered txs, receipts, withdrawals, previous header/root, final state root, and an explicit timestamp.",
+    "A produced L2 block must be committed to the in-memory sequencer state only after DA publish and storage save succeed; failed DA/storage writes must leave deposits/txs retryable and must not expose phantom account balances.",
     "RollupRoot batch numbers are one-based while L2 block heights are zero-based; block height 0 must be committed as batchNo 1.",
     "Mempool admission must reject malformed signatures, bad nonces, insufficient balances, unsupported call types, non-canonical encodings, oversized payloads, bad gas/fee policy, per-account floods, global queue floods, and rate-limit abuse.",
     "Operator observability must split process liveness from dependency readiness; readiness responses expose safe component codes only and never include secret-bearing config.",
