@@ -1,11 +1,12 @@
 use crate::config::NodeConfig;
 use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
 use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
+use crate::finalizer::{BatchFinalizer, BatchFinalizerConfig};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
-use crate::signer::RemoteCommitBatchSigner;
+use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
 use crate::storage::DynStorage;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -31,7 +32,10 @@ mod test_support;
 
 use auth::AdminAuth;
 use error::ApiError;
-use operator::{healthz, operator_failures, operator_metrics, readyz};
+use operator::{
+    healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
+    readyz,
+};
 #[cfg(test)]
 use test_support::test_config;
 
@@ -117,6 +121,7 @@ pub async fn serve(
         state.da.clone(),
         state.metrics.clone(),
     );
+    spawn_batch_finalizer(&config, state.storage.clone(), state.metrics.clone());
 
     let app = build_router(state);
 
@@ -137,6 +142,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/mempool/metrics", get(get_mempool_metrics))
         .route("/v1/operator/metrics", get(operator_metrics))
         .route("/v1/operator/failures", get(operator_failures))
+        .route("/v1/operator/batch-relayer", get(operator_batch_relayer))
+        .route(
+            "/v1/operator/batch-finalizer",
+            get(operator_batch_finalizer),
+        )
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
@@ -359,6 +369,57 @@ fn spawn_batch_relayer(
                 Err(error) => {
                     metrics.record_relayer_error();
                     tracing::warn!(?error, "batch relayer poll failed");
+                    sleep(retry_backoff).await;
+                }
+            }
+        }
+    });
+}
+
+fn spawn_batch_finalizer(config: &NodeConfig, storage: DynStorage, metrics: Arc<NodeMetrics>) {
+    let Some(finalizer_config) = BatchFinalizerConfig::from_node_config(config) else {
+        return;
+    };
+    let Some(signer) = RemoteFinalizeBatchSigner::from_config(config) else {
+        tracing::error!("batch finalizer enabled without finalize signer config");
+        return;
+    };
+    let poll_interval = Duration::from_millis(finalizer_config.poll_interval_ms);
+    let retry_backoff = Duration::from_millis(finalizer_config.retry_backoff_ms);
+    let finalizer = BatchFinalizer::new(
+        finalizer_config,
+        storage,
+        signer,
+        ToncenterCommitProvider::from_config(config),
+    );
+    tokio::spawn(async move {
+        loop {
+            sleep(poll_interval).await;
+            match finalizer.finalize_once().await {
+                Ok(stats) => {
+                    metrics.record_finalizer_poll(
+                        stats.created_pending,
+                        stats.considered,
+                        stats.submitted,
+                        stats.finalized,
+                        stats.failed,
+                        stats.waiting,
+                        stats.skipped,
+                    );
+                    tracing::info!(
+                        created_pending = stats.created_pending,
+                        considered = stats.considered,
+                        submitted = stats.submitted,
+                        finalized = stats.finalized,
+                        failed = stats.failed,
+                        waiting = stats.waiting,
+                        skipped = stats.skipped,
+                        "batch finalizer poll completed"
+                    );
+                }
+                Err(error) => {
+                    metrics.record_finalizer_error();
+                    tracing::warn!(?error, "batch finalizer poll failed");
                     sleep(retry_backoff).await;
                 }
             }

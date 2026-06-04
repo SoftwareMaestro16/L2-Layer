@@ -25,6 +25,24 @@ async fn remote_client_accepts_valid_signer_response() {
 }
 
 #[tokio::test]
+async fn remote_finalize_client_accepts_valid_signer_response() {
+    let backend = MockBackend::new(signed("EQsequencer", unix_time() + 300, valid_boc()));
+    let endpoint = spawn_signer(backend, 16 * 1024, 10).await;
+    let signer = RemoteFinalizeBatchSigner::new(
+        format!("{endpoint}/sign-finalize"),
+        crate::config::SecretString::new("test-signer-token".to_owned()).unwrap(),
+    );
+
+    let signed = signer
+        .sign_finalize_batch(finalize_request())
+        .await
+        .expect("signed finalization");
+
+    assert_eq!(signed.signer_address, "EQsequencer");
+    assert_eq!(signed.boc_base64, valid_boc());
+}
+
+#[tokio::test]
 async fn signer_service_rejects_missing_or_wrong_bearer_token() {
     let endpoint = spawn_signer(
         MockBackend::new(signed("EQsequencer", unix_time() + 300, valid_boc())),
@@ -103,6 +121,82 @@ async fn signer_service_rejects_known_unsupported_action() {
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["error"], "unsupported_action");
+}
+
+#[tokio::test]
+async fn signer_service_accepts_finalize_only_on_finalize_route() {
+    let backend = MockBackend::new(signed("EQsequencer", unix_time() + 300, valid_boc()));
+    let requests = backend.requests.clone();
+    let endpoint = spawn_signer(backend, 16 * 1024, 10).await;
+    let request = TypedSignRequest::finalize_batch(
+        "finalize-batch-1".to_owned(),
+        unix_time() + 300,
+        finalize_request(),
+    );
+
+    let response = reqwest::Client::new()
+        .post(format!("{endpoint}/sign-finalize"))
+        .bearer_auth("test-signer-token")
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SignedExternalMessage = response.json().await.unwrap();
+    assert_eq!(body.action, SignerAction::FinalizeBatch);
+    assert_eq!(requests.lock().await.len(), 1);
+}
+
+#[tokio::test]
+async fn signer_service_rejects_commit_on_finalize_route() {
+    let endpoint = spawn_signer(
+        MockBackend::new(signed("EQsequencer", unix_time() + 300, valid_boc())),
+        16 * 1024,
+        10,
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{endpoint}/sign-finalize"))
+        .bearer_auth("test-signer-token")
+        .json(&typed_request())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn signer_service_rejects_disallowed_rollup_root() {
+    let endpoint = spawn_signer_with_root(
+        MockBackend::new(signed("EQsequencer", unix_time() + 300, valid_boc())),
+        16 * 1024,
+        10,
+        Some("EQallowed".to_owned()),
+    )
+    .await;
+    let mut request = TypedSignRequest::finalize_batch(
+        "finalize-batch-1".to_owned(),
+        unix_time() + 300,
+        finalize_request(),
+    );
+    if let TypedSignAction::FinalizeBatch(payload) = &mut request.action {
+        payload.rollup_root_address = "EQother".to_owned();
+    }
+
+    let response = reqwest::Client::new()
+        .post(format!("{endpoint}/sign-finalize"))
+        .bearer_auth("test-signer-token")
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["error"], "rollup_root_mismatch");
 }
 
 #[tokio::test]
@@ -205,6 +299,7 @@ fn signer_service_config_debug_redacts_token() {
     let config = SignerServiceConfig {
         token: crate::config::SecretString::new("very-secret-signer-token".to_owned()).unwrap(),
         signer_address: "EQsequencer".to_owned(),
+        allowed_rollup_root_address: Some("EQroot".to_owned()),
         role: SignerRole::Sequencer,
         max_body_bytes: 16 * 1024,
         rate_limit_per_minute: 60,
@@ -243,10 +338,20 @@ impl TypedSignerBackend for MockBackend {
 }
 
 async fn spawn_signer(backend: MockBackend, max_body_bytes: usize, rate_limit: u32) -> String {
+    spawn_signer_with_root(backend, max_body_bytes, rate_limit, None).await
+}
+
+async fn spawn_signer_with_root(
+    backend: MockBackend,
+    max_body_bytes: usize,
+    rate_limit: u32,
+    allowed_rollup_root_address: Option<String>,
+) -> String {
     let router = build_signer_router(
         SignerServiceConfig {
             token: crate::config::SecretString::new("test-signer-token".to_owned()).unwrap(),
             signer_address: "EQsequencer".to_owned(),
+            allowed_rollup_root_address,
             role: SignerRole::Sequencer,
             max_body_bytes,
             rate_limit_per_minute: rate_limit,
@@ -289,6 +394,15 @@ fn commit_request() -> CommitBatchSignRequest {
                 data_hash: Hash32::new([6; 32]),
             },
         },
+    }
+}
+
+fn finalize_request() -> FinalizeBatchSignRequest {
+    FinalizeBatchSignRequest {
+        rollup_root_address: "EQroot".to_owned(),
+        sender_address: "EQsequencer".to_owned(),
+        batch_no: 1,
+        msg_value_nanoton: 100_000_000,
     }
 }
 

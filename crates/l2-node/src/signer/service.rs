@@ -13,14 +13,13 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use super::backend::{SignerBackendError, TypedSignerBackend};
-use super::types::{
-    unix_time, SignedExternalMessage, SignerRole, TypedSignAction, TypedSignRequest,
-};
+use super::types::{unix_time, SignedExternalMessage, SignerAction, SignerRole, TypedSignRequest};
 
 #[derive(Clone, Debug)]
 pub struct SignerServiceConfig {
     pub token: SecretString,
     pub signer_address: String,
+    pub allowed_rollup_root_address: Option<String>,
     pub role: SignerRole,
     pub max_body_bytes: usize,
     pub rate_limit_per_minute: u32,
@@ -30,6 +29,13 @@ impl SignerServiceConfig {
     pub fn validate(&self) -> Result<(), SignerConfigError> {
         if self.signer_address.trim().is_empty() {
             return Err(SignerConfigError::MissingSignerAddress);
+        }
+        if self
+            .allowed_rollup_root_address
+            .as_deref()
+            .is_some_and(|address| address.trim().is_empty())
+        {
+            return Err(SignerConfigError::MissingRollupRootAddress);
         }
         if self.max_body_bytes == 0 {
             return Err(SignerConfigError::InvalidBodyLimit);
@@ -63,6 +69,7 @@ where
     Router::new()
         .route("/sign", post(sign_typed::<B>))
         .route("/sign-commit", post(sign_typed::<B>))
+        .route("/sign-finalize", post(sign_finalize_typed::<B>))
         .layer(DefaultBodyLimit::max(max_body_bytes))
         .with_state(state)
 }
@@ -71,6 +78,29 @@ async fn sign_typed<B>(
     State(state): State<SignerServiceState<B>>,
     headers: HeaderMap,
     Json(request): Json<TypedSignRequest>,
+) -> Result<Json<SignedExternalMessage>, SignerHttpError>
+where
+    B: TypedSignerBackend + 'static,
+{
+    sign_allowed(state, headers, request, SignerAction::CommitBatch).await
+}
+
+async fn sign_finalize_typed<B>(
+    State(state): State<SignerServiceState<B>>,
+    headers: HeaderMap,
+    Json(request): Json<TypedSignRequest>,
+) -> Result<Json<SignedExternalMessage>, SignerHttpError>
+where
+    B: TypedSignerBackend + 'static,
+{
+    sign_allowed(state, headers, request, SignerAction::FinalizeBatch).await
+}
+
+async fn sign_allowed<B>(
+    state: SignerServiceState<B>,
+    headers: HeaderMap,
+    request: TypedSignRequest,
+    allowed_action: SignerAction,
 ) -> Result<Json<SignedExternalMessage>, SignerHttpError>
 where
     B: TypedSignerBackend + 'static,
@@ -84,9 +114,10 @@ where
     if request.role != state.config.role {
         return Err(SignerHttpError::Forbidden("signer_role_mismatch"));
     }
-    if !matches!(request.action, TypedSignAction::CommitBatch(_)) {
+    if request.action.action() != allowed_action {
         return Err(SignerHttpError::UnsupportedAction);
     }
+    validate_allowed_rollup_root(&state.config, &request.action)?;
 
     let request_id = request.request_id.clone();
     let action = request.action.action();
@@ -110,6 +141,8 @@ where
 pub enum SignerConfigError {
     #[error("missing signer address")]
     MissingSignerAddress,
+    #[error("missing rollup root address")]
+    MissingRollupRootAddress,
     #[error("invalid signer body limit")]
     InvalidBodyLimit,
     #[error("invalid signer rate limit")]
@@ -161,6 +194,35 @@ impl From<super::types::SignerValidationError> for SignerHttpError {
 impl From<SignerBackendError> for SignerHttpError {
     fn from(error: SignerBackendError) -> Self {
         Self::Backend(error.safe_code())
+    }
+}
+
+fn validate_allowed_rollup_root(
+    config: &SignerServiceConfig,
+    action: &super::types::TypedSignAction,
+) -> Result<(), SignerHttpError> {
+    let Some(expected) = config.allowed_rollup_root_address.as_deref() else {
+        return Ok(());
+    };
+    let actual = match action {
+        super::types::TypedSignAction::CommitBatch(request) => {
+            Some(request.rollup_root_address.as_str())
+        }
+        super::types::TypedSignAction::FinalizeBatch(request) => {
+            Some(request.rollup_root_address.as_str())
+        }
+        super::types::TypedSignAction::ClaimWithdrawal(request)
+        | super::types::TypedSignAction::RetryWithdrawal(request)
+        | super::types::TypedSignAction::RetryRelease(request) => {
+            Some(request.rollup_root_address.as_str())
+        }
+        super::types::TypedSignAction::DeployRollupRoot(_)
+        | super::types::TypedSignAction::DeployAssetVault(_) => None,
+    };
+    if actual.is_some_and(|actual| actual == expected) || actual.is_none() {
+        Ok(())
+    } else {
+        Err(SignerHttpError::Forbidden("rollup_root_mismatch"))
     }
 }
 

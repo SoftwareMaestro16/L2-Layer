@@ -58,6 +58,7 @@ fn valid_entropis_testnet_config_loads() {
     assert!(config.dev_admin_deposits_enabled);
     assert!(!config.l1_deposit_indexer_enabled);
     assert!(!config.l1_batch_relayer_enabled);
+    assert!(!config.l1_batch_finalizer_enabled);
     assert_eq!(config.l1_deposit_asset_ids, vec![1]);
     assert_eq!(config.mempool_replay_ttl_secs, 86_400);
     assert_eq!(config.mempool_nonce_lock_ttl_secs, 300);
@@ -186,6 +187,43 @@ fn config_validates_l1_batch_relayer_settings() {
 }
 
 #[test]
+fn config_validates_l1_batch_finalizer_settings() {
+    let mut env = valid_env();
+    env.insert("L1_BATCH_FINALIZER_ENABLED".to_owned(), "true".to_owned());
+    assert!(load_from(&env).is_err());
+
+    env.insert("L1_ROLLUP_ROOT_ADDRESS".to_owned(), "EQroot".to_owned());
+    env.insert(
+        "L1_SEQUENCER_SENDER_ADDRESS".to_owned(),
+        "EQsequencer".to_owned(),
+    );
+    env.insert(
+        "L1_FINALIZE_SIGNER_ENDPOINT".to_owned(),
+        "not-a-url".to_owned(),
+    );
+    env.insert(
+        "L1_FINALIZE_SIGNER_TOKEN".to_owned(),
+        "test-finalize-signer-token".to_owned(),
+    );
+    assert!(load_from(&env).is_err());
+
+    env.insert(
+        "L1_FINALIZE_SIGNER_ENDPOINT".to_owned(),
+        "http://127.0.0.1:8800/sign-finalize".to_owned(),
+    );
+    env.insert("L1_BATCH_FINALIZER_MAX_ATTEMPTS".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    env.insert("L1_BATCH_FINALIZER_MAX_ATTEMPTS".to_owned(), "8".to_owned());
+    let config = load_from(&env).expect("finalizer config");
+    assert!(config.l1_batch_finalizer_enabled);
+    assert_eq!(
+        config.l1_finalize_signer_endpoint.as_deref(),
+        Some("http://127.0.0.1:8800/sign-finalize")
+    );
+}
+
+#[test]
 fn config_validates_da_limits() {
     let mut env = valid_env();
     env.insert("DA_MAX_PAYLOAD_BYTES".to_owned(), "4096".to_owned());
@@ -302,4 +340,23 @@ fn debug_output_redacts_secrets() {
     let config = load_from(&env).expect("relayer config");
     let debug = format!("{config:?}");
     assert!(!debug.contains(env.get("L1_COMMIT_SIGNER_TOKEN").unwrap()));
+
+    let mut env = valid_env();
+    env.insert("L1_BATCH_FINALIZER_ENABLED".to_owned(), "true".to_owned());
+    env.insert("L1_ROLLUP_ROOT_ADDRESS".to_owned(), "EQroot".to_owned());
+    env.insert(
+        "L1_SEQUENCER_SENDER_ADDRESS".to_owned(),
+        "EQsequencer".to_owned(),
+    );
+    env.insert(
+        "L1_FINALIZE_SIGNER_ENDPOINT".to_owned(),
+        "http://127.0.0.1:8800/sign-finalize".to_owned(),
+    );
+    env.insert(
+        "L1_FINALIZE_SIGNER_TOKEN".to_owned(),
+        "test-finalize-signer-token".to_owned(),
+    );
+    let config = load_from(&env).expect("finalizer config");
+    let debug = format!("{config:?}");
+    assert!(!debug.contains(env.get("L1_FINALIZE_SIGNER_TOKEN").unwrap()));
 }

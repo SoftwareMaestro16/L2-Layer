@@ -47,6 +47,7 @@ impl NodeConfig {
         }
         self.validate_l1_indexer()?;
         self.validate_l1_relayer()?;
+        self.validate_l1_finalizer()?;
         self.validate_da()?;
         self.validate_mempool()?;
         self.executor_gas_schedule
@@ -128,6 +129,55 @@ impl NodeConfig {
         if self.l1_batch_relayer_max_attempts == 0 || self.l1_batch_relayer_max_attempts > 100 {
             return Err(anyhow!(
                 "L1_BATCH_RELAYER_MAX_ATTEMPTS must be between 1 and 100"
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_l1_finalizer(&self) -> anyhow::Result<()> {
+        if self.l1_batch_finalizer_enabled {
+            if self.l1_rollup_root_address.is_none() {
+                return Err(anyhow!(
+                    "L1_ROLLUP_ROOT_ADDRESS is required when L1_BATCH_FINALIZER_ENABLED=true"
+                ));
+            }
+            if self.l1_sequencer_sender_address.is_none() {
+                return Err(anyhow!(
+                    "L1_SEQUENCER_SENDER_ADDRESS is required when L1_BATCH_FINALIZER_ENABLED=true"
+                ));
+            }
+            if self.l1_finalize_signer_endpoint.is_none() {
+                return Err(anyhow!(
+                    "L1_FINALIZE_SIGNER_ENDPOINT is required when L1_BATCH_FINALIZER_ENABLED=true"
+                ));
+            }
+            if self.l1_finalize_signer_token.is_none() {
+                return Err(anyhow!(
+                    "L1_FINALIZE_SIGNER_TOKEN is required when L1_BATCH_FINALIZER_ENABLED=true"
+                ));
+            }
+        }
+        if let Some(endpoint) = self.l1_finalize_signer_endpoint.as_deref() {
+            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+                return Err(anyhow!("L1_FINALIZE_SIGNER_ENDPOINT must be an HTTP URL"));
+            }
+        }
+        if self.l1_finalize_msg_value_nanoton == 0 {
+            return Err(anyhow!("L1_FINALIZE_MSG_VALUE_NANOTON must be non-zero"));
+        }
+        if self.l1_batch_finalizer_poll_interval_ms == 0 {
+            return Err(anyhow!(
+                "L1_BATCH_FINALIZER_POLL_INTERVAL_MS must be non-zero"
+            ));
+        }
+        if self.l1_batch_finalizer_retry_backoff_ms == 0 {
+            return Err(anyhow!(
+                "L1_BATCH_FINALIZER_RETRY_BACKOFF_MS must be non-zero"
+            ));
+        }
+        if self.l1_batch_finalizer_max_attempts == 0 || self.l1_batch_finalizer_max_attempts > 100 {
+            return Err(anyhow!(
+                "L1_BATCH_FINALIZER_MAX_ATTEMPTS must be between 1 and 100"
             ));
         }
         Ok(())

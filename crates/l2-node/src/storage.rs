@@ -9,6 +9,8 @@ use tokio::sync::RwLock;
 use crate::config::NodeConfig;
 
 mod postgres;
+mod postgres_finalization;
+mod postgres_util;
 
 pub use postgres::PostgresStorage;
 
@@ -67,6 +69,48 @@ pub struct BatchCommitRecord {
     pub last_error: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchFinalizationStatus {
+    Pending,
+    Submitted,
+    Finalized,
+    Failed,
+}
+
+impl BatchFinalizationStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Submitted => "submitted",
+            Self::Finalized => "finalized",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "submitted" => Some(Self::Submitted),
+            "finalized" => Some(Self::Finalized),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BatchFinalizationRecord {
+    pub batch_no: u64,
+    pub block_height: u64,
+    pub status: BatchFinalizationStatus,
+    pub attempts: u32,
+    pub finalize_after_unix: u64,
+    pub message_hash: Option<Hash32>,
+    pub message_hash_norm: Option<Hash32>,
+    pub last_error: Option<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoredBatchPayload {
     pub block_height: u64,
@@ -87,6 +131,21 @@ impl BatchCommitRecord {
             message_hash_norm: None,
             last_error: None,
         })
+    }
+}
+
+impl BatchFinalizationRecord {
+    pub fn pending(commit: &BatchCommitRecord, finalize_after_unix: u64) -> Self {
+        Self {
+            batch_no: commit.batch_no,
+            block_height: commit.block_height,
+            status: BatchFinalizationStatus::Pending,
+            attempts: 0,
+            finalize_after_unix,
+            message_hash: None,
+            message_hash_norm: None,
+            last_error: None,
+        }
     }
 }
 
@@ -139,7 +198,29 @@ pub trait Storage: Send + Sync {
         max_attempts: u32,
         limit: u32,
     ) -> Result<Vec<BatchCommitRecord>, StorageError>;
+    async fn latest_batch_commit(
+        &self,
+        statuses: &[BatchCommitStatus],
+    ) -> Result<Option<BatchCommitRecord>, StorageError>;
     async fn save_batch_commit(&self, record: BatchCommitRecord) -> Result<(), StorageError>;
+    async fn get_batch_finalization(
+        &self,
+        batch_no: u64,
+    ) -> Result<Option<BatchFinalizationRecord>, StorageError>;
+    async fn list_batch_finalizations(
+        &self,
+        statuses: &[BatchFinalizationStatus],
+        max_attempts: u32,
+        limit: u32,
+    ) -> Result<Vec<BatchFinalizationRecord>, StorageError>;
+    async fn latest_batch_finalization(
+        &self,
+        statuses: &[BatchFinalizationStatus],
+    ) -> Result<Option<BatchFinalizationRecord>, StorageError>;
+    async fn save_batch_finalization(
+        &self,
+        record: BatchFinalizationRecord,
+    ) -> Result<(), StorageError>;
     async fn save_batch_payload(&self, payload: StoredBatchPayload) -> Result<bool, StorageError>;
     async fn get_batch_payload(
         &self,
@@ -158,6 +239,7 @@ pub async fn build_storage(config: &NodeConfig) -> Result<DynStorage, StorageErr
 pub struct InMemoryStorage {
     blocks: RwLock<Vec<L2Block>>,
     batch_commits: RwLock<BTreeMap<u64, BatchCommitRecord>>,
+    batch_finalizations: RwLock<BTreeMap<u64, BatchFinalizationRecord>>,
     batch_payloads: RwLock<BTreeMap<u64, StoredBatchPayload>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
     deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
@@ -292,8 +374,78 @@ impl Storage for InMemoryStorage {
             .collect())
     }
 
+    async fn latest_batch_commit(
+        &self,
+        statuses: &[BatchCommitStatus],
+    ) -> Result<Option<BatchCommitRecord>, StorageError> {
+        Ok(self
+            .batch_commits
+            .read()
+            .await
+            .values()
+            .filter(|record| statuses.is_empty() || statuses.contains(&record.status))
+            .max_by_key(|record| record.batch_no)
+            .cloned())
+    }
+
     async fn save_batch_commit(&self, record: BatchCommitRecord) -> Result<(), StorageError> {
         self.batch_commits
+            .write()
+            .await
+            .insert(record.batch_no, record);
+        Ok(())
+    }
+
+    async fn get_batch_finalization(
+        &self,
+        batch_no: u64,
+    ) -> Result<Option<BatchFinalizationRecord>, StorageError> {
+        Ok(self
+            .batch_finalizations
+            .read()
+            .await
+            .get(&batch_no)
+            .cloned())
+    }
+
+    async fn list_batch_finalizations(
+        &self,
+        statuses: &[BatchFinalizationStatus],
+        max_attempts: u32,
+        limit: u32,
+    ) -> Result<Vec<BatchFinalizationRecord>, StorageError> {
+        let limit = limit as usize;
+        Ok(self
+            .batch_finalizations
+            .read()
+            .await
+            .values()
+            .filter(|record| statuses.contains(&record.status))
+            .filter(|record| record.attempts < max_attempts)
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+
+    async fn latest_batch_finalization(
+        &self,
+        statuses: &[BatchFinalizationStatus],
+    ) -> Result<Option<BatchFinalizationRecord>, StorageError> {
+        Ok(self
+            .batch_finalizations
+            .read()
+            .await
+            .values()
+            .filter(|record| statuses.is_empty() || statuses.contains(&record.status))
+            .max_by_key(|record| record.batch_no)
+            .cloned())
+    }
+
+    async fn save_batch_finalization(
+        &self,
+        record: BatchFinalizationRecord,
+    ) -> Result<(), StorageError> {
+        self.batch_finalizations
             .write()
             .await
             .insert(record.batch_no, record);

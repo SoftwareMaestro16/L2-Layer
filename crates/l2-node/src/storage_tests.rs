@@ -151,6 +151,113 @@ async fn memory_storage_lists_and_updates_batch_commit_status() {
 }
 
 #[tokio::test]
+async fn memory_storage_reads_latest_batch_commit_by_status() {
+    let storage = InMemoryStorage::default();
+    storage
+        .save_block(L2Block::new(
+            0,
+            Hash32::ZERO,
+            Hash32::ZERO,
+            sha256_bytes(b"state-0"),
+            vec![],
+            vec![],
+            vec![],
+            sha256_bytes(b"data-0"),
+            100,
+        ))
+        .await
+        .unwrap();
+    storage
+        .save_block(L2Block::new(
+            1,
+            Hash32::ZERO,
+            sha256_bytes(b"state-0"),
+            sha256_bytes(b"state-1"),
+            vec![],
+            vec![],
+            vec![],
+            sha256_bytes(b"data-1"),
+            101,
+        ))
+        .await
+        .unwrap();
+
+    let mut second = storage.get_batch_commit(2).await.unwrap().unwrap();
+    second.status = BatchCommitStatus::Confirmed;
+    storage.save_batch_commit(second.clone()).await.unwrap();
+
+    assert_eq!(
+        storage.latest_batch_commit(&[]).await.unwrap().unwrap(),
+        second
+    );
+    assert_eq!(
+        storage
+            .latest_batch_commit(&[BatchCommitStatus::Confirmed])
+            .await
+            .unwrap()
+            .unwrap(),
+        second
+    );
+    assert!(storage
+        .latest_batch_commit(&[BatchCommitStatus::Failed])
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[tokio::test]
+async fn memory_storage_lists_and_reads_batch_finalizations() {
+    let storage = InMemoryStorage::default();
+    storage
+        .save_block(L2Block::new(
+            0,
+            Hash32::ZERO,
+            Hash32::ZERO,
+            sha256_bytes(b"state"),
+            vec![],
+            vec![],
+            vec![],
+            sha256_bytes(b"data"),
+            100,
+        ))
+        .await
+        .unwrap();
+    let commit = storage.get_batch_commit(1).await.unwrap().unwrap();
+    let mut record = BatchFinalizationRecord::pending(&commit, 123);
+    storage
+        .save_batch_finalization(record.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        storage.get_batch_finalization(1).await.unwrap(),
+        Some(record.clone())
+    );
+    assert_eq!(
+        storage
+            .list_batch_finalizations(&[BatchFinalizationStatus::Pending], 1, 10)
+            .await
+            .unwrap(),
+        vec![record.clone()]
+    );
+
+    record.status = BatchFinalizationStatus::Finalized;
+    record.message_hash_norm = Some(sha256_bytes(b"finalize"));
+    storage
+        .save_batch_finalization(record.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        storage
+            .latest_batch_finalization(&[BatchFinalizationStatus::Finalized])
+            .await
+            .unwrap(),
+        Some(record)
+    );
+}
+
+#[tokio::test]
 async fn memory_storage_cursor_roundtrip() {
     let storage = InMemoryStorage::default();
     let cursor = L1Cursor {

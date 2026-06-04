@@ -103,9 +103,10 @@ TON_L2_SKILLS = {
     "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
+    "The L1 batch finalizer persists a separate pending/submitted/finalized/failed queue; it creates finalization work only after local commit confirmation and waits local confirmation time + challengeWindowSec before signing.",
     "Relayer/operator visibility should expose failed batch records with safe static reason codes and no raw provider payloads or signer secrets.",
-    "The node should not hold raw TON wallet credentials for relaying; use a separate typed signer service and verify returned signer address, expiry, and BoC shape before broadcasting.",
-    "Signer service actions are allowlisted typed actions: MVP supports commit_batch and reserves deploy/finalize/claim/retry schemas without exposing raw-payload signing.",
+    "The node should not hold raw TON wallet credentials for relaying/finalization; use a separate typed signer service and verify returned signer address, expiry, and BoC shape before broadcasting.",
+    "Signer service actions are allowlisted typed actions: MVP supports commit_batch on `/sign-commit` and finalize_batch on `/sign-finalize`; configure L2_SIGNER_ROLLUP_ROOT_ADDRESS so a token cannot sign for an unexpected RollupRoot.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
     "The committed withdrawalRoot is the Merkle root of ReleaseAuthorized cell representation hashes; withdrawal tree node hashes are representation hashes of a compact cell containing left uint256 then right uint256.",
     "Root-to-vault release bounces are stored in RollupRoot.failedWithdrawals without deleting claimedWithdrawals; RetryWithdrawal is permissionless and resends only stored release fields.",
@@ -119,7 +120,7 @@ TON_L2_SKILLS = {
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
     "Acton wallet metadata such as wallets.toml/global.wallets.toml and signer commands are local-only; prefer keyring or mnemonic-env and never commit mnemonic material.",
-    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
+    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit relay state, L1 batch finalization state, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",

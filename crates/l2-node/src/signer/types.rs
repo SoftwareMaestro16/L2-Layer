@@ -177,6 +177,19 @@ impl TypedSignRequest {
         }
     }
 
+    pub fn finalize_batch(
+        request_id: String,
+        valid_until: u64,
+        payload: FinalizeBatchSignRequest,
+    ) -> Self {
+        Self {
+            request_id,
+            role: SignerRole::Sequencer,
+            valid_until,
+            action: TypedSignAction::FinalizeBatch(payload),
+        }
+    }
+
     pub fn validate(&self, now: u64) -> Result<(), SignerValidationError> {
         if self.request_id.trim().is_empty() || self.request_id.len() > 128 {
             return Err(SignerValidationError::BadRequestId);
@@ -186,6 +199,7 @@ impl TypedSignRequest {
         }
         match &self.action {
             TypedSignAction::CommitBatch(request) => validate_commit_request(request),
+            TypedSignAction::FinalizeBatch(request) => validate_finalize_request(request),
             _ => Ok(()),
         }
     }
@@ -197,6 +211,8 @@ pub struct SignedCommitBatch {
     pub signer_address: String,
     pub valid_until: u64,
 }
+
+pub type SignedFinalizeBatch = SignedCommitBatch;
 
 impl SignedCommitBatch {
     pub fn validate(&self, now: u64, max_boc_bytes: usize) -> Result<(), SignerValidationError> {
@@ -240,6 +256,27 @@ impl SignedExternalMessage {
         signed.validate(now, max_boc_bytes)?;
         Ok(signed)
     }
+
+    pub fn into_finalize_batch(
+        self,
+        expected_request_id: &str,
+        now: u64,
+        max_boc_bytes: usize,
+    ) -> Result<SignedFinalizeBatch, SignerValidationError> {
+        if self.request_id != expected_request_id {
+            return Err(SignerValidationError::RequestIdMismatch);
+        }
+        if self.action != SignerAction::FinalizeBatch {
+            return Err(SignerValidationError::ActionMismatch);
+        }
+        let signed = SignedFinalizeBatch {
+            boc_base64: self.boc_base64,
+            signer_address: self.signer_address,
+            valid_until: self.valid_until,
+        };
+        signed.validate(now, max_boc_bytes)?;
+        Ok(signed)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -264,6 +301,8 @@ pub enum SignerValidationError {
     ActionMismatch,
     #[error("invalid_commit_request")]
     InvalidCommitRequest,
+    #[error("invalid_finalize_request")]
+    InvalidFinalizeRequest,
 }
 
 impl SignerValidationError {
@@ -279,6 +318,7 @@ impl SignerValidationError {
             Self::RequestIdMismatch => "request_id_mismatch",
             Self::ActionMismatch => "action_mismatch",
             Self::InvalidCommitRequest => "invalid_commit_request",
+            Self::InvalidFinalizeRequest => "invalid_finalize_request",
         }
     }
 }
@@ -289,6 +329,10 @@ pub fn commit_request_id(request: &CommitBatchSignRequest) -> String {
         request.commitment.batch_no,
         request.commitment.block_hash.to_hex()
     )
+}
+
+pub fn finalize_request_id(request: &FinalizeBatchSignRequest) -> String {
+    format!("finalize-batch-{}", request.batch_no)
 }
 
 pub fn unix_time() -> u64 {
@@ -305,6 +349,19 @@ fn validate_commit_request(request: &CommitBatchSignRequest) -> Result<(), Signe
         || request.commitment.batch_no == 0
     {
         return Err(SignerValidationError::InvalidCommitRequest);
+    }
+    Ok(())
+}
+
+fn validate_finalize_request(
+    request: &FinalizeBatchSignRequest,
+) -> Result<(), SignerValidationError> {
+    if request.rollup_root_address.trim().is_empty()
+        || request.sender_address.trim().is_empty()
+        || request.msg_value_nanoton == 0
+        || request.batch_no == 0
+    {
+        return Err(SignerValidationError::InvalidFinalizeRequest);
     }
     Ok(())
 }

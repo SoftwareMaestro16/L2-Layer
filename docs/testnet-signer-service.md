@@ -7,9 +7,10 @@ mnemonics, private keys, plaintext wallet files, or raw Acton wallet exports.
 
 - `deployer_admin`: deploys `RollupRoot`, `AssetVault`, and future deployment
   scripts.
-- `sequencer`: signs `CommitBatch` messages for the batch relayer.
+- `sequencer`: signs `CommitBatch` and `FinalizeBatch` messages for the
+  relayer/finalizer.
 - `vault_admin`: registers assets and performs vault-admin operations.
-- `operator`: reserved for future finalization, retry, and emergency runbooks.
+- `operator`: reserved for future claim/retry and emergency runbooks.
 
 Use separate wallets for deployment/admin and sequencer relaying. A compromised
 batch signer must not be able to rotate vault assets or redeploy contracts.
@@ -41,8 +42,8 @@ Do not paste its output into docs, logs, CI variables, or GitHub issues.
 The signer exposes typed endpoints:
 
 - `POST /sign-commit`: MVP commit signer path.
-- `POST /sign`: generic typed path for future deploy/finalize/claim/retry
-  actions.
+- `POST /sign-finalize`: MVP finalization signer path.
+- `POST /sign`: commit-compatible typed path kept for local dry-run clients.
 
 All requests require:
 
@@ -93,12 +94,34 @@ Response shape:
 }
 ```
 
+Finalize request shape:
+
+```json
+{
+  "request_id": "finalize-batch-1",
+  "role": "sequencer",
+  "valid_until": 1790000000,
+  "action": "finalize_batch",
+  "payload": {
+    "rollup_root_address": "<RollupRoot address>",
+    "sender_address": "<sequencer wallet address>",
+    "batch_no": 1,
+    "msg_value_nanoton": 100000000
+  }
+}
+```
+
+`POST /sign-finalize` rejects any action other than `finalize_batch`.
+`POST /sign-commit` and `POST /sign` reject `finalize_batch`.
+
 The node rejects signer responses before Toncenter broadcast when:
 
 - `signer_address` differs from `L1_SEQUENCER_SENDER_ADDRESS`.
 - `valid_until` is expired.
 - `boc_base64` is empty, malformed, or oversized.
 - the response request id or action does not match the request.
+- the request `rollup_root_address` differs from
+  `L2_SIGNER_ROLLUP_ROOT_ADDRESS` when that allowlist is configured.
 
 ## Running The Service
 
@@ -120,6 +143,7 @@ Environment:
 L2_SIGNER_ADDR=127.0.0.1:8800
 L2_SIGNER_TOKEN=<local bearer token>
 L2_SIGNER_ADDRESS=<sequencer wallet address>
+L2_SIGNER_ROLLUP_ROOT_ADDRESS=<RollupRoot address>
 L2_SIGNER_ROLE=sequencer
 L2_SIGNER_COMMAND=<local signer command path>
 L2_SIGNER_COMMAND_TIMEOUT_MS=5000
@@ -140,16 +164,19 @@ receives; do not implement a raw-payload signing mode.
 ## Dry Run Without Broadcast
 
 For a no-broadcast test, run `l2-signer` against a local signer command and post a
-single `commit_batch` request to `http://127.0.0.1:8800/sign-commit`. Confirm the
-response has the expected `signer_address`, a future `valid_until`, and a BoC
-that passes local validation. Do not send the returned BoC to Toncenter until the
-testnet deploy addresses and signer command have been reviewed.
+single `commit_batch` request to `http://127.0.0.1:8800/sign-commit`, then a
+`finalize_batch` request to `http://127.0.0.1:8800/sign-finalize` for an already
+committed batch. Confirm the response has the expected `signer_address`, a future
+`valid_until`, and a BoC that passes local validation. Do not send the returned
+BoC to Toncenter until the testnet deploy addresses and signer command have been
+reviewed.
 
 ## Safe Error Codes
 
 The service returns static error codes such as `unauthorized`, `rate_limited`,
 `unsupported_action`, `expired_request`, `signer_role_mismatch`,
-`signer_address_mismatch`, `malformed_boc`, and `signer_backend_timeout`.
+`rollup_root_mismatch`, `signer_address_mismatch`, `malformed_boc`, and
+`signer_backend_timeout`.
 
 Logs and persistent node state must never include bearer tokens, mnemonics,
 wallet exports, raw provider responses, or raw signed BoCs.

@@ -4,8 +4,12 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::Row;
 
 use super::{
-    BatchCommitRecord, BatchCommitStatus, L1Cursor, Storage, StorageError, StoredBatchPayload,
-    StoredTransaction,
+    BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
+    L1Cursor, Storage, StorageError, StoredBatchPayload, StoredTransaction,
+};
+use crate::storage::postgres_finalization;
+use crate::storage::postgres_util::{
+    batch_commit_record_from_row, checked_i32, checked_i64, parse_hash,
 };
 
 #[derive(Clone, Debug)]
@@ -329,6 +333,45 @@ impl Storage for PostgresStorage {
         rows.iter().map(batch_commit_record_from_row).collect()
     }
 
+    async fn latest_batch_commit(
+        &self,
+        statuses: &[BatchCommitStatus],
+    ) -> Result<Option<BatchCommitRecord>, StorageError> {
+        let statuses = statuses
+            .iter()
+            .map(|status| status.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let row = if statuses.is_empty() {
+            sqlx::query(
+                r#"
+                SELECT batch_no, block_height, block_hash, status, attempts,
+                       message_hash, message_hash_norm, last_error
+                FROM l1_batch_commits
+                ORDER BY batch_no DESC
+                LIMIT 1
+                "#,
+            )
+            .fetch_optional(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                r#"
+                SELECT batch_no, block_height, block_hash, status, attempts,
+                       message_hash, message_hash_norm, last_error
+                FROM l1_batch_commits
+                WHERE status = ANY($1)
+                ORDER BY batch_no DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(statuses)
+            .fetch_optional(&self.pool)
+            .await?
+        };
+
+        row.as_ref().map(batch_commit_record_from_row).transpose()
+    }
+
     async fn save_batch_commit(&self, record: BatchCommitRecord) -> Result<(), StorageError> {
         sqlx::query(
             r#"
@@ -365,6 +408,37 @@ impl Storage for PostgresStorage {
         .await?;
 
         Ok(())
+    }
+
+    async fn get_batch_finalization(
+        &self,
+        batch_no: u64,
+    ) -> Result<Option<BatchFinalizationRecord>, StorageError> {
+        postgres_finalization::get_batch_finalization(&self.pool, batch_no).await
+    }
+
+    async fn list_batch_finalizations(
+        &self,
+        statuses: &[BatchFinalizationStatus],
+        max_attempts: u32,
+        limit: u32,
+    ) -> Result<Vec<BatchFinalizationRecord>, StorageError> {
+        postgres_finalization::list_batch_finalizations(&self.pool, statuses, max_attempts, limit)
+            .await
+    }
+
+    async fn latest_batch_finalization(
+        &self,
+        statuses: &[BatchFinalizationStatus],
+    ) -> Result<Option<BatchFinalizationRecord>, StorageError> {
+        postgres_finalization::latest_batch_finalization(&self.pool, statuses).await
+    }
+
+    async fn save_batch_finalization(
+        &self,
+        record: BatchFinalizationRecord,
+    ) -> Result<(), StorageError> {
+        postgres_finalization::save_batch_finalization(&self.pool, record).await
     }
 
     async fn save_batch_payload(&self, payload: StoredBatchPayload) -> Result<bool, StorageError> {
@@ -436,50 +510,4 @@ impl Storage for PostgresStorage {
             payload_bytes,
         }))
     }
-}
-
-fn checked_i64(value: u64, field: &'static str) -> Result<i64, StorageError> {
-    i64::try_from(value).map_err(|_| StorageError::BigIntOverflow { field, value })
-}
-
-fn checked_i32(value: usize, field: &'static str) -> Result<i32, StorageError> {
-    i32::try_from(value).map_err(|_| StorageError::BigIntOverflow {
-        field,
-        value: value as u64,
-    })
-}
-
-fn batch_commit_record_from_row(
-    row: &sqlx::postgres::PgRow,
-) -> Result<BatchCommitRecord, StorageError> {
-    let batch_no: i64 = row.try_get("batch_no")?;
-    let block_height: i64 = row.try_get("block_height")?;
-    let block_hash: String = row.try_get("block_hash")?;
-    let status: String = row.try_get("status")?;
-    let attempts: i32 = row.try_get("attempts")?;
-    let message_hash: Option<String> = row.try_get("message_hash")?;
-    let message_hash_norm: Option<String> = row.try_get("message_hash_norm")?;
-    let last_error: Option<String> = row.try_get("last_error")?;
-
-    Ok(BatchCommitRecord {
-        batch_no: batch_no as u64,
-        block_height: block_height as u64,
-        block_hash: parse_hash("l1_batch_commits.block_hash", block_hash)?,
-        status: BatchCommitStatus::parse(&status).ok_or(StorageError::InvalidStatus {
-            field: "l1_batch_commits.status",
-            value: status,
-        })?,
-        attempts: attempts as u32,
-        message_hash: message_hash
-            .map(|value| parse_hash("l1_batch_commits.message_hash", value))
-            .transpose()?,
-        message_hash_norm: message_hash_norm
-            .map(|value| parse_hash("l1_batch_commits.message_hash_norm", value))
-            .transpose()?,
-        last_error,
-    })
-}
-
-fn parse_hash(field: &'static str, value: String) -> Result<Hash32, StorageError> {
-    Hash32::from_hex(&value).map_err(|_| StorageError::InvalidHash { field, value })
 }

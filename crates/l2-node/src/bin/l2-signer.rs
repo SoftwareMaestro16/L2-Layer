@@ -22,6 +22,7 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = optional_env("L2_SIGNER_ADDR", "127.0.0.1:8800").parse()?;
     let token = SecretString::new(required_env("L2_SIGNER_TOKEN")?)?;
     let signer_address = required_env("L2_SIGNER_ADDRESS")?;
+    let allowed_rollup_root_address = optional_string_env("L2_SIGNER_ROLLUP_ROOT_ADDRESS");
     let role = SignerRole::from_str(&optional_env("L2_SIGNER_ROLE", "sequencer"))?;
     let max_body_bytes =
         parse_usize_env("L2_SIGNER_MAX_BODY_BYTES", DEFAULT_SIGNER_MAX_BODY_BYTES)?;
@@ -38,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let config = SignerServiceConfig {
         token,
         signer_address,
+        allowed_rollup_root_address,
         role,
         max_body_bytes,
         rate_limit_per_minute: rate_limit,
@@ -49,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         addr = %addr,
         signer_address = %config.signer_address,
+        allowed_rollup_root_address = ?config.allowed_rollup_root_address,
         role = ?config.role,
         max_body_bytes = config.max_body_bytes,
         rate_limit_per_minute = config.rate_limit_per_minute,
@@ -73,6 +76,13 @@ fn optional_env(key: &str, default: &str) -> String {
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| default.to_owned())
+}
+
+fn optional_string_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 fn parse_usize_env(key: &str, default: usize) -> anyhow::Result<usize> {

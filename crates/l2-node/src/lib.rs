@@ -2,6 +2,7 @@ pub mod api;
 pub mod config;
 pub mod da;
 pub mod faucet;
+pub mod finalizer;
 pub mod indexer;
 pub mod mempool;
 pub mod observability;

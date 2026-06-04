@@ -45,6 +45,8 @@ Useful endpoints:
 - `GET /v1/mempool/metrics`
 - `GET /v1/operator/metrics`
 - `GET /v1/operator/failures`
+- `GET /v1/operator/batch-relayer`
+- `GET /v1/operator/batch-finalizer`
 - `GET /v1/proof/withdrawal/{withdrawal_id_hex}`
 - `WS /v1/stream`
 
@@ -57,8 +59,8 @@ Authorization: Bearer <L2_ADMIN_TOKEN>
 ```
 
 Postgres migrations run on startup and create tables for blocks, transactions,
-receipts, deposits, withdrawals, L1 cursors, batch DA payloads, and ENT faucet
-grants.
+receipts, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit
+relays, L1 batch finalizations, and ENT faucet grants.
 
 The ENT faucet is L2-native only in this phase. It grants `ENT_FAUCET_AMOUNT`
 whole ENT per account, converted with `ENT_DECIMALS=9`, and requires the admin
@@ -69,8 +71,8 @@ bearer token until public rate limiting is implemented.
 `/healthz` is process-alive only. `/readyz` checks Postgres, Redis, and Toncenter
 testnet reachability with safe component codes and no secret-bearing config
 values. Operator endpoints under `/v1/operator/*` require the admin bearer token
-and expose node counters, mempool metrics, relayer failures, and current failed
-withdrawal visibility.
+and expose node counters, mempool metrics, relayer/finalizer queues, failures,
+and current failed withdrawal visibility.
 
 Use `docs/operator-runbooks.md` for common failure handling, alert thresholds, and
 log safety rules.
@@ -202,6 +204,35 @@ are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
 The signer service is a separate process. Use `docs/testnet-signer-service.md`
 for the typed HTTP contract, role split, Acton wallet procedure, and local
 no-broadcast dry run.
+
+## TON batch finalizer
+
+The batch finalizer is disabled by default. Enable it after the batch relayer is
+confirming commits and the signer can sign `FinalizeBatch`:
+
+```text
+L1_BATCH_FINALIZER_ENABLED=true
+L1_FINALIZE_SIGNER_ENDPOINT=http://127.0.0.1:8800/sign-finalize
+L1_FINALIZE_SIGNER_TOKEN=<local signer bearer token>
+L1_FINALIZE_MSG_VALUE_NANOTON=100000000
+L1_BATCH_FINALIZER_POLL_INTERVAL_MS=5000
+L1_BATCH_FINALIZER_RETRY_BACKOFF_MS=15000
+L1_BATCH_FINALIZER_MAX_ATTEMPTS=8
+```
+
+When a batch commit becomes confirmed locally, the finalizer creates a
+`l1_batch_finalizations` row where `finalize_after_unix` is local confirmation
+time plus `L2_CHALLENGE_WINDOW_SEC`. This is conservative: it may wait slightly
+longer than the on-chain `committedAt`, but it avoids signing before the
+optimistic window. After the delay, the finalizer requests a typed
+`FinalizeBatch` BoC, verifies the signer address, expiry, and BoC shape,
+broadcasts through Toncenter v3 `/message`, and confirms through
+`/transactionsByMessage`.
+
+Operator visibility is available at `GET /v1/operator/batch-finalizer`. The
+response groups `pending_finalization`, `submitted_finalization`,
+`failed_finalization`, `latest`, and `latest_finalized`. Persistent error fields
+use static safe reason codes only.
 
 ## Withdrawal operations
 
