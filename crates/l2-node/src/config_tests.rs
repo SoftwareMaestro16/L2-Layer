@@ -7,6 +7,7 @@ fn valid_env() -> BTreeMap<String, String> {
         ("L2_CHAIN_ID".to_owned(), "entropis-testnet".to_owned()),
         ("L2_NATIVE_TOKEN_NAME".to_owned(), "Entropis".to_owned()),
         ("L2_NATIVE_TOKEN_SYMBOL".to_owned(), "ENT".to_owned()),
+        ("L2_RUNTIME_MODE".to_owned(), "local-dev".to_owned()),
         ("TON_NETWORK".to_owned(), "testnet".to_owned()),
         (
             "TONCENTER_V3_BASE_URL".to_owned(),
@@ -51,6 +52,7 @@ fn valid_entropis_testnet_config_loads() {
     assert_eq!(config.l2_name, "Entropis");
     assert_eq!(config.chain_id, "entropis-testnet");
     assert_eq!(config.native_token_symbol, "ENT");
+    assert_eq!(config.runtime_mode, RuntimeMode::LocalDev);
     assert_eq!(config.ton_network, TonNetwork::Testnet);
     assert_eq!(config.ent_decimals, 9);
     assert_eq!(config.ent_logo_path, PathBuf::from("assets/entropis.png"));
@@ -92,6 +94,10 @@ fn config_rejects_missing_or_invalid_secrets() {
 
     let mut env = valid_env();
     env.insert("L2_ADMIN_TOKEN".to_owned(), "short".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("L2_CHALLENGE_WINDOW_SEC".to_owned(), "0".to_owned());
     assert!(load_from(&env).is_err());
 }
 

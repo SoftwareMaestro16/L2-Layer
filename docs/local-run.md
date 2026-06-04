@@ -11,6 +11,7 @@ Copy-Item .env.example .env.local
 Fill `.env.local` with testnet-only values. The file is ignored by git. Required
 runtime keys:
 
+- `L2_RUNTIME_MODE=local-dev`
 - `TON_NETWORK=testnet`
 - `TONCENTER_V3_BASE_URL=https://testnet.toncenter.com/api/v3`
 - `TONCENTER_API_KEY`
@@ -27,6 +28,8 @@ runtime keys:
 - `L1_BATCH_RELAYER_ENABLED=false` until `RollupRoot` and a sequencer signer are ready
 
 `l2-node` refuses mainnet config and redacts secret values from debug logs.
+Use `docs/testnet-runtime-profile.md` for the production-like
+`testnet-prototype` profile with live indexer and relayer enabled.
 
 ```powershell
 cargo run -p l2-node

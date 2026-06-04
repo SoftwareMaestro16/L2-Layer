@@ -115,6 +115,7 @@ TON_L2_SKILLS = {
     "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",
     "ENT is L2-native first in the MVP: decimals=9, logo at assets/entropis.png, faucet-only testnet supply, no L1 Jetton minter/wallet until bridge/indexer hardening is stable.",
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
+    "L2_RUNTIME_MODE separates local-dev from testnet-prototype. The live profile defaults indexer and relayer on, disables admin deposit shortcuts, and fails closed when root/vault/signer settings are missing.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
     "The public testnet deployment registry is the tracked source for safe root/vault addresses, code hashes, deploy tx hashes, wrapper versions, status, and getter expectations; runtime secrets still come only from environment or .env.local.",

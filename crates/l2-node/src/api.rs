@@ -121,7 +121,11 @@ pub async fn serve(
 
     let app = build_router(state);
 
-    tracing::info!(addr = %config.node_addr, config = ?config, "starting l2 node");
+    tracing::info!(
+        addr = %config.node_addr,
+        startup = ?config.startup_summary(),
+        "starting l2 node"
+    );
     let listener = tokio::net::TcpListener::bind(config.node_addr).await?;
     axum::serve(listener, app).await?;
     Ok(())

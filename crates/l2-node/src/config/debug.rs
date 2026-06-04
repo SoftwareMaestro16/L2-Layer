@@ -9,6 +9,7 @@ impl fmt::Debug for NodeConfig {
             .field("chain_id", &self.chain_id)
             .field("native_token_name", &self.native_token_name)
             .field("native_token_symbol", &self.native_token_symbol)
+            .field("runtime_mode", &self.runtime_mode)
             .field("node_addr", &self.node_addr)
             .field("ton_network", &self.ton_network)
             .field("toncenter_v3_base_url", &self.toncenter_v3_base_url)

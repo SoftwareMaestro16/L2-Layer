@@ -25,6 +25,8 @@ Authorization: Bearer <L2_ADMIN_TOKEN>
 ```
 
 Do not expose admin endpoints publicly without an authenticated reverse proxy.
+For live TON testnet startup, use `docs/testnet-runtime-profile.md`; local admin
+deposit shortcuts are rejected when `L2_RUNTIME_MODE=testnet-prototype`.
 
 ## Readiness
 

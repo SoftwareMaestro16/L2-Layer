@@ -1,4 +1,5 @@
-use super::{NodeConfig, TonNetwork};
+use super::helpers::path_exists_in_cwd_or_ancestors;
+use super::{NodeConfig, RuntimeMode, TonNetwork};
 use anyhow::anyhow;
 
 impl NodeConfig {
@@ -24,6 +25,9 @@ impl NodeConfig {
         if self.admin_token.expose().len() < 16 {
             return Err(anyhow!("L2_ADMIN_TOKEN must be at least 16 bytes"));
         }
+        if self.challenge_window_sec == 0 {
+            return Err(anyhow!("L2_CHALLENGE_WINDOW_SEC must be non-zero"));
+        }
         if self.native_token_symbol != super::DEFAULT_TOKEN_SYMBOL {
             return Err(anyhow!(
                 "L2_NATIVE_TOKEN_SYMBOL must be {}",
@@ -39,11 +43,14 @@ impl NodeConfig {
                 super::DEFAULT_ENT_DECIMALS
             ));
         }
-        if !super::path_exists_in_cwd_or_ancestors(&self.ent_logo_path) {
+        if !path_exists_in_cwd_or_ancestors(&self.ent_logo_path) {
             return Err(anyhow!("ENT_LOGO_PATH must point to an existing file"));
         }
         if !self.ent_faucet_require_admin {
             return Err(anyhow!("ENT_FAUCET_REQUIRE_ADMIN must be true for MVP"));
+        }
+        if self.runtime_mode == RuntimeMode::TestnetPrototype {
+            self.validate_testnet_prototype()?;
         }
         self.validate_l1_indexer()?;
         self.validate_l1_relayer()?;
@@ -52,6 +59,25 @@ impl NodeConfig {
         self.executor_gas_schedule
             .validate()
             .map_err(|error| anyhow!("invalid executor gas schedule: {error}"))?;
+        Ok(())
+    }
+
+    fn validate_testnet_prototype(&self) -> anyhow::Result<()> {
+        if self.dev_admin_deposits_enabled {
+            return Err(anyhow!(
+                "L2_DEV_ADMIN_DEPOSITS_ENABLED must be false when L2_RUNTIME_MODE=testnet-prototype"
+            ));
+        }
+        if !self.l1_deposit_indexer_enabled {
+            return Err(anyhow!(
+                "L1_DEPOSIT_INDEXER_ENABLED must be true when L2_RUNTIME_MODE=testnet-prototype"
+            ));
+        }
+        if !self.l1_batch_relayer_enabled {
+            return Err(anyhow!(
+                "L1_BATCH_RELAYER_ENABLED must be true when L2_RUNTIME_MODE=testnet-prototype"
+            ));
+        }
         Ok(())
     }
 
