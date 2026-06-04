@@ -71,24 +71,8 @@ fun handleDepositTon(senderAddress: address, valueCoins: coins, msg: DepositTon)
     log.send(SEND_MODE_REGULAR);
 }
 
-fun handleJettonDeposit(senderAddress: address, msg: JettonTransferNotification) {
-    val storage = lazy AssetVaultStorage.load();
-    assert (!storage.paused) throw Errors.Paused;
-
-    val l2Recipient: uint256 = msg.forwardPayload.beginParse().loadUint(256);
-    val depositId = cellReprHash((senderAddress, msg.queryId, msg.amount, l2Recipient).toCell());
-    val log = createExternalLogMessage({
-        dest: createAddressNone(),
-        body: DepositRecorded {
-            queryId: msg.queryId,
-            depositId,
-            assetId: 2,
-            amount: msg.amount,
-            l2Recipient,
-            extra: DepositRecordedExtra { l1Sender: msg.sender }.toCell(),
-        },
-    });
-    log.send(SEND_MODE_REGULAR);
+fun handleJettonDeposit(_senderAddress: address, _msg: JettonTransferNotification): never {
+    throw Errors.UnsupportedJettonDeposit;
 }
 
 fun handleReleaseAuthorized(senderAddress: address, msg: ReleaseAuthorized) {

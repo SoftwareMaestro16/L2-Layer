@@ -2,6 +2,26 @@
 
 ## Rust node
 
+Create a local secrets file from the tracked template:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+Fill `.env.local` with testnet-only values. The file is ignored by git. Required
+runtime keys:
+
+- `TON_NETWORK=testnet`
+- `TONCENTER_V3_BASE_URL=https://testnet.toncenter.com/api/v3`
+- `TONCENTER_API_KEY`
+- `TONAPI_BASE_URL=https://testnet.tonapi.io`
+- `TONAPI_KEY`
+- `DATABASE_URL`
+- `REDIS_URL`
+- `L2_ADMIN_TOKEN`
+
+`l2-node` refuses mainnet config and redacts secret values from debug logs.
+
 ```powershell
 cargo run -p l2-node
 ```
@@ -18,7 +38,14 @@ Useful endpoints:
 - `WS /v1/stream`
 
 The two admin endpoints are local-development adapters for the missing TON indexer
-and background relayer in this first scaffold.
+and background relayer in this first scaffold. They require:
+
+```text
+Authorization: Bearer <L2_ADMIN_TOKEN>
+```
+
+Postgres migrations run on startup and create tables for blocks, transactions,
+receipts, deposits, withdrawals, and L1 cursors.
 
 ## Acton
 

@@ -31,11 +31,17 @@ impl Account {
         *self.balances.get(&asset_id).unwrap_or(&0)
     }
 
-    pub fn credit(&mut self, asset_id: u32, amount: u128) {
+    pub fn can_credit(&self, asset_id: u32, amount: u128) -> bool {
+        self.balance(asset_id).checked_add(amount).is_some()
+    }
+
+    pub fn credit(&mut self, asset_id: u32, amount: u128) -> bool {
         let balance = self.balances.entry(asset_id).or_default();
-        *balance = balance
-            .checked_add(amount)
-            .expect("u128 balance overflow is not allowed");
+        let Some(next) = balance.checked_add(amount) else {
+            return false;
+        };
+        *balance = next;
+        true
     }
 
     pub fn debit(&mut self, asset_id: u32, amount: u128) -> bool {

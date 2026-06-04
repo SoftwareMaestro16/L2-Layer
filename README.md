@@ -16,6 +16,8 @@ state-root commitments, and finalized withdrawal proofs.
 ## Current MVP Boundaries
 
 - The Rust executor applies deposits, transfers, and withdrawals deterministically.
+- `l2-node` is configured for the Entropis testnet profile (`entropis-testnet`, ENT gas token) through local environment variables.
+- Postgres storage persists blocks, transactions, deposits, withdrawals, and L1 cursors; Redis is reserved for the next mempool/locking step.
 - `CallContract` is rejected with `tvm_adapter_not_implemented`; the trait boundary is in place for a TON TVM adapter.
 - Tolk contracts are source scaffolds following current Tolk message/storage/getter patterns.
 - Acton is required for contract build/tests, but current Windows release assets do not include a native Windows binary.
@@ -24,7 +26,9 @@ state-root commitments, and finalized withdrawal proofs.
 
 ```powershell
 cargo test
+Copy-Item .env.example .env.local
 cargo run -p l2-node
 ```
 
-The node listens on `127.0.0.1:8080` by default.
+The node listens on `127.0.0.1:8080` by default. Put real testnet secrets only in
+`.env.local`; it is ignored by git.

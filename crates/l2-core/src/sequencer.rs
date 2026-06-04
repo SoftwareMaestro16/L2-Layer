@@ -28,29 +28,47 @@ impl Default for SequencerConfig {
 
 #[derive(Clone, Debug, Default)]
 pub struct Mempool {
-    pending: VecDeque<SignedL2Transaction>,
+    pending: VecDeque<QueuedTransaction>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TransactionOrigin {
+    User,
+    System,
+}
+
+#[derive(Clone, Debug)]
+struct QueuedTransaction {
+    tx: SignedL2Transaction,
+    origin: TransactionOrigin,
 }
 
 impl Mempool {
     pub fn submit(&mut self, tx: SignedL2Transaction) -> Hash32 {
         let hash = tx.tx_hash();
-        self.pending.push_back(tx);
+        self.pending.push_back(QueuedTransaction {
+            tx,
+            origin: TransactionOrigin::User,
+        });
         hash
     }
 
     pub fn insert_system_deposits(&mut self, chain_id: &str, deposits: Vec<DepositEvent>) {
         for deposit in deposits {
-            self.pending.push_back(SignedL2Transaction::system_deposit(
-                chain_id,
-                deposit.deposit_id,
-                deposit.asset_id,
-                deposit.recipient,
-                deposit.amount,
-            ));
+            self.pending.push_back(
+                SignedL2Transaction::system_deposit(
+                    chain_id,
+                    deposit.deposit_id,
+                    deposit.asset_id,
+                    deposit.recipient,
+                    deposit.amount,
+                )
+                .into_system_queue_entry(),
+            );
         }
     }
 
-    pub fn select_block(&mut self, max_txs: usize) -> Vec<SignedL2Transaction> {
+    fn select_block(&mut self, max_txs: usize) -> Vec<QueuedTransaction> {
         let mut out = Vec::with_capacity(max_txs.min(self.pending.len()));
         for _ in 0..max_txs {
             let Some(tx) = self.pending.pop_front() else {
@@ -63,6 +81,19 @@ impl Mempool {
 
     pub fn is_empty(&self) -> bool {
         self.pending.is_empty()
+    }
+}
+
+trait IntoSystemQueueEntry {
+    fn into_system_queue_entry(self) -> QueuedTransaction;
+}
+
+impl IntoSystemQueueEntry for SignedL2Transaction {
+    fn into_system_queue_entry(self) -> QueuedTransaction {
+        QueuedTransaction {
+            tx: self,
+            origin: TransactionOrigin::System,
+        }
     }
 }
 
@@ -109,19 +140,19 @@ impl Sequencer {
         }
 
         let prev_state_root = self.state.root_hash();
-        let txs = self.mempool.select_block(self.config.max_txs_per_block);
-        let mut receipts = Vec::with_capacity(txs.len());
+        let queued_txs = self.mempool.select_block(self.config.max_txs_per_block);
+        let mut receipts = Vec::with_capacity(queued_txs.len());
         let mut withdrawals = Vec::new();
 
-        for tx in &txs {
-            if let Err(reason) = self.verify_tx(tx) {
-                receipts.push(Receipt::rejected(tx.tx_hash(), reason));
+        for queued in &queued_txs {
+            if let Err(reason) = self.verify_tx(&queued.tx, queued.origin) {
+                receipts.push(Receipt::rejected(queued.tx.tx_hash(), reason));
                 continue;
             }
 
             let outcome = self.executor.apply(
                 &mut self.state,
-                tx,
+                &queued.tx,
                 &ExecutionConfig {
                     block_time: timestamp,
                     block_height: self.next_height,
@@ -134,6 +165,10 @@ impl Sequencer {
         }
 
         let state_root = self.state.root_hash();
+        let txs = queued_txs
+            .into_iter()
+            .map(|queued| queued.tx)
+            .collect::<Vec<_>>();
         let data_hash = canonical_data_hash(&txs, &receipts);
         let block = L2Block::new(
             self.next_height,
@@ -152,13 +187,27 @@ impl Sequencer {
         Some(block)
     }
 
-    fn verify_tx(&self, tx: &SignedL2Transaction) -> Result<(), &'static str> {
+    fn verify_tx(
+        &self,
+        tx: &SignedL2Transaction,
+        origin: TransactionOrigin,
+    ) -> Result<(), &'static str> {
         if tx.chain_id != self.config.chain_id {
             return Err("wrong_chain_id");
         }
 
-        if tx.is_system() {
+        if origin == TransactionOrigin::System {
+            if !tx.is_system() {
+                return Err("system_tx_must_be_deposit");
+            }
+            if tx.from.is_some() || tx.public_key.is_some() || tx.signature.is_some() {
+                return Err("invalid_system_tx_auth");
+            }
             return Ok(());
+        }
+
+        if tx.is_system() {
+            return Err("deposit_must_be_system");
         }
 
         let from = tx.from.ok_or("missing_sender")?;
@@ -330,5 +379,68 @@ mod tests {
         let block = sequencer.produce_block(2).expect("block");
         assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
         assert_eq!(block.receipts[0].reason.as_deref(), Some("bad_nonce"));
+    }
+
+    #[test]
+    fn public_deposit_transaction_is_rejected() {
+        let mut sequencer = Sequencer::new(SequencerConfig::default());
+        let recipient = sha256_bytes(b"recipient");
+        let tx = SignedL2Transaction::system_deposit(
+            "ton-l2-devnet",
+            sha256_bytes(b"forged-public-deposit"),
+            0,
+            recipient,
+            10_000,
+        );
+
+        sequencer.submit_tx(tx);
+        let block = sequencer.produce_block(1).expect("block");
+
+        assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+        assert_eq!(
+            block.receipts[0].reason.as_deref(),
+            Some("deposit_must_be_system")
+        );
+        assert!(sequencer.state.account(recipient).is_none());
+    }
+
+    #[test]
+    fn overflowing_deposit_is_rejected_without_panic() {
+        let mut sequencer = Sequencer::new(SequencerConfig::default());
+        let recipient = sha256_bytes(b"recipient");
+
+        sequencer.ingest_deposits(vec![DepositEvent {
+            deposit_id: sha256_bytes(b"deposit-max"),
+            asset_id: 0,
+            recipient,
+            amount: u128::MAX,
+            l1_tx_hash: sha256_bytes(b"l1-a"),
+            l1_lt: 1,
+        }]);
+        sequencer.produce_block(1).expect("first deposit block");
+
+        sequencer.ingest_deposits(vec![DepositEvent {
+            deposit_id: sha256_bytes(b"deposit-overflow"),
+            asset_id: 0,
+            recipient,
+            amount: 1,
+            l1_tx_hash: sha256_bytes(b"l1-b"),
+            l1_lt: 2,
+        }]);
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sequencer.produce_block(2)));
+        assert!(result.is_ok(), "overflowing deposit must not panic");
+
+        let block = result.unwrap().expect("second deposit block");
+        assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+        assert_eq!(
+            block.receipts[0].reason.as_deref(),
+            Some("balance_overflow")
+        );
+        assert_eq!(
+            sequencer.state.account(recipient).unwrap().balance(0),
+            u128::MAX
+        );
     }
 }

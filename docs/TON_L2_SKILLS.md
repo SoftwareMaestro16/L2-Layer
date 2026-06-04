@@ -86,6 +86,13 @@ TON_L2_SKILLS = {
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits leaf + Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
     "AssetVault must handle bounce/failure paths and avoid double release through claimed withdrawal tracking at RollupRoot."
   ],
+  infrastructure: [
+    "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",
+    "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
+    "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
+    "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
+    "Postgres persists L2 blocks, transactions, deposits, withdrawals, and L1 cursors; Redis is reserved for mempool replay/rate-limit/leader-lock responsibilities."
+  ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",

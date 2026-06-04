@@ -87,6 +87,82 @@ get fun `test vault deposit locks ton and emits deposit log`() {
     expect(status.lockedTon).toEqual(ton("0.5"));
 }
 
+get fun `test fake withdrawal claim is rejected`() {
+    testing.setNow(200);
+    val (root, sequencer, _) = setupRoot(0);
+    val attacker = testing.treasury("claim-attacker");
+
+    val rootsA = BatchRootsA {
+        prevStateRoot: 0,
+        stateRoot: 21,
+        txRoot: 22,
+    };
+    val rootsB = BatchRootsB {
+        receiptRoot: 23,
+        withdrawalRoot: 24,
+        dataHash: 25,
+    };
+
+    root.sendCommitBatch(sequencer.address, 1, rootsA, rootsB, { value: ton("0.1") });
+    root.sendFinalizeBatch(sequencer.address, 1, { value: ton("0.05") });
+
+    val fakeWithdrawalId = 1234;
+    val fakeLeaf = ReleaseAuthorized {
+        withdrawalId: fakeWithdrawalId,
+        assetId: 1,
+        recipient: attacker.address,
+        amount: ton("1"),
+    }.toCell();
+    val fakeProof = beginCell().storeUint(1, 1).endCell();
+
+    val claim = root.sendClaimWithdrawal(
+        attacker.address,
+        1,
+        fakeWithdrawalId,
+        fakeLeaf,
+        fakeProof,
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: attacker.address,
+        to: root.address,
+        exitCode: Errors.BadWithdrawalProof,
+    });
+}
+
+get fun `test fake jetton deposit notification is rejected`() {
+    val deployer = testing.treasury("vault-deployer-2");
+    val rollupRoot = testing.treasury("rollup-root-2");
+    val wrappedGasMinter = testing.treasury("wrapped-gas-minter-2");
+    val attacker = testing.treasury("jetton-attacker");
+    val claimedSender = testing.treasury("claimed-jetton-sender");
+
+    val vault = AssetVault.fromStorage({
+        admin: deployer.address,
+        rollupRoot: rollupRoot.address,
+        wrappedGasMinter: wrappedGasMinter.address,
+        paused: false,
+        lockedTon: 0,
+        releaseFailures: [],
+    });
+    vault.deploy(deployer.address, { value: ton("0.1") });
+
+    val notification = vault.sendJettonTransferNotification(
+        attacker.address,
+        88,
+        ton("10"),
+        claimedSender.address,
+        beginCell().storeUint(777, 256).endCell(),
+        { value: ton("0.05") },
+    );
+
+    expect(notification).toHaveFailedTx({
+        from: attacker.address,
+        to: vault.address,
+        exitCode: Errors.UnsupportedJettonDeposit,
+    });
+}
+
 fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
     val deployer = testing.treasury("root-deployer");
     val vault = testing.treasury("asset-vault");

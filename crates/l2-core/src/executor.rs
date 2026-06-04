@@ -50,7 +50,9 @@ impl DeterministicExecutor {
                 ..
             } => {
                 let account = state.account_mut(*recipient);
-                account.credit(*asset_id, *amount);
+                if !account.credit(*asset_id, *amount) {
+                    return rejected(tx_hash, "balance_overflow");
+                }
                 account.last_lt = config.block_height;
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, 0, None),
@@ -66,6 +68,12 @@ impl DeterministicExecutor {
                     return rejected(tx_hash, "missing_sender");
                 };
                 let gas = gas_cost(tx);
+                let recipient_can_credit = state
+                    .account(*to)
+                    .map_or(true, |account| account.can_credit(*asset_id, *amount));
+                if !recipient_can_credit {
+                    return rejected(tx_hash, "balance_overflow");
+                }
                 if !debit_total(state, from, *asset_id, *amount, config.gas_coin_asset, gas) {
                     return rejected(tx_hash, "insufficient_balance");
                 }
@@ -76,7 +84,9 @@ impl DeterministicExecutor {
                     sender.last_lt = config.block_height;
                 }
                 let recipient = state.account_mut(*to);
-                recipient.credit(*asset_id, *amount);
+                if !recipient.credit(*asset_id, *amount) {
+                    return rejected(tx_hash, "balance_overflow");
+                }
                 recipient.last_lt = config.block_height;
 
                 ExecutionOutcome {

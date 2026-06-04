@@ -46,6 +46,10 @@ export interface SubmitTxResponse {
   tx_hash: Hash32;
 }
 
+export interface TonL2ClientOptions {
+  adminToken?: string;
+}
+
 export function normalizeHash32(value: string): Hash32 {
   const cleaned = value.startsWith("0x") ? value.slice(2) : value;
   if (!/^[0-9a-fA-F]{64}$/.test(cleaned)) {
@@ -112,7 +116,10 @@ export function encodeDepositTonBody(queryId: bigint, amount: bigint, l2Recipien
 }
 
 export class TonL2Client {
-  constructor(public readonly baseUrl: string) {}
+  constructor(
+    public readonly baseUrl: string,
+    private readonly options: TonL2ClientOptions = {},
+  ) {}
 
   async submitTx(tx: SignedL2Transaction): Promise<SubmitTxResponse> {
     return this.postJson("/v1/tx", tx);
@@ -131,7 +138,7 @@ export class TonL2Client {
   }
 
   async devDeposit(deposit: DepositEvent): Promise<void> {
-    await this.postJson("/v1/admin/deposit", deposit);
+    await this.postJson<void>("/v1/admin/deposit", deposit, { admin: true });
   }
 
   private async getJson<T>(path: string): Promise<T> {
@@ -142,16 +149,32 @@ export class TonL2Client {
     return response.json() as Promise<T>;
   }
 
-  private async postJson<T>(path: string, body: unknown): Promise<T> {
+  private async postJson<T>(
+    path: string,
+    body: unknown,
+    options: { admin?: boolean } = {},
+  ): Promise<T> {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (options.admin) {
+      if (!this.options.adminToken) {
+        throw new Error("admin token required for L2 admin API");
+      }
+      headers.authorization = `Bearer ${this.options.adminToken}`;
+    }
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
+    const text = await response.text();
     if (!response.ok) {
-      throw new Error(`L2 API error ${response.status}: ${await response.text()}`);
+      throw new Error(`L2 API error ${response.status}: ${text}`);
     }
-    return response.json() as Promise<T>;
+    if (!text) {
+      return undefined as T;
+    }
+    return JSON.parse(text) as T;
   }
 }
 

@@ -11,4 +11,5 @@ enum Errors {
     AlreadyClaimed = 0x1009
     BadWithdrawalProof = 0x100a
     BadDepositValue = 0x100b
+    UnsupportedJettonDeposit = 0x100c
 }
