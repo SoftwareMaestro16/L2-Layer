@@ -33,7 +33,8 @@ flowchart TB
 - `contracts/l1`: Tolk contract sources for `RollupRoot` and `AssetVault`.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
 - `dashboard`: Static explorer/operator dashboard that calls the L2 API.
-- `docs`: Architecture, local operation notes, CI quality gates, and operator runbooks.
+- `docs`: Architecture, local operation notes, CI quality gates, operator runbooks,
+  and the public testnet launch checklist.
 
 ## Current MVP Boundaries
 
@@ -79,3 +80,6 @@ GitHub Actions runs security and artifact guards, Rust format/tests, SDK
 typecheck, Postgres/Redis service readiness, and optional Acton contract checks.
 See `docs/ci-quality-gates.md` for the local pre-commit commands and CI job
 layout.
+
+For the public TON testnet prototype launch sequence, see
+`docs/testnet-launch-runbook.md`.
