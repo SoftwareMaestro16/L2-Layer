@@ -52,6 +52,11 @@ pub trait Storage: Send + Sync {
         withdrawal_id: Hash32,
     ) -> Result<Option<WithdrawalProof>, StorageError>;
     async fn save_deposit(&self, deposit: DepositEvent) -> Result<bool, StorageError>;
+    async fn save_ent_faucet_grant(
+        &self,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<bool, StorageError>;
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError>;
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError>;
 }
@@ -67,6 +72,7 @@ pub async fn build_storage(config: &NodeConfig) -> Result<DynStorage, StorageErr
 pub struct InMemoryStorage {
     blocks: RwLock<Vec<L2Block>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
+    ent_faucet_grants: RwLock<BTreeMap<Hash32, u128>>,
     cursors: RwLock<BTreeMap<String, L1Cursor>>,
 }
 
@@ -134,6 +140,15 @@ impl Storage for InMemoryStorage {
         Ok(deposits.insert(deposit.deposit_id, deposit).is_none())
     }
 
+    async fn save_ent_faucet_grant(
+        &self,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<bool, StorageError> {
+        let mut grants = self.ent_faucet_grants.write().await;
+        Ok(grants.insert(account_id, amount).is_none())
+    }
+
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {
         Ok(self.cursors.read().await.get(source).cloned())
     }
@@ -167,6 +182,15 @@ mod tests {
 
         assert!(storage.save_deposit(deposit.clone()).await.unwrap());
         assert!(!storage.save_deposit(deposit).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn memory_storage_ent_faucet_grant_is_one_per_account() {
+        let storage = InMemoryStorage::default();
+        let account = sha256_bytes(b"account");
+
+        assert!(storage.save_ent_faucet_grant(account, 1_000).await.unwrap());
+        assert!(!storage.save_ent_faucet_grant(account, 1_000).await.unwrap());
     }
 
     #[tokio::test]

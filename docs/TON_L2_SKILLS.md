@@ -88,10 +88,11 @@ TON_L2_SKILLS = {
   ],
   infrastructure: [
     "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",
+    "ENT is L2-native first in the MVP: decimals=9, logo at assets/entropis.png, faucet-only testnet supply, no L1 Jetton minter/wallet until bridge/indexer hardening is stable.",
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
-    "Postgres persists L2 blocks, transactions, deposits, withdrawals, and L1 cursors; Redis is reserved for mempool replay/rate-limit/leader-lock responsibilities."
+    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants; Redis owns public mempool replay, nonce locks, and sequencer leader-lock responsibilities."
   ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",

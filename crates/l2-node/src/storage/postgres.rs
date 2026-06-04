@@ -175,7 +175,7 @@ impl Storage for PostgresStorage {
             INSERT INTO l2_deposits (
                 deposit_id, asset_id, recipient, amount, l1_tx_hash, l1_lt, deposit_json
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4::numeric, $5, $6, $7)
             ON CONFLICT (deposit_id) DO NOTHING
             RETURNING deposit_id
             "#,
@@ -187,6 +187,27 @@ impl Storage for PostgresStorage {
         .bind(deposit.l1_tx_hash.to_hex())
         .bind(checked_i64(deposit.l1_lt, "l1_lt")?)
         .bind(serde_json::to_value(deposit)?)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(inserted.is_some())
+    }
+
+    async fn save_ent_faucet_grant(
+        &self,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<bool, StorageError> {
+        let inserted = sqlx::query_scalar::<_, String>(
+            r#"
+            INSERT INTO ent_faucet_grants (account_id, asset_id, amount)
+            VALUES ($1, 0, $2::numeric)
+            ON CONFLICT (account_id) DO NOTHING
+            RETURNING account_id
+            "#,
+        )
+        .bind(account_id.to_hex())
+        .bind(amount.to_string())
         .fetch_optional(&self.pool)
         .await?;
 

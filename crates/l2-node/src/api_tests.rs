@@ -1,5 +1,9 @@
 use super::*;
 use axum::http::HeaderValue;
+use ed25519_dalek::{Signer, SigningKey};
+use l2_core::crypto::derive_account_id;
+use l2_core::L2TransactionKind;
+use rand_core::OsRng;
 
 const ADMIN_TOKEN: &str = "test-admin-token";
 
@@ -25,6 +29,28 @@ fn deposit_event() -> DepositEvent {
         l1_tx_hash: sha256_bytes(b"l1-tx"),
         l1_lt: 1,
     }
+}
+
+fn signed_tx(
+    signing_key: &SigningKey,
+    from: Hash32,
+    nonce: u64,
+    kind: L2TransactionKind,
+) -> SignedL2Transaction {
+    let public_key = signing_key.verifying_key().to_bytes();
+    let mut tx = SignedL2Transaction {
+        chain_id: "entropis-testnet".to_owned(),
+        from: Some(from),
+        nonce,
+        gas_limit: 1_000,
+        max_gas_price: 1,
+        kind,
+        public_key: Some(hex::encode(public_key)),
+        signature: None,
+    };
+    let signature = signing_key.sign(&tx.signing_payload());
+    tx.signature = Some(hex::encode(signature.to_bytes()));
+    tx
 }
 
 #[test]
@@ -152,4 +178,120 @@ async fn admin_deposit_is_idempotent_through_storage() {
         .expect("deposit block");
     let sequencer = state.sequencer.read().await;
     assert_eq!(sequencer.state.account(recipient).unwrap().balance(0), 100);
+}
+
+#[tokio::test]
+async fn submit_tx_rejects_duplicate_before_block() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"recipient"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    let first = submit_tx(State(state.clone()), Json(tx.clone()))
+        .await
+        .expect("first tx");
+    assert_eq!(first.0.tx_hash, tx.tx_hash());
+
+    let duplicate = submit_tx(State(state), Json(tx)).await.unwrap_err();
+    assert_eq!(duplicate.status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn submit_tx_rejects_malformed_system_deposit() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let forged_deposit = SignedL2Transaction::system_deposit(
+        "entropis-testnet",
+        sha256_bytes(b"forged"),
+        0,
+        sha256_bytes(b"recipient"),
+        100,
+    );
+
+    let error = submit_tx(State(state), Json(forged_deposit))
+        .await
+        .unwrap_err();
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_requires_authorization() {
+    let state = test_state(None);
+    let account_id = sha256_bytes(b"account");
+
+    let error = admin_ent_faucet(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetRequest {
+            account_id: account_id.to_hex(),
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_rejects_invalid_account() {
+    let state = test_state(Some(ADMIN_TOKEN));
+
+    let error = admin_ent_faucet(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetRequest {
+            account_id: "not-a-hash".to_owned(),
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"faucet-account");
+    let request = EntFaucetRequest {
+        account_id: account_id.to_hex(),
+    };
+
+    let first = admin_ent_faucet(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(request.clone()),
+    )
+    .await
+    .expect("first faucet grant");
+    assert!(first.0.granted);
+    assert_eq!(first.0.amount_base_units, 1_000_000_000_000);
+
+    let duplicate = admin_ent_faucet(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(request),
+    )
+    .await
+    .expect("duplicate faucet grant");
+    assert!(!duplicate.0.granted);
+    assert_eq!(duplicate.0.deposit_id, first.0.deposit_id);
+
+    produce_block_once(&state)
+        .await
+        .expect("storage")
+        .expect("faucet block");
+    let sequencer = state.sequencer.read().await;
+    assert_eq!(
+        sequencer.state.account(account_id).unwrap().balance(0),
+        1_000_000_000_000
+    );
 }

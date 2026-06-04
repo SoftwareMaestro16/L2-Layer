@@ -19,6 +19,9 @@ runtime keys:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `L2_ADMIN_TOKEN`
+- `ENT_DECIMALS=9`
+- `ENT_LOGO_PATH=assets/entropis.png`
+- `ENT_FAUCET_REQUIRE_ADMIN=true`
 
 `l2-node` refuses mainnet config and redacts secret values from debug logs.
 
@@ -30,6 +33,7 @@ Useful endpoints:
 
 - `POST /v1/tx`
 - `POST /v1/admin/deposit`
+- `POST /v1/admin/faucet/ent`
 - `POST /v1/admin/produce-block`
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
@@ -45,7 +49,11 @@ Authorization: Bearer <L2_ADMIN_TOKEN>
 ```
 
 Postgres migrations run on startup and create tables for blocks, transactions,
-receipts, deposits, withdrawals, and L1 cursors.
+receipts, deposits, withdrawals, L1 cursors, and ENT faucet grants.
+
+The ENT faucet is L2-native only in this phase. It grants `ENT_FAUCET_AMOUNT`
+whole ENT per account, converted with `ENT_DECIMALS=9`, and requires the admin
+bearer token until public rate limiting is implemented.
 
 ## Acton
 

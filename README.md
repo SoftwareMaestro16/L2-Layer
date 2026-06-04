@@ -17,7 +17,9 @@ state-root commitments, and finalized withdrawal proofs.
 
 - The Rust executor applies deposits, transfers, and withdrawals deterministically.
 - `l2-node` is configured for the Entropis testnet profile (`entropis-testnet`, ENT gas token) through local environment variables.
-- Postgres storage persists blocks, transactions, deposits, withdrawals, and L1 cursors; Redis is reserved for the next mempool/locking step.
+- Postgres storage persists blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants.
+- Redis backs public mempool replay checks, nonce locks, and sequencer leader locks.
+- ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
 - `CallContract` is rejected with `tvm_adapter_not_implemented`; the trait boundary is in place for a TON TVM adapter.
 - Tolk contracts are source scaffolds following current Tolk message/storage/getter patterns.
 - Acton is required for contract build/tests, but current Windows release assets do not include a native Windows binary.

@@ -1,5 +1,6 @@
 use l2_node::api;
 use l2_node::config::NodeConfig;
+use l2_node::mempool::build_mempool;
 use l2_node::storage::build_storage;
 
 #[tokio::main]
@@ -12,5 +13,6 @@ async fn main() -> anyhow::Result<()> {
 
     let config = NodeConfig::from_env()?;
     let storage = build_storage(&config).await?;
-    api::serve(config, storage).await
+    let mempool = build_mempool(&config).await?;
+    api::serve(config, storage, mempool).await
 }

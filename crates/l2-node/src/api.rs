@@ -1,4 +1,6 @@
 use crate::config::NodeConfig;
+use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
+use crate::mempool::{MempoolError, MempoolService};
 use crate::storage::{DynStorage, StorageError};
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -22,19 +24,27 @@ use tower_http::trace::TraceLayer;
 pub struct AppState {
     sequencer: Arc<RwLock<Sequencer>>,
     storage: DynStorage,
+    mempool: MempoolService,
+    ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
 }
 
 impl AppState {
-    pub fn new(config: &NodeConfig, storage: DynStorage) -> Self {
-        Self {
+    pub fn new(
+        config: &NodeConfig,
+        storage: DynStorage,
+        mempool: MempoolService,
+    ) -> Result<Self, FaucetError> {
+        Ok(Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
                 chain_id: config.chain_id.clone(),
                 ..SequencerConfig::default()
             }))),
             storage,
+            mempool,
+            ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
-        }
+        })
     }
 
     #[cfg(test)]
@@ -42,13 +52,22 @@ impl AppState {
         Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig::default()))),
             storage: Arc::new(crate::storage::InMemoryStorage::default()),
+            mempool: MempoolService::new(
+                "entropis-testnet",
+                Arc::new(crate::mempool::MemoryMempoolStore::default()),
+            ),
+            ent_faucet: EntFaucetService::from_config(&test_config()).expect("faucet config"),
             admin_auth: AdminAuth::new(admin_token.map(str::to_owned)),
         }
     }
 }
 
-pub async fn serve(config: NodeConfig, storage: DynStorage) -> anyhow::Result<()> {
-    let state = AppState::new(&config, storage);
+pub async fn serve(
+    config: NodeConfig,
+    storage: DynStorage,
+    mempool: MempoolService,
+) -> anyhow::Result<()> {
+    let state = AppState::new(&config, storage, mempool)?;
     spawn_block_producer(state.clone());
 
     let app = build_router(state);
@@ -69,6 +88,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
+        .route("/v1/admin/faucet/ent", post(admin_ent_faucet))
         .route("/v1/admin/produce-block", post(admin_produce_block))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -82,10 +102,9 @@ async fn healthz() -> &'static str {
 async fn submit_tx(
     State(state): State<AppState>,
     Json(tx): Json<SignedL2Transaction>,
-) -> Json<SubmitTxResponse> {
-    let mut sequencer = state.sequencer.write().await;
-    let tx_hash = sequencer.submit_tx(tx);
-    Json(SubmitTxResponse { tx_hash })
+) -> Result<Json<SubmitTxResponse>, ApiError> {
+    let tx_hash = state.mempool.submit(tx).await?;
+    Ok(Json(SubmitTxResponse { tx_hash }))
 }
 
 async fn admin_deposit(
@@ -114,6 +133,24 @@ async fn admin_produce_block(
         Some(block) => (StatusCode::CREATED, Json(block)).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
     })
+}
+
+async fn admin_ent_faucet(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<EntFaucetRequest>,
+) -> Result<Json<EntFaucetResponse>, ApiError> {
+    state.admin_auth.authorize(&headers)?;
+    let account_id = EntFaucetService::parse_account_id(&request.account_id)
+        .map_err(|_| ApiError::bad_request("invalid account id"))?;
+    let grant = state.ent_faucet.grant(&state.storage, account_id).await?;
+
+    if let Some(deposit) = grant.deposit {
+        let mut sequencer = state.sequencer.write().await;
+        sequencer.ingest_deposits(vec![deposit]);
+    }
+
+    Ok(Json(grant.response))
 }
 
 async fn get_account(
@@ -190,12 +227,24 @@ fn spawn_block_producer(state: AppState) {
 }
 
 async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiError> {
+    const LEADER_OWNER: &str = "entropis-local-sequencer";
+    if !state.mempool.acquire_leader_lock(LEADER_OWNER).await? {
+        return Ok(None);
+    }
+
     let timestamp = current_unix_time();
-    let block = {
+    let result = async {
+        let queued = state.mempool.pop_batch(1024).await?;
         let mut sequencer = state.sequencer.write().await;
-        sequencer.produce_block(timestamp)
-    };
-    let Some(block) = block else {
+        for tx in queued {
+            sequencer.submit_tx(tx);
+        }
+        Ok::<_, ApiError>(sequencer.produce_block(timestamp))
+    }
+    .await;
+    let _ = state.mempool.release_leader_lock(LEADER_OWNER).await;
+
+    let Some(block) = result? else {
         return Ok(None);
     };
 
@@ -267,6 +316,33 @@ impl From<StorageError> for ApiError {
     fn from(error: StorageError) -> Self {
         tracing::error!(?error, "storage error");
         Self::internal("storage error")
+    }
+}
+
+impl From<MempoolError> for ApiError {
+    fn from(error: MempoolError) -> Self {
+        if error.is_conflict() {
+            return Self {
+                status: StatusCode::CONFLICT,
+                message: error.to_string(),
+            };
+        }
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<FaucetError> for ApiError {
+    fn from(error: FaucetError) -> Self {
+        match error {
+            FaucetError::InvalidAccountId | FaucetError::ZeroAccountId => {
+                Self::bad_request(error.to_string())
+            }
+            FaucetError::Storage(storage_error) => storage_error.into(),
+            FaucetError::AmountOverflow => Self::internal(error.to_string()),
+        }
     }
 }
 
@@ -356,6 +432,45 @@ fn constant_time_eq(left: &str, right: &str) -> bool {
     }
 
     diff == 0
+}
+
+#[cfg(test)]
+fn test_config() -> NodeConfig {
+    use std::collections::BTreeMap;
+
+    let env = BTreeMap::from([
+        ("L2_NAME".to_owned(), "Entropis".to_owned()),
+        ("L2_CHAIN_ID".to_owned(), "entropis-testnet".to_owned()),
+        ("L2_NATIVE_TOKEN_NAME".to_owned(), "Entropis".to_owned()),
+        ("L2_NATIVE_TOKEN_SYMBOL".to_owned(), "ENT".to_owned()),
+        ("TON_NETWORK".to_owned(), "testnet".to_owned()),
+        (
+            "TONCENTER_V3_BASE_URL".to_owned(),
+            "https://testnet.toncenter.com/api/v3".to_owned(),
+        ),
+        (
+            "TONCENTER_API_KEY".to_owned(),
+            "toncenter-secret-key".to_owned(),
+        ),
+        (
+            "TONAPI_BASE_URL".to_owned(),
+            "https://testnet.tonapi.io".to_owned(),
+        ),
+        ("TONAPI_KEY".to_owned(), "tonapi-secret-key".to_owned()),
+        (
+            "DATABASE_URL".to_owned(),
+            "postgresql://user:pass@localhost:5432/l2".to_owned(),
+        ),
+        (
+            "REDIS_URL".to_owned(),
+            "redis://default:pass@localhost:6379".to_owned(),
+        ),
+        ("L2_ADMIN_TOKEN".to_owned(), "admin-secret-token".to_owned()),
+        ("ENT_DECIMALS".to_owned(), "9".to_owned()),
+        ("ENT_LOGO_PATH".to_owned(), "assets/entropis.png".to_owned()),
+        ("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "true".to_owned()),
+    ]);
+    NodeConfig::from_lookup(|key| env.get(key).cloned()).expect("test config")
 }
 
 #[cfg(test)]

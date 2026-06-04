@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use std::fmt;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 const DEFAULT_NODE_ADDR: &str = "127.0.0.1:8080";
 const DEFAULT_CHAIN_ID: &str = "entropis-testnet";
@@ -11,6 +12,9 @@ const DEFAULT_TONCENTER_TESTNET: &str = "https://testnet.toncenter.com/api/v3";
 const DEFAULT_TONAPI_TESTNET: &str = "https://testnet.tonapi.io";
 const DEFAULT_CHALLENGE_WINDOW_SEC: u32 = 300;
 const DEFAULT_ENT_FAUCET_AMOUNT: u128 = 1_000;
+const DEFAULT_ENT_DECIMALS: u8 = 9;
+const DEFAULT_ENT_LOGO_PATH: &str = "assets/entropis.png";
+const DEFAULT_ENT_FAUCET_REQUIRE_ADMIN: bool = true;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TonNetwork {
@@ -57,6 +61,9 @@ pub struct NodeConfig {
     pub admin_token: SecretString,
     pub challenge_window_sec: u32,
     pub ent_faucet_amount: u128,
+    pub ent_decimals: u8,
+    pub ent_logo_path: PathBuf,
+    pub ent_faucet_require_admin: bool,
 }
 
 impl NodeConfig {
@@ -98,6 +105,27 @@ impl NodeConfig {
             ),
             "ENT_FAUCET_AMOUNT",
         )?;
+        let ent_decimals = parse_u8(
+            &optional(
+                &mut lookup,
+                "ENT_DECIMALS",
+                &DEFAULT_ENT_DECIMALS.to_string(),
+            ),
+            "ENT_DECIMALS",
+        )?;
+        let ent_logo_path = PathBuf::from(optional(
+            &mut lookup,
+            "ENT_LOGO_PATH",
+            DEFAULT_ENT_LOGO_PATH,
+        ));
+        let ent_faucet_require_admin = parse_bool(
+            &optional(
+                &mut lookup,
+                "ENT_FAUCET_REQUIRE_ADMIN",
+                bool_literal(DEFAULT_ENT_FAUCET_REQUIRE_ADMIN),
+            ),
+            "ENT_FAUCET_REQUIRE_ADMIN",
+        )?;
 
         let config = Self {
             l2_name,
@@ -115,6 +143,9 @@ impl NodeConfig {
             admin_token: SecretString::new(required(&mut lookup, "L2_ADMIN_TOKEN")?)?,
             challenge_window_sec,
             ent_faucet_amount,
+            ent_decimals,
+            ent_logo_path,
+            ent_faucet_require_admin,
         };
         config.validate()?;
         Ok(config)
@@ -150,6 +181,15 @@ impl NodeConfig {
         if self.ent_faucet_amount == 0 {
             return Err(anyhow!("ENT_FAUCET_AMOUNT must be non-zero"));
         }
+        if self.ent_decimals != DEFAULT_ENT_DECIMALS {
+            return Err(anyhow!("ENT_DECIMALS must be {DEFAULT_ENT_DECIMALS}"));
+        }
+        if !path_exists_in_cwd_or_ancestors(&self.ent_logo_path) {
+            return Err(anyhow!("ENT_LOGO_PATH must point to an existing file"));
+        }
+        if !self.ent_faucet_require_admin {
+            return Err(anyhow!("ENT_FAUCET_REQUIRE_ADMIN must be true for MVP"));
+        }
         Ok(())
     }
 }
@@ -173,6 +213,9 @@ impl fmt::Debug for NodeConfig {
             .field("admin_token", &self.admin_token)
             .field("challenge_window_sec", &self.challenge_window_sec)
             .field("ent_faucet_amount", &self.ent_faucet_amount)
+            .field("ent_decimals", &self.ent_decimals)
+            .field("ent_logo_path", &self.ent_logo_path)
+            .field("ent_faucet_require_admin", &self.ent_faucet_require_admin)
             .finish()
     }
 }
@@ -206,6 +249,46 @@ fn parse_u128(value: &str, key: &str) -> anyhow::Result<u128> {
     value
         .parse::<u128>()
         .with_context(|| format!("{key} must be an unsigned 128-bit integer"))
+}
+
+fn parse_u8(value: &str, key: &str) -> anyhow::Result<u8> {
+    value
+        .parse::<u8>()
+        .with_context(|| format!("{key} must be an unsigned 8-bit integer"))
+}
+
+fn parse_bool(value: &str, key: &str) -> anyhow::Result<bool> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(anyhow!("{key} must be true or false")),
+    }
+}
+
+fn bool_literal(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+fn path_exists_in_cwd_or_ancestors(path: &PathBuf) -> bool {
+    if path.is_absolute() {
+        return path.is_file();
+    }
+
+    let Ok(mut current) = std::env::current_dir() else {
+        return false;
+    };
+    loop {
+        if current.join(path).is_file() {
+            return true;
+        }
+        if !current.pop() {
+            return false;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -242,6 +325,9 @@ mod tests {
                 "redis://default:pass@localhost:6379".to_owned(),
             ),
             ("L2_ADMIN_TOKEN".to_owned(), "admin-secret-token".to_owned()),
+            ("ENT_DECIMALS".to_owned(), "9".to_owned()),
+            ("ENT_LOGO_PATH".to_owned(), "assets/entropis.png".to_owned()),
+            ("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "true".to_owned()),
         ])
     }
 
@@ -257,6 +343,9 @@ mod tests {
         assert_eq!(config.chain_id, "entropis-testnet");
         assert_eq!(config.native_token_symbol, "ENT");
         assert_eq!(config.ton_network, TonNetwork::Testnet);
+        assert_eq!(config.ent_decimals, 9);
+        assert_eq!(config.ent_logo_path, PathBuf::from("assets/entropis.png"));
+        assert!(config.ent_faucet_require_admin);
     }
 
     #[test]
@@ -281,6 +370,24 @@ mod tests {
 
         let mut env = valid_env();
         env.insert("L2_ADMIN_TOKEN".to_owned(), "short".to_owned());
+        assert!(load_from(&env).is_err());
+    }
+
+    #[test]
+    fn config_rejects_invalid_ent_metadata() {
+        let mut env = valid_env();
+        env.insert("ENT_DECIMALS".to_owned(), "6".to_owned());
+        assert!(load_from(&env).is_err());
+
+        let mut env = valid_env();
+        env.insert(
+            "ENT_LOGO_PATH".to_owned(),
+            "assets/missing-ent.png".to_owned(),
+        );
+        assert!(load_from(&env).is_err());
+
+        let mut env = valid_env();
+        env.insert("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "false".to_owned());
         assert!(load_from(&env).is_err());
     }
 
