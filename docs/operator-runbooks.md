@@ -12,12 +12,12 @@ Public:
 
 Admin-only:
 
-- `GET /v1/operator/metrics`: node counters, mempool metrics, relayer/indexer
-  counters, and DA/storage latency snapshots.
+- `GET /v1/operator/metrics`: node counters, mempool metrics,
+  indexer/relayer/finalizer counters, and DA/storage latency snapshots.
 - `GET /v1/operator/batch-commits`: latest L1 batch relay records with
-  pending/submitted/confirmed/failed status and safe error reasons.
-- `GET /v1/operator/failures`: failed L1 batch relays and current failed
-  withdrawal visibility status.
+  commit and finalization statuses plus safe error reasons.
+- `GET /v1/operator/failures`: failed L1 batch relays, failed finalizations,
+  and current failed withdrawal visibility status.
 - `GET /v1/mempool/metrics`: mempool admission and queue metrics.
 
 Admin endpoints require:
@@ -63,6 +63,7 @@ Suggested alert thresholds for testnet:
 - No increase in `node.block_production.produced` for 2 block intervals while
   mempool queue is non-empty.
 - `node.relayer.failed` increases.
+- `node.finalizer.failed` increases.
 - `node.indexer.errors` increases for 3 consecutive polls.
 - `latency.storage_save_block.max_ms` above 1000 ms.
 - `latency.da_write.max_ms` above 1000 ms.
@@ -152,6 +153,30 @@ Actions:
 
 Relayer errors must remain static safe reason strings. Do not store raw provider
 responses with secrets in `last_error`.
+
+### Finalizer Failures
+
+Symptoms:
+
+- `/v1/operator/failures.finalizer_failed_batches` is non-empty.
+- `node.finalizer.failed` increases.
+- `GET /v1/operator/batch-commits` shows `finalization_status = "failed"` or a
+  batch stuck in `submitted` longer than expected Toncenter confirmation lag.
+
+Actions:
+
+- Check `finalization_last_error`.
+- If `commitment missing`, verify the batch number against
+  `RollupRoot.commitment(batchNo)` before retrying.
+- If `finalize signer failed`, check signer health, token, typed allowlist, and
+  root address.
+- If `finalize signer address mismatch`, rotate or reconfigure the signer role.
+- If `ton provider finalize send failed`, check Toncenter and retry backoff.
+- Follow `docs/testnet-finalization-e2e.md` before manually resetting attempts.
+
+Finalizer errors must remain static safe reason strings. Do not persist raw
+signed BoCs, provider payloads, tokens, mnemonics, or wallet data in
+`finalization_last_error`.
 
 ### Withdrawal Release Failures
 

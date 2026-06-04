@@ -101,7 +101,9 @@ shortcuts.
 
 After the producer saves a block, use `docs/testnet-batch-commit-e2e.md` to
 verify DA retrievability, relayer submission, Toncenter confirmation, and
-`RollupRoot.commitment(batchNo)` getter readback.
+`RollupRoot.commitment(batchNo)` getter readback. Then use
+`docs/testnet-finalization-e2e.md` to verify challenge-window scheduling,
+`FinalizeBatch` submission, and finalized getter readback.
 
 For token rotation, stop the node or remove it from public traffic, update
 `.env.local`, restart the signer if `L1_COMMIT_SIGNER_TOKEN` changed, then restart
@@ -113,7 +115,7 @@ keys can be rotated without changing the public registry.
 - Mainnet endpoints are rejected by config validation.
 - Missing `L1_VAULT_ADDRESS` fails when the indexer is enabled.
 - Missing root, sequencer sender, signer endpoint, or signer token fails when
-  the relayer is enabled.
+  the relayer/finalizer lane is enabled.
 - `L2_DEV_ADMIN_DEPOSITS_ENABLED=true` fails in `testnet-prototype`.
 - `L2_CHALLENGE_WINDOW_SEC=0` fails; any non-zero value must still match the
   verified registry and L1 getter readback operationally.

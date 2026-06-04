@@ -64,7 +64,8 @@ TON_L2_SKILLS = {
     "Outbound messages use send modes that define fee payment, remaining-balance behavior, ignore-errors behavior, and bounce-on-action-failure behavior.",
     "Deposits are L1 -> L2 observations: AssetVault emits canonical deposit logs, the indexer feeds them to the sequencer, and the L2 credits the recipient.",
     "Toncenter v3 `/messages` can filter log messages with `destination=null`, vault `source`, `opcode`, `start_lt`, `limit`, and `sort=asc`; use per-source cursors and fail closed on malformed expected logs.",
-    "Withdrawals are L2 -> L1 claims: L2 creates withdrawal leaves, RollupRoot verifies inclusion after finalized commitment, then tells AssetVault to release."
+    "Withdrawals are L2 -> L1 claims: L2 creates withdrawal leaves, RollupRoot verifies inclusion after finalized commitment, then tells AssetVault to release.",
+    "Batch finalization is a separate TON message after commitment: the node schedules it from committedAt + challengeWindowSec, but the RollupRoot getter remains the source of truth for finalized state."
   ],
   cell_boc_system: [
     "A TON cell holds up to 1023 bits and up to 4 refs; cells form a DAG and circular refs are impossible.",
@@ -104,6 +105,7 @@ TON_L2_SKILLS = {
     "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
+    "The batch finalizer persists pending/submitted/finalized/failed finalization status on the same batch record, reads RollupRoot.commitment(batchNo), submits typed FinalizeBatch messages through the signer, and only marks finalized after the getter returns finalized=true.",
     "Relayer/operator visibility should expose latest batch commit records and failed batch records with safe static reason codes and no raw provider payloads or signer secrets.",
     "The node should not hold raw TON wallet credentials for relaying; use a signer boundary and verify the returned signer address matches RollupRoot.sequencer before broadcasting.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",

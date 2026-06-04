@@ -2,7 +2,7 @@ use super::{ApiError, AppState};
 use crate::observability::{
     readiness_component, HealthResponse, OperatorMetrics, ReadinessError, ReadinessReport,
 };
-use crate::storage::{BatchCommitRecord, BatchCommitStatus};
+use crate::storage::{BatchCommitRecord, BatchCommitStatus, BatchFinalizationStatus};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
@@ -21,6 +21,7 @@ pub(super) struct OperatorMetricsResponse {
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct OperatorFailuresResponse {
     pub relayer_failed_batches: Vec<BatchCommitRecord>,
+    pub finalizer_failed_batches: Vec<BatchCommitRecord>,
     pub failed_withdrawals: FailedWithdrawalVisibility,
 }
 
@@ -125,8 +126,16 @@ pub(super) async fn operator_failures(
         .storage
         .list_batch_commits(&[BatchCommitStatus::Failed], u32::MAX, FAILURE_LIMIT)
         .await?;
+    let finalizer_failed_batches = state
+        .storage
+        .list_batch_commits(&[BatchCommitStatus::Confirmed], u32::MAX, FAILURE_LIMIT)
+        .await?
+        .into_iter()
+        .filter(|record| record.finalization_status == BatchFinalizationStatus::Failed)
+        .collect();
     Ok(Json(OperatorFailuresResponse {
         relayer_failed_batches,
+        finalizer_failed_batches,
         failed_withdrawals: FailedWithdrawalVisibility {
             indexed: false,
             source: "RollupRoot.failedWithdrawal and AssetVault.failedRelease getters",

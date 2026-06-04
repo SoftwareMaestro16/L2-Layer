@@ -125,6 +125,9 @@ support and compare it with the L2 block header:
 - `committedAt` is non-zero.
 - `finalized` remains false before the challenge window finalizer runs.
 
+After this check passes, continue with `docs/testnet-finalization-e2e.md` to
+verify `FinalizeBatch` scheduling and confirmation.
+
 The getter readback is public metadata. Do not write signer tokens, API keys,
 signed BoCs, mnemonics, wallet seeds, database URLs, or Redis URLs into docs or
 deployment manifests.

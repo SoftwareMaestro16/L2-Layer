@@ -72,8 +72,8 @@ bearer token until public rate limiting is implemented.
 `/healthz` is process-alive only. `/readyz` checks Postgres, Redis, and Toncenter
 testnet reachability with safe component codes and no secret-bearing config
 values. Operator endpoints under `/v1/operator/*` require the admin bearer token
-and expose node counters, mempool metrics, relayer failures, and current failed
-withdrawal visibility.
+and expose node counters, mempool metrics, relayer/finalizer failures, and
+current failed withdrawal visibility.
 
 Use `docs/operator-runbooks.md` for common failure handling, alert thresholds, and
 log safety rules.
@@ -178,10 +178,11 @@ of vault-registered L1 assets accepted by the indexer; keep `1` for bridged TON 
 add registered Jetton asset ids after `RegisterJettonAsset`. Malformed expected logs
 fail closed and do not advance the cursor.
 
-## TON batch relayer
+## TON batch relayer and finalizer
 
-The batch relayer is disabled by default. Enable it only after `RollupRoot` is
-deployed and its `sequencer` storage address matches the configured sender:
+The batch relayer/finalizer lane is disabled by default. Enable it only after
+`RollupRoot` is deployed and its `sequencer` storage address matches the
+configured sender:
 
 ```text
 L1_BATCH_RELAYER_ENABLED=true
@@ -200,9 +201,14 @@ request to a local/remote signer service, verifies the returned signer address
 matches `L1_SEQUENCER_SENDER_ADDRESS`, then broadcasts the signed external BoC
 through Toncenter v3 `/message`. Submitted message hashes are stored in
 `l1_batch_commits`; confirmation is checked through Toncenter v3
-`/transactionsByMessage`. Retries are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
-Use `GET /v1/operator/batch-commits` for per-batch relay status and
-`docs/testnet-batch-commit-e2e.md` for the live commit rehearsal.
+`/transactionsByMessage`. After confirmation, the finalizer reads
+`RollupRoot.commitment(batchNo)`, waits until `committedAt +
+L2_CHALLENGE_WINDOW_SEC`, requests a typed `FinalizeBatch` signature, broadcasts
+it through Toncenter, and marks the batch finalized only after the getter reports
+`finalized=true`. Retries are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`. Use
+`GET /v1/operator/batch-commits` for per-batch relay/finality status,
+`docs/testnet-batch-commit-e2e.md` for commit rehearsal, and
+`docs/testnet-finalization-e2e.md` for finalization rehearsal.
 
 ## Withdrawal operations
 

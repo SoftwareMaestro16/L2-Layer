@@ -1,6 +1,10 @@
 use super::{ApiError, AppState};
 use crate::config::NodeConfig;
 use crate::da::DynDa;
+use crate::finalizer::{
+    BatchFinalizer, BatchFinalizerConfig, RemoteFinalizeBatchSigner, SystemFinalizerClock,
+    ToncenterFinalizerProvider,
+};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::observability::NodeMetrics;
 use crate::relayer::{
@@ -100,6 +104,60 @@ pub(super) fn spawn_batch_relayer(
                 Err(error) => {
                     metrics.record_relayer_error();
                     tracing::warn!(?error, "batch relayer poll failed");
+                    sleep(retry_backoff).await;
+                }
+            }
+        }
+    });
+}
+
+pub(super) fn spawn_batch_finalizer(
+    config: &NodeConfig,
+    storage: DynStorage,
+    metrics: Arc<NodeMetrics>,
+) {
+    let Some(finalizer_config) = BatchFinalizerConfig::from_node_config(config) else {
+        return;
+    };
+    let Some(signer) = RemoteFinalizeBatchSigner::from_config(config) else {
+        tracing::error!("batch finalizer enabled without signer config");
+        return;
+    };
+    let poll_interval = Duration::from_millis(finalizer_config.poll_interval_ms);
+    let retry_backoff = Duration::from_millis(finalizer_config.retry_backoff_ms);
+    let finalizer = BatchFinalizer::new(
+        finalizer_config,
+        storage,
+        signer,
+        ToncenterFinalizerProvider::from_config(config),
+        SystemFinalizerClock,
+    );
+    tokio::spawn(async move {
+        loop {
+            sleep(poll_interval).await;
+            match finalizer.finalize_once().await {
+                Ok(stats) => {
+                    metrics.record_finalizer_poll(
+                        stats.considered,
+                        stats.submitted,
+                        stats.finalized,
+                        stats.failed,
+                        stats.not_ready,
+                        stats.skipped,
+                    );
+                    tracing::info!(
+                        considered = stats.considered,
+                        submitted = stats.submitted,
+                        finalized = stats.finalized,
+                        failed = stats.failed,
+                        not_ready = stats.not_ready,
+                        skipped = stats.skipped,
+                        "batch finalizer poll completed"
+                    );
+                }
+                Err(error) => {
+                    metrics.record_finalizer_error();
+                    tracing::warn!(?error, "batch finalizer poll failed");
                     sleep(retry_backoff).await;
                 }
             }

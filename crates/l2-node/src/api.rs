@@ -41,7 +41,9 @@ use operator::{healthz, operator_batch_commits, operator_failures, operator_metr
 use test_support::test_config;
 #[cfg(test)]
 use workers::produce_block_once;
-use workers::{spawn_batch_relayer, spawn_block_producer, spawn_deposit_indexer};
+use workers::{
+    spawn_batch_finalizer, spawn_batch_relayer, spawn_block_producer, spawn_deposit_indexer,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -125,6 +127,7 @@ pub async fn serve(
         state.da.clone(),
         state.metrics.clone(),
     );
+    spawn_batch_finalizer(&config, state.storage.clone(), state.metrics.clone());
 
     let app = build_router(state);
 
