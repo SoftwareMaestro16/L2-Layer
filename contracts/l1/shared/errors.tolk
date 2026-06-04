@@ -19,4 +19,5 @@ enum Errors {
     BadAssetDecimals = 0x1012
     BadAssetConfig = 0x1013
     AlreadyConfigured = 0x1014
+    BadJettonQueryId = 0x1015
 }

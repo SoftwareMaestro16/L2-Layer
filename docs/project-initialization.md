@@ -25,7 +25,7 @@ This document defines the baseline architecture and Git plan for evolving this r
 
 - Deposit path: TON wallet or Jetton wallet sends L1 message to `AssetVault`; vault emits `DepositRecorded`; indexer ingests canonical event; sequencer credits L2.
 - Withdrawal path: user creates L2 withdrawal; sequencer includes withdrawal leaf; `RollupRoot` finalizes batch after challenge window; user submits Merkle proof; `AssetVault` releases funds.
-- Jetton releases remain a hardening target because the MVP currently records non-TON release failures instead of routing through Jetton wallets.
+- Registered Jetton releases route through vault-owned Jetton wallets; wrapped-gas release remains future work.
 
 ## 2. File/Module Structure
 
@@ -123,7 +123,7 @@ No runtime code is changed in this step.
 | Forged withdrawal proof | Root checks finalized batch and Merkle proof | Needs adversarial Tolk tests |
 | State root manipulation | Batch commits include prev/new roots | Needs batch builder boundary split |
 | Sequencer censorship | Challenge/forced inclusion path needed | Not implemented |
-| Malformed Jetton payload | Vault parses forward payload | Needs strict payload-length checks |
+| Malformed Jetton payload | Vault parses canonical `Either Cell ^Cell` forward payload | Strict payload-length checks implemented in Acton tests |
 | Gas griefing | Config-driven limits required | Partially implemented |
 | Mempool flooding | Admission limits and rate policy needed | Not implemented |
 | Bounced release | Root/Vault bounce handlers track failures | Needs deeper inter-contract tests |

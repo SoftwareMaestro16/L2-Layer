@@ -55,7 +55,10 @@ Status: implemented with positive and adversarial Acton tests.
 
 `RollupRoot` stores root-to-vault failures without clearing `claimedWithdrawals`, so a bounced release cannot reopen the proof claim path. `AssetVault` now sends `ReleaseAuthorized` metadata in recipient release messages, records recipient bounces, re-credits `lockedTon` for TON asset failures, and exposes permissionless retry from stored failure records.
 
-Status: implemented for TON asset releases with adversarial Acton tests. Jetton/wrapped-gas release remains intentionally unsupported.
+Status: implemented for TON asset releases with adversarial Acton tests.
+Registered Jetton releases now route through vault-owned Jetton wallets with
+wallet identity checks, pending query ids, excess clearing, and bounce-to-failure
+tracking. Wrapped-gas release remains future work.
 
 ### Low: Permissionless Finalization Is Explicit But Should Stay Documented
 
@@ -68,5 +71,5 @@ Status: accepted design.
 - Vault release bounce to failed recipient and retry.
 - Root bounce authorization for failed vault release messages.
 - Gas measurements for proof depths greater than one chunk.
-- Jetton/wrapped-gas release authorization and wallet identity checks.
+- Wrapped-gas release authorization and wallet identity checks.
 - End-to-end testnet withdrawal claim through deployed RollupRoot and AssetVault.

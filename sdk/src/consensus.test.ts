@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { Cell } from "@ton/core";
+import { Address, Cell } from "@ton/core";
 import nacl from "tweetnacl";
 import {
   accountIdFromKeyPair,
@@ -13,13 +13,16 @@ import {
   buildWithdrawTransaction,
   canonicalBatchDataHash,
   claimWithdrawalTonConnectMessage,
+  depositJettonTonConnectMessage,
   depositTonTonConnectMessage,
+  encodeJettonDepositTransferBody,
   deriveAccountId,
   encodeSignedTransaction,
   encodeUnsignedTransaction,
   EntropisApiError,
   EntropisClient,
   jettonDepositForwardPayload,
+  JETTON_TRANSFER_OPCODE,
   L2_NATIVE_GAS_ASSET,
   receiptLeafHash,
   releaseAuthorizedCell,
@@ -187,6 +190,70 @@ test("DepositTon TON Connect message encodes AssetVault body", () => {
   assert.equal(slice.loadCoins(), 100000000n);
   assert.equal(slice.loadUintBig(256).toString(16).padStart(64, "0"), recipient);
   slice.endParse();
+});
+
+test("Jetton deposit TON Connect message encodes TEP-74 transfer body", () => {
+  const recipient = hash(0x77);
+  const message = depositJettonTonConnectMessage({
+    jettonWalletAddress: TON_RECIPIENT,
+    vaultAddress: TON_RECIPIENT,
+    responseAddress: TON_RECIPIENT,
+    queryId: 8,
+    jettonAmount: "123456",
+    forwardTonAmount: "50000000",
+    tonAmount: "100000000",
+    l2Recipient: recipient,
+  });
+
+  assert.equal(message.address, TON_RECIPIENT);
+  assert.equal(message.amount, "100000000");
+
+  const body = cellFromBase64(message.payload);
+  const slice = body.beginParse();
+  assert.equal(slice.loadUint(32), JETTON_TRANSFER_OPCODE);
+  assert.equal(slice.loadUintBig(64), 8n);
+  assert.equal(slice.loadCoins(), 123456n);
+  assert.equal(slice.loadAddress().equals(Address.parse(TON_RECIPIENT)), true);
+  assert.equal(slice.loadAddress().equals(Address.parse(TON_RECIPIENT)), true);
+  assert.equal(slice.loadBit(), false);
+  assert.equal(slice.loadCoins(), 50000000n);
+  assert.equal(slice.loadBit(), true);
+
+  const payload = slice.loadRef().beginParse();
+  assert.equal(payload.loadUintBig(256).toString(16).padStart(64, "0"), recipient);
+  payload.endParse();
+  slice.endParse();
+});
+
+test("Jetton deposit transfer helper rejects unsafe amounts and recipients", () => {
+  assert.throws(
+    () =>
+      encodeJettonDepositTransferBody({
+        jettonWalletAddress: TON_RECIPIENT,
+        vaultAddress: TON_RECIPIENT,
+        responseAddress: TON_RECIPIENT,
+        queryId: 8,
+        jettonAmount: "123456",
+        forwardTonAmount: "0",
+        tonAmount: "100000000",
+        l2Recipient: hash(0x77),
+      }),
+    /forwardTonAmount must be non-zero/,
+  );
+  assert.throws(
+    () =>
+      encodeJettonDepositTransferBody({
+        jettonWalletAddress: TON_RECIPIENT,
+        vaultAddress: "not-a-ton-address",
+        responseAddress: TON_RECIPIENT,
+        queryId: 8,
+        jettonAmount: "123456",
+        forwardTonAmount: "1",
+        tonAmount: "100000000",
+        l2Recipient: hash(0x77),
+      }),
+    /address/i,
+  );
 });
 
 test("transfer helper signs chain-id-bound L2 transactions", () => {

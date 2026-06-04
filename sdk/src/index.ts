@@ -3,6 +3,12 @@ import nacl from "tweetnacl";
 import { deriveAccountId as deriveAccountIdFromBytes, signingPayload } from "./consensus.js";
 import * as RollupRootGenerated from "./generated/RollupRoot.gen.js";
 
+export {
+  depositJettonTonConnectMessage,
+  encodeJettonDepositTransferBody,
+  JETTON_TRANSFER_OPCODE,
+} from "./jetton.js";
+export type { DepositJettonMessageParams } from "./jetton.js";
 export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
 export * as RollupRootL1 from "./generated/RollupRoot.gen.js";
 export {

@@ -10,6 +10,7 @@ import nacl from "tweetnacl";
 import {
   EntropisClient,
   accountIdFromKeyPair,
+  depositJettonTonConnectMessage,
   depositTonTonConnectMessage,
   signTransferTransaction,
 } from "@ton-l2-rollup/sdk";
@@ -39,11 +40,24 @@ const depositMessage = depositTonTonConnectMessage({
   amount: "100000000",
   l2Recipient: accountId,
 });
+
+const jettonDepositMessage = depositJettonTonConnectMessage({
+  jettonWalletAddress: "<user Jetton wallet address>",
+  vaultAddress: "<AssetVault testnet address>",
+  responseAddress: "<user TON testnet address>",
+  queryId: Date.now(),
+  jettonAmount: "1000000",
+  forwardTonAmount: "50000000",
+  tonAmount: "100000000",
+  l2Recipient: accountId,
+});
 ```
 
-Use `depositMessage` as a raw TON Connect `messages[]` entry. TON Connect raw
-messages carry a user-friendly address, nanotons as a decimal string, and a
-base64 BoC payload.
+Use `depositMessage` or `jettonDepositMessage` as a raw TON Connect `messages[]`
+entry. TON Connect raw messages carry a user-friendly address, nanotons as a
+decimal string, and a base64 BoC payload. Jetton deposits send a TEP-74
+`transfer` to the user's Jetton wallet with a canonical ref `forward_payload`
+containing the L2 account id.
 
 ## Withdrawal Claim
 
@@ -73,4 +87,3 @@ const operatorClient = new EntropisClient("http://127.0.0.1:8080", {
 
 await operatorClient.requestEntFaucet(accountId);
 ```
-

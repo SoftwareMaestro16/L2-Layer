@@ -54,8 +54,9 @@ TON_L2_SKILLS = {
     "The Jetton architecture is distributed: a master/minter contract stores supply and metadata; per-owner wallet contracts hold balances and execute transfers.",
     "Bridge deposits must verify the sending jetton wallet and decode transfer_notification payloads instead of treating Jettons like account balances on one contract.",
     "Important opcodes include transfer 0x0f8a7ea5, transfer_notification 0x7362d09c, burn 0x595f07bc, and excesses 0xd53276db.",
-    "TEP-74 transfer_notification contains query_id, amount, sender, and forward_payload as Either Cell ^Cell; Entropis accepts a ref cell payload containing exactly one uint256 L2 recipient.",
+    "TEP-74 transfer_notification contains query_id, amount, sender, and forward_payload as Either Cell ^Cell; Entropis accepts canonical inline or ref branches only when the decoded payload is exactly one non-zero uint256 L2 recipient.",
     "AssetVault stores an admin-managed asset registry: asset id, Jetton master, vault-owned Jetton wallet, decimals, and wallet-hash reverse index.",
+    "The SDK builds Jetton deposit transfers with destination=AssetVault, response_destination=user wallet, forward_ton_amount>0, and forward_payload as the canonical ref branch containing the L2 recipient cell.",
     "Always respect token decimals and wallet discovery; do not assume 9 decimals or a globally shared balance contract."
   ],
   message_model: [
@@ -105,8 +106,8 @@ TON_L2_SKILLS = {
     "TON deposits: user sends TON to AssetVault with DepositTon body; vault records locked amount and emits DepositRecorded external log.",
     "Native TON deposits must reject zero L2 recipients at the vault boundary, not only in the Rust indexer, because otherwise funds can be locked while the log is later discarded.",
     "The credited L2 deposit id should be derived from unique L1 event identity such as vault source, message hash, logical time, and event id; user-controlled query ids are not sufficient uniqueness for repeated real deposits.",
-    "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles transfer_notification only from registered vault-owned Jetton wallets.",
-    "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
+    "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles canonical transfer_notification bodies only from registered vault-owned Jetton wallets.",
+    "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, derives pending query ids from transaction logical time, clears them on excesses, and records wallet bounces as retryable failures.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
     "The L1 batch finalizer persists a separate pending/submitted/finalized/failed queue; it creates finalization work only after local commit confirmation and waits local confirmation time + challengeWindowSec before signing.",
@@ -166,5 +167,5 @@ TON_L2_SKILLS = {
 
 - Exact fraud-proof VM design for replaying TON-compatible L2 transitions on L1 is not implemented.
 - Production data availability backend is not finalized: TON Storage vs external DA vs hybrid.
-- Jetton release path is v2 work: MVP records failure for non-TON asset releases.
+- Wrapped-gas release remains future work; registered Jetton releases route through vault-owned Jetton wallets.
 - Acton cannot be run from native PowerShell in this environment; use WSL or Docker for contract checks.
