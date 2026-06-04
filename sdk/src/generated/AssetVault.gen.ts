@@ -907,7 +907,7 @@ export class AssetVault implements c.Contract {
         'Errors.BadJettonAmount': 4113,
         'Errors.BadAssetDecimals': 4114,
         'Errors.BadAssetConfig': 4115,
-        'Errors.BadJettonQueryId': 4116,
+        'Errors.BadJettonQueryId': 4117,
         'Errors.UnknownOpcode': 65535,
     }
 

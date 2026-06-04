@@ -21,6 +21,10 @@ fun RollupStorage.save(self) {
     contract.setData(self.toCell());
 }
 
+fun unlinkedAssetVaultAddress(): address {
+    return address("0:0000000000000000000000000000000000000000000000000000000000000000");
+}
+
 struct AssetVaultStorage {
     admin: address
     rollupRoot: address
