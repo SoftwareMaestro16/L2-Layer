@@ -86,6 +86,76 @@ cargo run -p l2-node
 The node listens on `127.0.0.1:8080` by default. Put real testnet secrets only in
 `.env.local`; it is ignored by git.
 
+## Public Testnet SDK Demo
+
+The SDK includes a composable public demo CLI for account, faucet, transfer,
+deposit payload, withdrawal proof, and L1 claim payload flows. It is testnet-only:
+the CLI refuses registries whose `tonNetwork` is not `testnet` or whose `chainId`
+is not `entropis-testnet`.
+
+Configure the demo from environment variables instead of editing JSON by hand:
+
+```powershell
+cd sdk
+npm ci
+$env:ENTROPIS_API_BASE_URL = "http://127.0.0.1:8080"
+$env:ENTROPIS_REGISTRY_PATH = "..\deployments\testnet\entropis.json"
+```
+
+Generate a throwaway L2 account. By default this prints only the account id and
+public key:
+
+```powershell
+npm run demo -- generate-account
+```
+
+For a disposable local test key only, add `--show-secret` and set the returned
+`secret_key_hex` as `ENTROPIS_SECRET_KEY_HEX`. Do not use that key outside
+testnet demos.
+
+```powershell
+$env:ENTROPIS_SECRET_KEY_HEX = "<throwaway-secret-key-hex>"
+```
+
+Request the admin-only ENT faucet. The admin token is read from the environment
+and is never printed:
+
+```powershell
+$env:ENTROPIS_ADMIN_TOKEN = "<testnet-admin-token>"
+npm run demo -- faucet --account-id <account-id>
+```
+
+Submit a signed L2 transfer. If `--nonce` is omitted, the CLI reads the account
+nonce from `/v1/account/:id`; add `--dry-run` to print the signed transaction
+without submitting it.
+
+```powershell
+npm run demo -- transfer --to <recipient-account-id> --amount 1000000000 --nonce 0
+npm run demo -- transfer --to <recipient-account-id> --amount 1000000000 --nonce 0 --dry-run
+```
+
+Build a TON deposit payload for wallet submission. The vault address comes from
+the active testnet registry deployment, or can be supplied explicitly before the
+registry has deployed addresses:
+
+```powershell
+npm run demo -- deposit-payload --l2-recipient <account-id> --amount 1000000000 --query-id 1
+npm run demo -- deposit-payload --vault-address <testnet-vault-address> --l2-recipient <account-id> --amount 1000000000
+```
+
+Create a withdrawal, fetch its proof, and build a RollupRoot claim payload:
+
+```powershell
+npm run demo -- withdraw --l1-recipient <ton-testnet-address> --amount 1000000000 --nonce 1
+npm run demo -- get-proof --withdrawal-id <withdrawal-id>
+npm run demo -- claim-withdrawal --withdrawal-id <withdrawal-id> --amount 150000000
+```
+
+Demo output is JSON and includes fields such as `account_id`, `tx_hash`,
+`block_height`, `proof_id`, `withdrawal_id`, and `tonconnect_message.payload`.
+Payload commands are dry-run by design: they produce wallet-ready messages but
+do not broadcast L1 transactions.
+
 ## Quality Gates
 
 GitHub Actions runs security and artifact guards, Rust format/tests, SDK

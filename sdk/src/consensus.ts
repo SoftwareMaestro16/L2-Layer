@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Hash32, SignedL2Transaction } from "./index.js";
+import type { Hash32, SignedL2Transaction } from "./types.js";
 
 export const CONSENSUS_ENCODING_VERSION = 1;
 

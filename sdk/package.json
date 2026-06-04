@@ -6,7 +6,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test:vectors": "npm run build && node --test dist/consensus.test.js",
+    "demo": "npm run build && node examples/public-demo.mjs",
+    "test:vectors": "npm run build && node --test dist/consensus.test.js dist/transactions.test.js dist/bridge.test.js dist/client.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
