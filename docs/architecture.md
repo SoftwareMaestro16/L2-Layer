@@ -9,8 +9,10 @@ flowchart TB
   Indexer["TON Indexer"] --> Sequencer
   Sequencer --> Executor["Deterministic Executor"]
   Executor --> State["L2 State DB + Merkle root"]
-  Sequencer --> DA["Batch DA publisher"]
-  Sequencer --> Relayer["TON Relayer"]
+  Sequencer --> Builder["Deterministic Batch Builder"]
+  State --> Builder
+  Builder --> DA["Batch DA publisher"]
+  Builder --> Relayer["TON Relayer"]
   Relayer --> Root["RollupRoot.tolk"]
   User --> Vault["AssetVault.tolk"]
   Root --> Vault

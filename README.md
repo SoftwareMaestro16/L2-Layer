@@ -16,8 +16,10 @@ flowchart TB
   Indexer["TON Indexer"] --> Sequencer
   Sequencer --> Executor["TVM / Tolk Executor"]
   Executor --> State["L2 State DB + Merkle Root"]
-  Sequencer --> DA["Batch Data Availability"]
-  Sequencer --> Relayer["L1 Relayer"]
+  Sequencer --> Builder["Deterministic Batch Builder"]
+  State --> Builder
+  Builder --> DA["Batch Data Availability"]
+  Builder --> Relayer["L1 Relayer"]
   Relayer --> Root["RollupRoot.tolk"]
   User --> Vault["AssetVault.tolk"]
   Root --> Vault

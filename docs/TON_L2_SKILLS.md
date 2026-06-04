@@ -76,6 +76,7 @@ TON_L2_SKILLS = {
   sequencer_logic: [
     "Sequencer owns ordering in the MVP: ingest deposits, validate L2 txs, sort/canonicalize, execute deterministically, produce receipts and state root.",
     "Batch building should include previous state root, new state root, tx root, receipt root, withdrawal root, DA hash, and monotonic batch number.",
+    "Deterministic batch building is isolated from mempool, execution, storage, Redis, network, and wall-clock reads; it consumes ordered txs, receipts, withdrawals, previous header/root, final state root, and an explicit timestamp.",
     "Mempool admission must reject malformed signatures, bad nonces, insufficient balances, unsupported call types, and non-canonical encodings.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."

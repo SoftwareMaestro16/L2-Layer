@@ -1,7 +1,10 @@
-use crate::crypto::{derive_account_id, hash_domain, verify_signature, Hash32};
+use crate::batch::{BatchBuildInput, BatchBuilder};
+use crate::crypto::{derive_account_id, verify_signature, Hash32};
 use crate::executor::{DeterministicExecutor, ExecutionConfig};
 use crate::state::State;
-use crate::types::{DepositEvent, L2Block, L2TransactionKind, Receipt, SignedL2Transaction};
+use crate::types::{
+    DepositEvent, L2Block, L2BlockHeader, L2TransactionKind, Receipt, SignedL2Transaction,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
@@ -104,8 +107,7 @@ pub struct Sequencer {
     pub mempool: Mempool,
     executor: DeterministicExecutor,
     committed_deposits: BTreeSet<Hash32>,
-    last_block_hash: Hash32,
-    next_height: u64,
+    last_header: Option<L2BlockHeader>,
 }
 
 impl Sequencer {
@@ -116,8 +118,7 @@ impl Sequencer {
             mempool: Mempool::default(),
             executor: DeterministicExecutor,
             committed_deposits: BTreeSet::new(),
-            last_block_hash: Hash32::ZERO,
-            next_height: 0,
+            last_header: None,
         }
     }
 
@@ -139,6 +140,7 @@ impl Sequencer {
             return None;
         }
 
+        let block_height = self.next_height();
         let prev_state_root = self.state.root_hash();
         let queued_txs = self.mempool.select_block(self.config.max_txs_per_block);
         let mut receipts = Vec::with_capacity(queued_txs.len());
@@ -155,7 +157,7 @@ impl Sequencer {
                 &queued.tx,
                 &ExecutionConfig {
                     block_time: timestamp,
-                    block_height: self.next_height,
+                    block_height,
                     gas_coin_asset: self.config.gas_coin_asset,
                     max_internal_messages: self.config.max_internal_messages,
                 },
@@ -169,22 +171,25 @@ impl Sequencer {
             .into_iter()
             .map(|queued| queued.tx)
             .collect::<Vec<_>>();
-        let data_hash = canonical_data_hash(&txs, &receipts);
-        let block = L2Block::new(
-            self.next_height,
-            self.last_block_hash,
+        let block = BatchBuilder::build(BatchBuildInput {
+            previous_header: self.last_header.clone(),
             prev_state_root,
             state_root,
-            txs,
+            ordered_transactions: txs,
             receipts,
             withdrawals,
-            data_hash,
             timestamp,
-        );
+        })
+        .expect("sequencer emits exactly one receipt per selected transaction");
 
-        self.last_block_hash = block.header.block_hash();
-        self.next_height += 1;
+        self.last_header = Some(block.header.clone());
         Some(block)
+    }
+
+    fn next_height(&self) -> u64 {
+        self.last_header
+            .as_ref()
+            .map_or(0, |header| header.height + 1)
     }
 
     fn verify_tx(
@@ -232,12 +237,6 @@ impl Sequencer {
             _ => Ok(()),
         }
     }
-}
-
-fn canonical_data_hash(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Hash32 {
-    let tx_bytes = serde_json::to_vec(txs).expect("transactions are serializable");
-    let receipt_bytes = serde_json::to_vec(receipts).expect("receipts are serializable");
-    hash_domain("l2.batch.data", &[&tx_bytes, &receipt_bytes])
 }
 
 #[cfg(test)]
