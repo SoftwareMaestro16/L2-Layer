@@ -108,6 +108,9 @@ TON_L2_SKILLS = {
     "The node should not hold raw TON wallet credentials for relaying/finalization; use a separate typed signer service and verify returned signer address, expiry, and BoC shape before broadcasting.",
     "Signer service actions are allowlisted typed actions: MVP supports commit_batch on `/sign-commit` and finalize_batch on `/sign-finalize`; configure L2_SIGNER_ROLLUP_ROOT_ADDRESS so a token cannot sign for an unexpected RollupRoot.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
+    "The node proof API must gate withdrawal proofs on l1_batch_finalizations.status=finalized for the containing batch; pre-finalization requests return a safe 409 instead of usable claim material.",
+    "The SDK builds Withdraw(assetId, amount, l1Recipient) L2 transactions and ClaimWithdrawal bodies from API proofs; it serializes WithdrawalMerkleProof as leafIndex:uint64, siblingsCount:uint16, and nullable Cell<WithdrawalProofChunk> refs with up to 3 siblings per chunk.",
+    "Wallet-assisted withdrawal claims should send a TON Connect raw message to RollupRoot with the generated ClaimWithdrawal BoC as base64 payload and an operator-chosen msg value.",
     "The committed withdrawalRoot is the Merkle root of ReleaseAuthorized cell representation hashes; withdrawal tree node hashes are representation hashes of a compact cell containing left uint256 then right uint256.",
     "Root-to-vault release bounces are stored in RollupRoot.failedWithdrawals without deleting claimedWithdrawals; RetryWithdrawal is permissionless and resends only stored release fields.",
     "Vault-to-recipient TON release bounces are stored in AssetVault.releaseFailures, re-credit lockedTon, and can be retried permissionlessly through RetryRelease.",
@@ -119,6 +122,7 @@ TON_L2_SKILLS = {
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
+    "SDK browser examples must not include admin bearer tokens; admin-only faucet helpers are for operator scripts or demo backends.",
     "Acton wallet metadata such as wallets.toml/global.wallets.toml and signer commands are local-only; prefer keyring or mnemonic-env and never commit mnemonic material.",
     "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit relay state, L1 batch finalization state, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],

@@ -237,6 +237,56 @@ use static safe reason codes only.
 ## Withdrawal operations
 
 After a finalized batch, users claim withdrawals through `RollupRoot.ClaimWithdrawal`.
+The public proof endpoint is intentionally finality-gated: before the related
+batch is finalized, `GET /v1/proof/withdrawal/{withdrawal_id_hex}` returns HTTP
+`409` with `withdrawal batch not finalized`.
+
+End-to-end testnet claim flow:
+
+1. Build and sign an L2 withdrawal transaction with the SDK helper:
+
+   ```ts
+   import { buildWithdrawTransaction, signTransaction } from "@ton-l2-rollup/sdk";
+
+   const unsigned = buildWithdrawTransaction({
+     chainId: "entropis-testnet",
+     from: "<l2 account id hex>",
+     nonce: 0,
+     assetId: 1,
+     amount: "100000000",
+     l1Recipient: "<recipient TON testnet address>",
+     gasLimit: 1000,
+     maxGasPrice: "1",
+   });
+   const tx = signTransaction(unsigned, keyPair);
+   ```
+
+2. Submit the transaction to `POST /v1/tx`.
+3. Wait for sequencer inclusion, batch relay confirmation, and batch
+   finalization. Operator visibility is available at
+   `GET /v1/operator/batch-relayer` and `GET /v1/operator/batch-finalizer`.
+4. Fetch the finalized withdrawal proof:
+
+   ```text
+   GET /v1/proof/withdrawal/<withdrawal_id_hex>
+   ```
+
+5. Build a `ClaimWithdrawal` body for a TON wallet, signer, or TON Connect flow:
+
+   ```ts
+   import { claimWithdrawalTonConnectMessage } from "@ton-l2-rollup/sdk";
+
+   const message = claimWithdrawalTonConnectMessage({
+     rollupRootAddress: "<RollupRoot testnet address>",
+     proof,
+     amount: "150000000",
+   });
+   ```
+
+6. Send the raw internal message body to `RollupRoot`. The root verifies the
+   `ReleaseAuthorized` leaf cell and compact Merkle proof, marks the withdrawal
+   claimed, and asks `AssetVault` to release TON to the recipient.
+
 If a root-to-vault release bounces, operators or users can inspect
 `RollupRoot.failedWithdrawal(withdrawalId)` and retry with
 `RollupRoot.RetryWithdrawal(withdrawalId)`.

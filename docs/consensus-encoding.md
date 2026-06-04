@@ -182,6 +182,18 @@ block_header     9ee765a283d11084ffb5f0819afbf866f70a3e44ca981048c5705f7dbb1417b
 account_leaf     191eda257e6182c35676db70e20e54180e2a7f9eec6cddd4ae5c72a2882f97e9
 ```
 
+Withdrawal proof vector:
+
+```text
+recipient        EQDk2VTvn04SUKJrW7rXahzdF8_Qi6utb0wj43InCu9vdjrR
+leaf_index       1
+withdrawal_id    bd99c87fa8471211c1fab534ab56b4b5f4d662ecc037f305951eef358d17fad1
+withdrawal_root  d5e8e681563ae874899124c32b8bb43072a4d95e0b05b2bf9ddda9ce9d5b62cf
+sibling_0        c0f52e7163104fbc3d88592927dd407bfb52f59366bb9ab2eaa354984bf5341e
+sibling_1        f93417c921216f9c718722963393bf14ec8183afc14559ddf07b302cabb297ac
+claim_boc_base64 te6cckEBBAEA7wACWEwyVwQAAAAAAAAACr2ZyH+oRxIRwfq1NKtWtLX01mLswDfzBZUe7zWNF/rRAQIAlUwyUga9mch/qEcSEcH6tTSrVrS19NZi7MA38wWVHu81jRf60QAAAAGAHJsqnfPpwkoUTWt3Wu1Dm6L5+hF1da3phHxuROFd7e7DkQEVAAAAAAAAAAEAAsADAMMCwPUucWMQT7w9iFkpJ91Ae/tS9ZNmu5qy6qNUmEv1NB75NBfJISFvnHGHIpYzk78U7IGDr8FFWd3wezAsq7KXrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQJY/TtE=
+```
+
 ## References
 
 - TON cells: https://docs.ton.org/blockchain-basics/primitives/serialization/cells

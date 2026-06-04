@@ -1,6 +1,7 @@
-import { Address, beginCell } from "@ton/core";
+import { Address, beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
-import { signingPayload } from "./consensus.js";
+import { deriveAccountId as deriveAccountIdFromBytes, signingPayload } from "./consensus.js";
+import * as RollupRootGenerated from "./generated/RollupRoot.gen.js";
 
 export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
 export * as RollupRootL1 from "./generated/RollupRoot.gen.js";
@@ -30,6 +31,9 @@ export type { AccountLeaf, L2BlockHeader, Receipt, WithdrawalLeaf } from "./cons
 export type Hash32 = string;
 
 export const L2_NATIVE_GAS_ASSET = 0;
+const WITHDRAWAL_PROOF_CHUNK_MAX = 3;
+
+type UIntLike = bigint | number | string;
 
 export type L2TransactionKind =
   | {
@@ -68,8 +72,102 @@ export interface SubmitTxResponse {
   tx_hash: Hash32;
 }
 
+export interface L2Account {
+  nonce: number;
+  balances: Record<string, string | number>;
+  code_hash: Hash32;
+  data_hash: Hash32;
+  storage_root: Hash32;
+  last_lt: number;
+}
+
+export interface EntFaucetResponse {
+  account_id: Hash32;
+  amount_ent: string;
+  amount_base_units: string;
+  deposit_id: Hash32;
+  granted: boolean;
+}
+
+export interface TransferTransactionParams {
+  chainId: string;
+  from: Hash32;
+  nonce: UIntLike;
+  to: Hash32;
+  assetId: UIntLike;
+  amount: UIntLike;
+  gasLimit: UIntLike;
+  maxGasPrice: UIntLike;
+}
+
+export interface WithdrawTransactionParams {
+  chainId: string;
+  from: Hash32;
+  nonce: UIntLike;
+  assetId: UIntLike;
+  amount: UIntLike;
+  l1Recipient: string;
+  gasLimit: UIntLike;
+  maxGasPrice: UIntLike;
+}
+
+export interface SigningParams {
+  keyPair: nacl.SignKeyPair;
+}
+
+export interface WithdrawalProofLeaf {
+  withdrawal_id: Hash32;
+  asset_id: number;
+  amount: string;
+  l2_sender: Hash32;
+  l1_recipient: string;
+}
+
+export interface WithdrawalMerkleProof {
+  leaf_index: number;
+  siblings: Hash32[];
+}
+
+export interface WithdrawalProofResponse {
+  block_height: number;
+  withdrawal_root: Hash32;
+  leaf: WithdrawalProofLeaf;
+  proof: WithdrawalMerkleProof;
+}
+
+export interface TonConnectMessage {
+  address: string;
+  amount: string;
+  payload: string;
+}
+
+export interface ClaimWithdrawalTonConnectMessageParams {
+  rollupRootAddress: string;
+  proof: WithdrawalProofResponse;
+  amount: UIntLike;
+}
+
+export interface DepositTonMessageParams {
+  vaultAddress: string;
+  queryId: UIntLike;
+  amount: UIntLike;
+  l2Recipient: Hash32;
+}
+
 export interface TonL2ClientOptions {
   adminToken?: string;
+}
+
+export class EntropisApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly statusText: string,
+    public readonly responseText: string,
+    public readonly publicMessage: string,
+  ) {
+    super(`Entropis API error ${status}: ${publicMessage}`);
+    this.name = "EntropisApiError";
+  }
 }
 
 export function normalizeHash32(value: string): Hash32 {
@@ -96,6 +194,66 @@ export function signTransaction(
   };
 }
 
+export function accountIdFromPublicKey(publicKey: Uint8Array | string): Hash32 {
+  const bytes = typeof publicKey === "string" ? hexToBytes(publicKey, "publicKey") : publicKey;
+  return deriveAccountIdFromBytes(bytes);
+}
+
+export function accountIdFromKeyPair(keyPair: nacl.SignKeyPair): Hash32 {
+  return accountIdFromPublicKey(keyPair.publicKey);
+}
+
+export function buildTransferTransaction(
+  params: TransferTransactionParams,
+): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  return {
+    chain_id: params.chainId,
+    from: normalizeHash32(params.from),
+    nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
+    gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
+    max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
+    kind: {
+      Transfer: {
+        to: normalizeHash32(params.to),
+        asset_id: toSafeNumber(toUint(params.assetId, "assetId", 32), "assetId"),
+        amount: toDecimalString(toPositiveUint(params.amount, "amount", 128)),
+      },
+    },
+  };
+}
+
+export function signTransferTransaction(
+  params: TransferTransactionParams & SigningParams,
+): SignedL2Transaction {
+  return signTransaction(buildTransferTransaction(params), params.keyPair);
+}
+
+export function buildWithdrawTransaction(
+  params: WithdrawTransactionParams,
+): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  parseTonAddress(params.l1Recipient);
+  return {
+    chain_id: params.chainId,
+    from: normalizeHash32(params.from),
+    nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
+    gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
+    max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
+    kind: {
+      Withdraw: {
+        asset_id: toSafeNumber(toUint(params.assetId, "assetId", 32), "assetId"),
+        amount: toDecimalString(toPositiveUint(params.amount, "amount", 120)),
+        l1_recipient: params.l1Recipient,
+      },
+    },
+  };
+}
+
+export function signWithdrawTransaction(
+  params: WithdrawTransactionParams & SigningParams,
+): SignedL2Transaction {
+  return signTransaction(buildWithdrawTransaction(params), params.keyPair);
+}
+
 export function tonDepositForwardPayload(l2Recipient: Hash32) {
   const recipient = BigInt(`0x${normalizeHash32(l2Recipient)}`);
   return beginCell().storeUint(recipient, 256).endCell();
@@ -105,26 +263,110 @@ export function jettonDepositForwardPayload(l2Recipient: Hash32) {
   return tonDepositForwardPayload(l2Recipient);
 }
 
-export function encodeDepositTonBody(queryId: bigint, amount: bigint, l2Recipient: Hash32) {
+export function encodeDepositTonBody(queryId: UIntLike, amount: UIntLike, l2Recipient: Hash32) {
   return beginCell()
     .storeUint(0x4c324405, 32)
-    .storeUint(queryId, 64)
-    .storeCoins(amount)
+    .storeUint(toUint(queryId, "queryId", 64), 64)
+    .storeCoins(toPositiveUint(amount, "amount", 120))
     .storeUint(BigInt(`0x${normalizeHash32(l2Recipient)}`), 256)
     .endCell();
 }
 
+export function depositTonTonConnectMessage(params: DepositTonMessageParams): TonConnectMessage {
+  parseTonAddress(params.vaultAddress);
+  const amount = toPositiveUint(params.amount, "amount", 120);
+  const body = encodeDepositTonBody(params.queryId, amount, params.l2Recipient);
+  return {
+    address: params.vaultAddress,
+    amount: toDecimalString(amount),
+    payload: body.toBoc().toString("base64"),
+  };
+}
+
+export function releaseAuthorizedCell(leaf: WithdrawalProofLeaf): Cell {
+  normalizeHash32(leaf.l2_sender);
+  return RollupRootGenerated.ReleaseAuthorized.toCell(
+    RollupRootGenerated.ReleaseAuthorized.create({
+      withdrawalId: hashToUint256(leaf.withdrawal_id, "withdrawal_id"),
+      assetId: toUint(leaf.asset_id, "asset_id", 32),
+      recipient: parseTonAddress(leaf.l1_recipient),
+      amount: toUint(leaf.amount, "amount", 120),
+    }),
+  );
+}
+
+export function withdrawalMerkleProofCell(proof: WithdrawalMerkleProof): Cell {
+  const siblings = proof.siblings.map((sibling, index) =>
+    hashToUint256(sibling, `siblings[${index}]`),
+  );
+  if (siblings.length >= 1 << 16) {
+    throw new Error("withdrawal proof has too many siblings");
+  }
+
+  const groups: bigint[][] = [];
+  for (let offset = 0; offset < siblings.length; offset += WITHDRAWAL_PROOF_CHUNK_MAX) {
+    groups.push(siblings.slice(offset, offset + WITHDRAWAL_PROOF_CHUNK_MAX));
+  }
+
+  let next: Cell | null = null;
+  for (let i = groups.length - 1; i >= 0; i -= 1) {
+    next = withdrawalProofChunkCell(groups[i], next);
+  }
+
+  const builder = beginCell()
+    .storeUint(toUint(proof.leaf_index, "leaf_index", 64), 64)
+    .storeUint(siblings.length, 16);
+  if (next) {
+    builder.storeBit(true).storeRef(next);
+  } else {
+    builder.storeBit(false);
+  }
+  return builder.endCell();
+}
+
+export function buildClaimWithdrawalBody(proof: WithdrawalProofResponse): Cell {
+  normalizeHash32(proof.withdrawal_root);
+  const blockHeight = toUint(proof.block_height, "block_height", 64);
+  const batchNo = blockHeight + 1n;
+  if (batchNo >= (1n << 64n)) {
+    throw new Error("batchNo exceeds uint64");
+  }
+
+  return RollupRootGenerated.RollupRoot.createCellOfClaimWithdrawal({
+    batchNo,
+    withdrawalId: hashToUint256(proof.leaf.withdrawal_id, "withdrawal_id"),
+    withdrawalLeaf: releaseAuthorizedCell(proof.leaf),
+    merkleProof: withdrawalMerkleProofCell(proof.proof),
+  });
+}
+
+export function claimWithdrawalTonConnectMessage(
+  params: ClaimWithdrawalTonConnectMessageParams,
+): TonConnectMessage {
+  const body = buildClaimWithdrawalBody(params.proof);
+  parseTonAddress(params.rollupRootAddress);
+  return {
+    address: params.rollupRootAddress,
+    amount: toDecimalString(toPositiveUint(params.amount, "amount", 120)),
+    payload: body.toBoc().toString("base64"),
+  };
+}
+
 export class TonL2Client {
+  public readonly baseUrl: string;
+
   constructor(
-    public readonly baseUrl: string,
+    baseUrl: string,
     private readonly options: TonL2ClientOptions = {},
-  ) {}
+  ) {
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
 
   async submitTx(tx: SignedL2Transaction): Promise<SubmitTxResponse> {
     return this.postJson("/v1/tx", tx);
   }
 
-  async getAccount(accountId: Hash32): Promise<unknown> {
+  async getAccount(accountId: Hash32): Promise<L2Account> {
     return this.getJson(`/v1/account/${normalizeHash32(accountId)}`);
   }
 
@@ -132,7 +374,7 @@ export class TonL2Client {
     return this.getJson(`/v1/block/${height}`);
   }
 
-  async getWithdrawalProof(withdrawalId: Hash32): Promise<unknown> {
+  async getWithdrawalProof(withdrawalId: Hash32): Promise<WithdrawalProofResponse> {
     return this.getJson(`/v1/proof/withdrawal/${normalizeHash32(withdrawalId)}`);
   }
 
@@ -140,10 +382,28 @@ export class TonL2Client {
     await this.postJson<void>("/v1/admin/deposit", deposit, { admin: true });
   }
 
+  async requestEntFaucet(accountId: Hash32): Promise<EntFaucetResponse> {
+    return this.postJson("/v1/admin/faucet/ent", { account_id: normalizeHash32(accountId) }, {
+      admin: true,
+    });
+  }
+
+  async submitSignedTransfer(
+    params: TransferTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signTransferTransaction(params));
+  }
+
+  async submitSignedWithdraw(
+    params: WithdrawTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signWithdrawTransaction(params));
+  }
+
   private async getJson<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`);
     if (!response.ok) {
-      throw new Error(`L2 API error ${response.status}: ${await response.text()}`);
+      throw await apiError(response);
     }
     return response.json() as Promise<T>;
   }
@@ -168,7 +428,7 @@ export class TonL2Client {
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(`L2 API error ${response.status}: ${text}`);
+      throw apiErrorFromText(response, text);
     }
     if (!text) {
       return undefined as T;
@@ -177,6 +437,106 @@ export class TonL2Client {
   }
 }
 
+export class EntropisClient extends TonL2Client {}
+
 export function parseTonAddress(value: string): Address {
   return Address.parse(value);
+}
+
+function withdrawalProofChunkCell(siblings: bigint[], next: Cell | null): Cell {
+  const padded = [0n, 0n, 0n];
+  siblings.forEach((sibling, index) => {
+    padded[index] = sibling;
+  });
+
+  const builder = beginCell()
+    .storeUint(siblings.length, 8)
+    .storeUint(padded[0], 256)
+    .storeUint(padded[1], 256)
+    .storeUint(padded[2], 256);
+  if (next) {
+    builder.storeBit(true).storeRef(next);
+  } else {
+    builder.storeBit(false);
+  }
+  return builder.endCell();
+}
+
+function hashToUint256(value: Hash32, field: string): bigint {
+  try {
+    return BigInt(`0x${normalizeHash32(value)}`);
+  } catch {
+    throw new Error(`${field} must be a 32-byte hex string`);
+  }
+}
+
+function toUint(value: UIntLike, field: string, bits: number): bigint {
+  const parsed = parseUint(value, field);
+  if (parsed >= (1n << BigInt(bits))) {
+    throw new Error(`${field} exceeds uint${bits}`);
+  }
+  return parsed;
+}
+
+function toPositiveUint(value: UIntLike, field: string, bits: number): bigint {
+  const parsed = toUint(value, field, bits);
+  if (parsed === 0n) {
+    throw new Error(`${field} must be non-zero`);
+  }
+  return parsed;
+}
+
+function parseUint(value: UIntLike, field: string): bigint {
+  if (typeof value === "bigint") {
+    if (value < 0n) {
+      throw new Error(`${field} must be non-negative`);
+    }
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${field} must be a non-negative safe integer`);
+    }
+    return BigInt(value);
+  }
+  if (!/^[0-9]+$/.test(value)) {
+    throw new Error(`${field} must be an unsigned decimal integer`);
+  }
+  return BigInt(value);
+}
+
+function toSafeNumber(value: bigint, field: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${field} exceeds JavaScript safe integer range`);
+  }
+  return Number(value);
+}
+
+function toDecimalString(value: bigint): string {
+  return value.toString(10);
+}
+
+function hexToBytes(value: string, field: string): Uint8Array {
+  const cleaned = value.startsWith("0x") ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]+$/.test(cleaned) || cleaned.length % 2 !== 0) {
+    throw new Error(`${field} must be hex`);
+  }
+  return Buffer.from(cleaned, "hex");
+}
+
+async function apiError(response: Response): Promise<EntropisApiError> {
+  return apiErrorFromText(response, await response.text());
+}
+
+function apiErrorFromText(response: Response, text: string): EntropisApiError {
+  let publicMessage = text || response.statusText || "request failed";
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    if (typeof parsed.error === "string" && parsed.error.length > 0) {
+      publicMessage = parsed.error;
+    }
+  } catch {
+    // Keep non-JSON provider or proxy text as the public message.
+  }
+  return new EntropisApiError(response.status, response.statusText, text, publicMessage);
 }
