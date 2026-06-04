@@ -1,5 +1,9 @@
 # Local Run
 
+For the full public TON testnet launch sequence, use
+`docs/testnet-launch-runbook.md`. This file is the lower-level local operator
+reference.
+
 ## Rust node
 
 Create a local secrets file from the tracked template:
