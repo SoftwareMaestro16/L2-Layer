@@ -35,6 +35,9 @@ __pycache__/
 keys/
 secrets/
 wallets/
+wallets.toml
+global.wallets.toml
+libraries.toml
 
 # Local Codex skills
 /.codex/skills/cosmos-vulnerability-scanner/

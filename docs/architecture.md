@@ -103,6 +103,12 @@ v3 `/message`. The node stores `pending`, `submitted`, `confirmed`, or `failed`
 status per batch and uses bounded retries to avoid a retry storm during TON API,
 signer, or DA backend failures.
 
+The signer service is a separate process with typed action requests. The MVP
+caller path supports `commit_batch`; the same schema reserves typed
+deploy/finalize/claim/retry actions without exposing a raw-payload signing API.
+The relayer rejects mismatched signer addresses, expired responses, and malformed
+BoCs before Toncenter broadcast. See `docs/testnet-signer-service.md`.
+
 ## Fraud and Challenge Roadmap
 
 Challenge support is a planned L1/L2 boundary. A challenger replays canonical DA

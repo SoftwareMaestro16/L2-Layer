@@ -141,10 +141,17 @@ Actions:
 - Check `last_error` for the failed batch.
 - If `batch data unavailable`, inspect DA payload storage before retry.
 - If `commit signer failed`, check signer service health and sender address.
+- If `commit signer response expired`, check signer clock sync and valid-until
+  policy before retry.
+- If `signed boc malformed`, check the signer command output and do not broadcast
+  the BoC manually.
 - If `ton provider send failed`, check Toncenter and retry backoff.
 
 Relayer errors must remain static safe reason strings. Do not store raw provider
 responses with secrets in `last_error`.
+
+Signer setup and dry-run signing are documented in
+`docs/testnet-signer-service.md`.
 
 ### Withdrawal Release Failures
 

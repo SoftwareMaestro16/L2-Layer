@@ -39,7 +39,7 @@ PATTERNS = [
     (
         "non-placeholder env secret",
         re.compile(
-            r"\b(?:TONCENTER_API_KEY|TONAPI_KEY|L2_ADMIN_TOKEN|L1_COMMIT_SIGNER_TOKEN)"
+            r"\b(?:TONCENTER_API_KEY|TONAPI_KEY|L2_ADMIN_TOKEN|L1_COMMIT_SIGNER_TOKEN|L2_SIGNER_TOKEN)"
             r"\s*=\s*([^\s]+)",
         ),
     ),
