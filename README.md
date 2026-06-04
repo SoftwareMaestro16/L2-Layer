@@ -5,6 +5,25 @@ It is intentionally TON/TVM-oriented: L1 settlement contracts are written in Tol
 the off-chain system models TON-style async execution, canonical hashes, L1 deposits,
 state-root commitments, and finalized withdrawal proofs.
 
+## How Entropis L2 Works
+
+```mermaid
+flowchart TB
+  User["User / Wallet"] --> SDK["TypeScript SDK"]
+  SDK --> API["L2 API"]
+  API --> Mempool["Redis Mempool"]
+  Mempool --> Sequencer["Rust Sequencer"]
+  Indexer["TON Indexer"] --> Sequencer
+  Sequencer --> Executor["TVM / Tolk Executor"]
+  Executor --> State["L2 State DB + Merkle Root"]
+  Sequencer --> DA["Batch Data Availability"]
+  Sequencer --> Relayer["L1 Relayer"]
+  Relayer --> Root["RollupRoot.tolk"]
+  User --> Vault["AssetVault.tolk"]
+  Root --> Vault
+  Vault --> Indexer
+```
+
 ## Layout
 
 - `crates/l2-core`: Rust L2 state model, Merkle hashing, sequencer, mempool, executor boundary, and tests.

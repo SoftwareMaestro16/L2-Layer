@@ -33,6 +33,9 @@ keys/
 secrets/
 wallets/
 
+# Local Codex skills
+/.codex/skills/cosmos-vulnerability-scanner/
+
 # TON / Acton local state and generated artifacts
 /.acton/
 /build/
