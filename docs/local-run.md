@@ -90,17 +90,14 @@ and current failed withdrawal visibility.
 Use `docs/operator-runbooks.md` for common failure handling, alert thresholds, and
 log safety rules.
 
-## Static dashboard
+## Explorer and operator checks
 
-The optional dashboard is a static frontend in `dashboard/`. Open
-`dashboard/index.html` and point the API field at the node URL. Public panels use
-only public API endpoints. The operator panel asks for the admin bearer token at
-runtime, keeps it only in memory, and can read readiness, failure, relayer, and
-finalizer views.
+Use the public and operator API endpoints directly from this L2 repository. Any
+optional static frontend belongs outside the tracked L2 product tree, for example
+under ignored local `ecosystem/` workspace files.
 
-Contract links are loaded from a deployment registry URL when one exists, for
-example `deployments/testnet/entropis.json`. The dashboard turns RollupRoot and
-AssetVault registry addresses into Tonviewer Testnet links.
+Contract links can be built from a deployment registry URL when one exists, for
+example `deployments/testnet/entropis.json`, and opened in Tonviewer Testnet.
 
 ## Mempool admission limits
 

@@ -106,7 +106,7 @@ Operational secrets:
 - Public DA filesystem mode improves retrievability but is not a censorship-resistant DA network.
 - `CallContract` remains fail-closed until the real TVM adapter is integrated; future adapter work needs a separate nondeterminism and resource-limit audit.
 - Admin and operator endpoints rely on bearer tokens and deployment topology. Do not expose them publicly without an authenticated reverse proxy.
-- `CorsLayer::permissive()` is acceptable for the local/static dashboard prototype only while admin tokens are never stored in browser bundles or local storage.
+- `CorsLayer::permissive()` is acceptable for local browser tooling only while admin tokens are never stored in browser bundles or local storage.
 - Permissionless finalization is intentional for the optimistic MVP, but challenge logic must revisit it before production withdrawals.
 - TSA symbolic analysis was not required to validate the resolved Rust/indexer findings; if TSA is available in CI, add `RollupRoot` and `AssetVault` drain/bounce checks as a later quality gate.
 

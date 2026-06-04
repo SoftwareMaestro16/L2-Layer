@@ -40,7 +40,7 @@ flowchart LR
   Wallet -->|"ClaimWithdrawal"| Root
   Root -->|"ReleaseAuthorized"| Vault
   Vault -->|"TON release"| Wallet
-  Dashboard["dashboard/index.html"] --> API
+  Operator["operator curl / explorer API checks"] --> API
 ```
 
 The sequencer is trusted in this MVP. Fraud proofs are not implemented on L1;
@@ -59,7 +59,8 @@ availability.
 - A separate funded TON testnet sequencer signer wallet.
 - An external signer service started from `cargo run -p l2-node --bin l2-signer`.
 - Optional public DA filesystem gateway when `DA_PUBLIC_BACKEND=filesystem`.
-- Optional static dashboard from `dashboard/index.html`.
+- Optional explorer UI outside the tracked L2 tree. The launch path in this repo
+  uses API and operator endpoint checks directly.
 
 ## Registry And Public Metadata
 
@@ -67,7 +68,7 @@ Runtime secrets and local deployment output stay untracked. Use
 `docs/testnet-l1-deployment.md` to create ignored deployment output at
 `build/testnet-l1-deployment.json`.
 
-The public registry reference for dashboards and docs is:
+The public registry reference for docs and operator tooling is:
 
 ```text
 deployments/testnet/entropis.json
@@ -75,8 +76,8 @@ deployments/testnet/entropis.json
 
 The current guard policy treats `deployments/` as local artifact space. If the
 registry is promoted to tracked source later, first update the artifact guard and
-document the policy change. Until then, operators can point the dashboard registry
-field at a locally served copy containing only public metadata:
+document the policy change. Until then, operators can serve a local copy
+containing only public metadata:
 
 - `rollupRoot` and `assetVault`
 - deployed code hashes
@@ -121,7 +122,7 @@ placeholders:
 | `DA_PUBLIC_BASE_URL` | public base URL for filesystem DA, if used |
 
 Secret-only values must not appear in public docs, screenshots, logs, registry
-files, or dashboard bundles:
+files, or browser bundles:
 
 - `TONCENTER_API_KEY`
 - `TONAPI_KEY`
@@ -170,8 +171,8 @@ Use this matrix as the go/no-go checklist. A public demo is not ready until ever
 | L1 deployment | Root and vault getter readback matches registry addresses, sequencer, challenge window, TON asset id, decimals, and unpaused state | `docs/testnet-l1-deployment.md` verify command |
 | Runtime config | Node starts with `TON_NETWORK=testnet`; mainnet endpoints rejected; secrets only in `.env.local` | `/readyz`, config validation tests |
 | Signer | Commit and finalize dry-runs return expected signer address and reject wrong-route actions | `docs/testnet-signer-service.md`, signer tests |
-| Public API | `/healthz`, `/readyz`, explorer endpoints, account/tx/block reads, DA reads respond safely | curl/dashboard |
-| Admin API | Operator endpoints require bearer auth; admin token is not in dashboard bundle, registry, or logs | curl negative test |
+| Public API | `/healthz`, `/readyz`, explorer endpoints, account/tx/block reads, DA reads respond safely | curl/API checks |
+| Admin API | Operator endpoints require bearer auth; admin token is not in browser bundles, registry, or logs | curl negative test |
 | Demo flow | Faucet, TON deposit, L2 transfer, commit, finalization, withdrawal proof, and claim/release complete once | SDK example plus Tonviewer/Toncenter hashes |
 | DA | Payload is retrievable by height and by `height + dataHash`; corrupted/missing DA is reported before signing | `/v1/da/batch/*`, relayer status |
 | Observer | Replay of supplied commitments from DA succeeds or reports first divergence without local block JSON trust | `/v1/operator/observer/replay` |
@@ -226,7 +227,7 @@ cargo run -p l2-node --bin l2-signer
 cargo run -p l2-node
 ```
 
-If Postgres, Redis, signer, node, and dashboard are run by a process manager
+If Postgres, Redis, signer, and node are run by a process manager
 instead of terminals, preserve the same start order and health checks. The clean
 operator rehearsal is blocked, not failed, when funded testnet wallets,
 `build/testnet-l1-deployment.json`, registry metadata, or provider API keys are
@@ -269,8 +270,13 @@ not available in the clean environment.
 
     Operator endpoints require `Authorization: Bearer <L2_ADMIN_TOKEN>`.
 
-12. Open `dashboard/index.html`, set the API URL, and point the registry field at
-    the public or locally served registry JSON.
+12. Verify public explorer and operator status directly through API endpoints:
+
+    ```text
+    GET /v1/explorer/blocks
+    GET /v1/explorer/txs
+    GET /v1/operator/metrics
+    ```
 
 The block producer is spawned by `l2-node` and runs automatically. The deposit
 indexer, relayer, and finalizer are enabled only by environment variables at node
@@ -470,8 +476,8 @@ Withdrawal retry procedures:
 - `CallContract` remains fail-closed until the real TVM adapter is integrated.
 - ENT faucet is admin-only and intended for demos.
 - Admin/operator endpoints rely on bearer auth and deployment topology.
-- CORS is permissive for the static dashboard prototype; keep admin tokens out of
-  browser bundles and storage.
+- CORS is permissive for local browser tooling; keep admin tokens out of browser
+  bundles and storage.
 - Jetton bridge flows need separate public testnet asset hardening before they
   are part of the default launch demo.
 
