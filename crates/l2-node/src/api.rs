@@ -1,4 +1,5 @@
 use crate::config::NodeConfig;
+use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
 use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
@@ -36,6 +37,7 @@ use test_support::test_config;
 pub struct AppState {
     sequencer: Arc<RwLock<Sequencer>>,
     storage: DynStorage,
+    da: DynDa,
     mempool: MempoolService,
     ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
@@ -49,6 +51,10 @@ impl AppState {
         storage: DynStorage,
         mempool: MempoolService,
     ) -> Result<Self, FaucetError> {
+        let da = Arc::new(StorageDaStore::new(
+            storage.clone(),
+            DataAvailabilityConfig::from_node_config(config),
+        ));
         Ok(Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
                 chain_id: config.chain_id.clone(),
@@ -56,6 +62,7 @@ impl AppState {
                 ..SequencerConfig::default()
             }))),
             storage,
+            da,
             mempool,
             ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
@@ -66,9 +73,15 @@ impl AppState {
 
     #[cfg(test)]
     fn test(admin_token: Option<&str>) -> Self {
+        let storage: DynStorage = Arc::new(crate::storage::InMemoryStorage::default());
+        let da = Arc::new(StorageDaStore::new(
+            storage.clone(),
+            DataAvailabilityConfig::from_node_config(&test_config()),
+        ));
         Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig::default()))),
-            storage: Arc::new(crate::storage::InMemoryStorage::default()),
+            storage,
+            da,
             mempool: MempoolService::new(
                 "entropis-testnet",
                 Arc::new(crate::mempool::MemoryMempoolStore::default()),
@@ -89,7 +102,7 @@ pub async fn serve(
     let state = AppState::new(&config, storage, mempool)?;
     spawn_block_producer(state.clone());
     spawn_deposit_indexer(&config, state.clone());
-    spawn_batch_relayer(&config, state.storage.clone());
+    spawn_batch_relayer(&config, state.storage.clone(), state.da.clone());
 
     let app = build_router(state);
 
@@ -277,7 +290,7 @@ fn spawn_deposit_indexer(config: &NodeConfig, state: AppState) {
     });
 }
 
-fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage) {
+fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage, da: DynDa) {
     let Some(relayer_config) = BatchRelayerConfig::from_node_config(config) else {
         return;
     };
@@ -290,6 +303,7 @@ fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage) {
     let relayer = BatchRelayer::new(
         relayer_config,
         storage,
+        da,
         signer,
         ToncenterCommitProvider::from_config(config),
     );
@@ -343,6 +357,13 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
         height = block.header.height,
         state_root = %block.header.state_root,
         "produced l2 block"
+    );
+    let da_ref = state.da.write_batch_payload(&block).await?;
+    tracing::info!(
+        height = da_ref.block_height,
+        data_hash = %da_ref.data_hash,
+        payload_bytes = da_ref.payload_size,
+        "published l2 batch data"
     );
     state.storage.save_block(block.clone()).await?;
     Ok(Some(block))

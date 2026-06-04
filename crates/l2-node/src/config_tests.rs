@@ -63,6 +63,7 @@ fn valid_entropis_testnet_config_loads() {
     assert_eq!(config.mempool_nonce_lock_ttl_secs, 300);
     assert_eq!(config.mempool_max_global_queue, 10_000);
     assert_eq!(config.mempool_max_account_queue, 64);
+    assert_eq!(config.da_max_payload_bytes, DEFAULT_DA_MAX_PAYLOAD_BYTES);
     assert_eq!(
         config.executor_gas_schedule,
         l2_core::GasSchedule::default()
@@ -182,6 +183,25 @@ fn config_validates_l1_batch_relayer_settings() {
         config.l1_sequencer_sender_address.as_deref(),
         Some("EQsequencer")
     );
+}
+
+#[test]
+fn config_validates_da_limits() {
+    let mut env = valid_env();
+    env.insert("DA_MAX_PAYLOAD_BYTES".to_owned(), "4096".to_owned());
+    let config = load_from(&env).expect("da config");
+    assert_eq!(config.da_max_payload_bytes, 4096);
+
+    let mut env = valid_env();
+    env.insert("DA_MAX_PAYLOAD_BYTES".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert(
+        "DA_MAX_PAYLOAD_BYTES".to_owned(),
+        (129 * 1024 * 1024).to_string(),
+    );
+    assert!(load_from(&env).is_err());
 }
 
 #[test]

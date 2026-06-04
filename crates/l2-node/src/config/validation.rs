@@ -47,6 +47,7 @@ impl NodeConfig {
         }
         self.validate_l1_indexer()?;
         self.validate_l1_relayer()?;
+        self.validate_da()?;
         self.validate_mempool()?;
         self.executor_gas_schedule
             .validate()
@@ -128,6 +129,16 @@ impl NodeConfig {
             return Err(anyhow!(
                 "L1_BATCH_RELAYER_MAX_ATTEMPTS must be between 1 and 100"
             ));
+        }
+        Ok(())
+    }
+
+    fn validate_da(&self) -> anyhow::Result<()> {
+        if self.da_max_payload_bytes == 0 {
+            return Err(anyhow!("DA_MAX_PAYLOAD_BYTES must be non-zero"));
+        }
+        if self.da_max_payload_bytes > 128 * 1024 * 1024 {
+            return Err(anyhow!("DA_MAX_PAYLOAD_BYTES must not exceed 128 MiB"));
         }
         Ok(())
     }

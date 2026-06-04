@@ -11,7 +11,8 @@ pub mod types;
 pub mod withdrawal;
 
 pub use batch::{
-    canonical_batch_data_hash, BatchBuildError, BatchBuildInput, BatchBuilder, BatchDataPayload,
+    canonical_batch_data_bytes, canonical_batch_data_hash, BatchBuildError, BatchBuildInput,
+    BatchBuilder, BatchDataPayload,
 };
 pub use crypto::{derive_account_id, verify_signature, Hash32};
 pub use executor::{DeterministicExecutor, ExecutionConfig, ExecutionOutcome};

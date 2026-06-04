@@ -38,6 +38,21 @@ API and storage presentation, but not for transaction hashes, receipt leaves,
 withdrawal leaves, account leaves, block headers, Merkle nodes, or batch data
 commitments. The byte layout is documented in `docs/consensus-encoding.md`.
 
+## Data Availability
+
+Batch DA is a separate `l2-node` boundary, not part of sequencer execution. The
+sequencer builds a block with `data_hash = hash(canonical_batch_data_bytes)`, then
+the node writes those canonical bytes through `DaWriter` before the block is saved
+as pending for L1 relay. The MVP backend is Postgres via `StorageDaStore`; the
+trait split (`DaWriter`, `DaReader`, `DaVerifier`) is intentionally compatible
+with future TON Storage or external DA providers.
+
+The relayer calls `DaVerifier` before asking the signer service for a `CommitBatch`
+BoC. Missing data, block-hash mismatch, data-hash mismatch, corrupted partial
+payloads, or payloads above `DA_MAX_PAYLOAD_BYTES` fail closed and do not reach
+the signer or Toncenter provider. This MVP only proves retrievability from the
+configured DA backend; it does not yet prove public availability from TON Storage.
+
 ## Gas Coin
 
 Asset id `0` is the L2-native gas coin. Deposits can credit any asset id, but all
@@ -77,10 +92,11 @@ cursor; temporary TON API failures are logged and do not block block production.
 Each persisted L2 block creates a pending `l1_batch_commits` row. The relayer
 maps block height `0` to RollupRoot batch number `1`, forms `BatchRootsA`
 (`prevStateRoot`, `stateRoot`, `txRoot`) and `BatchRootsB` (`receiptRoot`,
-`withdrawalRoot`, `dataHash`), asks the sequencer signer service for a signed
-external message BoC, and sends that BoC to Toncenter v3 `/message`. The node
-stores `pending`, `submitted`, `confirmed`, or `failed` status per batch and
-uses bounded retries to avoid a retry storm during TON API or signer failures.
+`withdrawalRoot`, `dataHash`), verifies DA retrievability, asks the sequencer
+signer service for a signed external message BoC, and sends that BoC to Toncenter
+v3 `/message`. The node stores `pending`, `submitted`, `confirmed`, or `failed`
+status per batch and uses bounded retries to avoid a retry storm during TON API,
+signer, or DA backend failures.
 
 ## Withdrawal Bounce Recovery
 

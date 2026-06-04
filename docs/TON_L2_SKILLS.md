@@ -74,6 +74,7 @@ TON_L2_SKILLS = {
     "Optimistic rollups move execution and state storage off-chain, batch transactions, and commit roots/data commitments to L1.",
     "Security requires data availability sufficient for independent re-execution and future fraud proofs.",
     "For TON, L1 stores compact batch commitments: prevStateRoot, stateRoot, txRoot, receiptRoot, withdrawalRoot, dataHash, timestamp, finalized flag.",
+    "Entropis DA stores canonical BatchData bytes, not JSON; relayer must verify retrievability and hash/block binding before asking a signer to submit CommitBatch.",
     "DA can start as external/Ton Storage-backed data referenced by dataHash, but production fraud proofs require reliable retrievability and challenge rules.",
     "The MVP is optimistic/trusted-sequencer until challenge verification is implemented."
   ],

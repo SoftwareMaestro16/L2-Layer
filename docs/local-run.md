@@ -54,7 +54,8 @@ Authorization: Bearer <L2_ADMIN_TOKEN>
 ```
 
 Postgres migrations run on startup and create tables for blocks, transactions,
-receipts, deposits, withdrawals, L1 cursors, and ENT faucet grants.
+receipts, deposits, withdrawals, L1 cursors, batch DA payloads, and ENT faucet
+grants.
 
 The ENT faucet is L2-native only in this phase. It grants `ENT_FAUCET_AMOUNT`
 whole ENT per account, converted with `ENT_DECIMALS=9`, and requires the admin
@@ -121,6 +122,22 @@ BoC. Valid calls currently reach the noop TVM adapter and are rejected with
 `tvm_adapter_not_implemented`; malformed BoCs are rejected earlier with
 `malformed_boc`. The real adapter must run locally or in an isolated deterministic
 worker boundary and must not call external networks from the sequencer path.
+
+## Data availability
+
+The MVP stores canonical batch payload bytes in Postgres before saving a block as
+pending for L1 relay:
+
+```text
+DA_MAX_PAYLOAD_BYTES=8388608
+```
+
+The payload is the consensus `BatchData` bytes, not JSON. `data_hash` in the L2
+block header is derived from those bytes. Before a batch is submitted to
+`RollupRoot`, the relayer reads the payload back and rejects missing, corrupted,
+partial, oversized, or wrong-block payloads without calling the signer or TON
+provider. Future TON Storage support should implement the same `DaWriter`,
+`DaReader`, and `DaVerifier` boundaries.
 
 ## TON deposit indexer
 

@@ -67,6 +67,7 @@ impl fmt::Debug for NodeConfig {
                 "l1_batch_relayer_max_attempts",
                 &self.l1_batch_relayer_max_attempts,
             )
+            .field("da_max_payload_bytes", &self.da_max_payload_bytes)
             .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
             .field(
                 "mempool_nonce_lock_ttl_secs",

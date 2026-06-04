@@ -1,3 +1,4 @@
+use crate::da::DaError;
 use crate::faucet::FaucetError;
 use crate::mempool::MempoolError;
 use crate::storage::StorageError;
@@ -58,6 +59,13 @@ impl From<StorageError> for ApiError {
     fn from(error: StorageError) -> Self {
         tracing::error!(?error, "storage error");
         Self::internal("storage error")
+    }
+}
+
+impl From<DaError> for ApiError {
+    fn from(error: DaError) -> Self {
+        tracing::error!(?error, "data availability error");
+        Self::internal("data availability error")
     }
 }
 

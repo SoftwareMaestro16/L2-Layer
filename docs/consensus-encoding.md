@@ -136,6 +136,8 @@ receipts:vector<bytes(encode_receipt)>
 Signed transaction is used only for batch DA commitments and includes the unsigned
 transaction body plus `public_key:optional<string>` and `signature:optional<string>`.
 The transaction hash and signature payload use only unsigned transaction bytes.
+The raw `BatchData` bytes are stored in the DA backend and `data_hash` is
+`hash_domain("l2.batch.data.v1", [BatchData bytes])`.
 
 ## Hash Domains
 

@@ -1,4 +1,5 @@
 use crate::config::{NodeConfig, SecretString};
+use crate::da::{DaError, DynDa};
 use crate::storage::{BatchCommitRecord, BatchCommitStatus, DynStorage, StorageError};
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD};
@@ -261,15 +262,23 @@ struct ToncenterTransactionsByMessageResponse {
 pub struct BatchRelayer<S, P> {
     config: BatchRelayerConfig,
     storage: DynStorage,
+    da: DynDa,
     signer: S,
     provider: P,
 }
 
 impl<S, P> BatchRelayer<S, P> {
-    pub fn new(config: BatchRelayerConfig, storage: DynStorage, signer: S, provider: P) -> Self {
+    pub fn new(
+        config: BatchRelayerConfig,
+        storage: DynStorage,
+        da: DynDa,
+        signer: S,
+        provider: P,
+    ) -> Self {
         Self {
             config,
             storage,
+            da,
             signer,
             provider,
         }
@@ -351,6 +360,25 @@ where
                 .await?;
             return Ok(SubmitOutcome::Failed);
         }
+        let da_ref = match self.da.verify_batch_payload(&block).await {
+            Ok(da_ref) => da_ref,
+            Err(error) => {
+                tracing::warn!(
+                    ?error,
+                    batch_no = record.batch_no,
+                    "batch DA verification failed"
+                );
+                self.mark_failed(&mut record, "batch data unavailable")
+                    .await?;
+                return Ok(SubmitOutcome::Failed);
+            }
+        };
+        tracing::debug!(
+            batch_no = record.batch_no,
+            data_hash = %da_ref.data_hash,
+            payload_bytes = da_ref.payload_size,
+            "batch DA verified before L1 commit"
+        );
 
         let request = CommitBatchSignRequest {
             rollup_root_address: self.config.rollup_root_address.clone(),
@@ -426,6 +454,8 @@ pub enum RelayerError {
     Validation(&'static str),
     #[error("storage failed: {0}")]
     Storage(#[from] StorageError),
+    #[error("data availability failed: {0}")]
+    DataAvailability(#[from] DaError),
     #[error("ton relayer HTTP request failed")]
     Http(#[from] reqwest::Error),
     #[error("ton relayer decoding failed: {0}")]

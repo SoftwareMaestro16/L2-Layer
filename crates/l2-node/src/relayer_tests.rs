@@ -1,4 +1,5 @@
 use super::*;
+use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
 use crate::storage::{BatchCommitStatus, DynStorage, InMemoryStorage};
 use l2_core::crypto::sha256_bytes;
 use std::sync::Arc;
@@ -29,10 +30,16 @@ fn commitment_maps_block_header_to_rollup_roots() {
 
 #[tokio::test]
 async fn relay_submits_pending_block_and_stores_submitted_status() {
-    let storage = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
     let signer = MockSigner::ok("EQsequencer");
     let provider = MockProvider::ok(hash(0x44));
-    let relayer = BatchRelayer::new(config(), storage.clone(), signer.clone(), provider.clone());
+    let relayer = BatchRelayer::new(
+        config(),
+        storage.clone(),
+        da,
+        signer.clone(),
+        provider.clone(),
+    );
 
     let stats = relayer.relay_once().await.expect("relay");
 
@@ -47,10 +54,10 @@ async fn relay_submits_pending_block_and_stores_submitted_status() {
 
 #[tokio::test]
 async fn submitted_batch_is_not_sent_twice_and_can_confirm() {
-    let storage = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
     let signer = MockSigner::ok("EQsequencer");
     let provider = MockProvider::ok(hash(0x44));
-    let relayer = BatchRelayer::new(config(), storage.clone(), signer, provider.clone());
+    let relayer = BatchRelayer::new(config(), storage.clone(), da, signer, provider.clone());
 
     relayer.relay_once().await.expect("submit");
     let second = relayer.relay_once().await.expect("confirm");
@@ -66,12 +73,12 @@ async fn submitted_batch_is_not_sent_twice_and_can_confirm() {
 
 #[tokio::test]
 async fn failed_send_retries_until_max_attempts() {
-    let storage = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
     let signer = MockSigner::ok("EQsequencer");
     let provider = MockProvider::failing_send();
     let mut config = config();
     config.max_attempts = 2;
-    let relayer = BatchRelayer::new(config, storage.clone(), signer, provider.clone());
+    let relayer = BatchRelayer::new(config, storage.clone(), da, signer, provider.clone());
 
     assert_eq!(relayer.relay_once().await.unwrap().failed, 1);
     assert_eq!(relayer.relay_once().await.unwrap().failed, 1);
@@ -85,10 +92,11 @@ async fn failed_send_retries_until_max_attempts() {
 
 #[tokio::test]
 async fn bad_signer_sender_is_rejected_before_provider_send() {
-    let storage = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
     let relayer = BatchRelayer::new(
         config(),
         storage.clone(),
+        da,
         MockSigner::ok("EQattacker"),
         MockProvider::ok(hash(0x44)),
     );
@@ -107,13 +115,19 @@ async fn bad_signer_sender_is_rejected_before_provider_send() {
 
 #[tokio::test]
 async fn block_hash_mismatch_fails_without_sending() {
-    let storage = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
     let mut record = storage.get_batch_commit(1).await.unwrap().unwrap();
     record.block_hash = hash(0x99);
     storage.save_batch_commit(record).await.unwrap();
     let signer = MockSigner::ok("EQsequencer");
     let provider = MockProvider::ok(hash(0x44));
-    let relayer = BatchRelayer::new(config(), storage.clone(), signer.clone(), provider.clone());
+    let relayer = BatchRelayer::new(
+        config(),
+        storage.clone(),
+        da,
+        signer.clone(),
+        provider.clone(),
+    );
 
     let stats = relayer.relay_once().await.expect("relay");
 
@@ -130,6 +144,69 @@ async fn block_hash_mismatch_fails_without_sending() {
             .as_deref(),
         Some("l2 block hash mismatch")
     );
+}
+
+#[tokio::test]
+async fn missing_da_payload_fails_before_signing_or_send() {
+    let storage =
+        storage_with_block_without_da(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let da = da_for_storage(storage.clone());
+    let signer = MockSigner::ok("EQsequencer");
+    let provider = MockProvider::ok(hash(0x44));
+    let relayer = BatchRelayer::new(
+        config(),
+        storage.clone(),
+        da,
+        signer.clone(),
+        provider.clone(),
+    );
+
+    let stats = relayer.relay_once().await.expect("relay");
+
+    assert_eq!(stats.failed, 1);
+    assert!(signer.requests().await.is_empty());
+    assert_eq!(provider.sent_count().await, 0);
+    assert_eq!(
+        storage
+            .get_batch_commit(1)
+            .await
+            .unwrap()
+            .unwrap()
+            .last_error
+            .as_deref(),
+        Some("batch data unavailable")
+    );
+}
+
+#[tokio::test]
+async fn corrupted_da_payload_fails_before_l1_commit() {
+    let block = block(0, Hash32::ZERO, sha256_bytes(b"state"));
+    let storage = storage_with_block_without_da(block.clone()).await;
+    storage
+        .save_batch_payload(crate::storage::StoredBatchPayload {
+            block_height: block.header.height,
+            block_hash: block.header.block_hash(),
+            data_hash: block.header.data_hash,
+            payload_bytes: vec![0],
+        })
+        .await
+        .unwrap();
+    let da = da_for_storage(storage.clone());
+    let signer = MockSigner::ok("EQsequencer");
+    let provider = MockProvider::ok(hash(0x44));
+    let relayer = BatchRelayer::new(
+        config(),
+        storage.clone(),
+        da,
+        signer.clone(),
+        provider.clone(),
+    );
+
+    let stats = relayer.relay_once().await.expect("relay");
+
+    assert_eq!(stats.failed, 1);
+    assert!(signer.requests().await.is_empty());
+    assert_eq!(provider.sent_count().await, 0);
 }
 
 #[derive(Clone, Default)]
@@ -216,10 +293,27 @@ impl TonCommitProvider for MockProvider {
     }
 }
 
-async fn storage_with_block(block: L2Block) -> DynStorage {
+async fn storage_with_block(block: L2Block) -> (DynStorage, DynDa) {
+    let storage: DynStorage = Arc::new(InMemoryStorage::default());
+    let da = da_for_storage(storage.clone());
+    da.write_batch_payload(&block).await.unwrap();
+    storage.save_block(block).await.unwrap();
+    (storage, da)
+}
+
+async fn storage_with_block_without_da(block: L2Block) -> DynStorage {
     let storage: DynStorage = Arc::new(InMemoryStorage::default());
     storage.save_block(block).await.unwrap();
     storage
+}
+
+fn da_for_storage(storage: DynStorage) -> DynDa {
+    Arc::new(StorageDaStore::new(
+        storage,
+        DataAvailabilityConfig {
+            max_payload_bytes: crate::da::DEFAULT_DA_MAX_PAYLOAD_BYTES,
+        },
+    ))
 }
 
 fn config() -> BatchRelayerConfig {
@@ -242,7 +336,7 @@ fn block(height: u64, prev_state_root: Hash32, state_root: Hash32) -> L2Block {
         vec![],
         vec![],
         vec![],
-        sha256_bytes(b"data"),
+        l2_core::canonical_batch_data_hash(&[], &[]),
         100,
     )
 }

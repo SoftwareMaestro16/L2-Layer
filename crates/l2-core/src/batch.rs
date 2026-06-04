@@ -1,4 +1,4 @@
-use crate::consensus::batch_data_hash;
+use crate::consensus::{batch_data_hash, encode_batch_data};
 use crate::crypto::Hash32;
 use crate::types::{L2Block, L2BlockHeader, Receipt, SignedL2Transaction, WithdrawalLeaf};
 use thiserror::Error;
@@ -21,6 +21,10 @@ pub struct BatchDataPayload<'a> {
 }
 
 impl BatchDataPayload<'_> {
+    pub fn canonical_bytes(self) -> Vec<u8> {
+        canonical_batch_data_bytes(self.ordered_transactions, self.receipts)
+    }
+
     pub fn canonical_hash(self) -> Hash32 {
         canonical_batch_data_hash(self.ordered_transactions, self.receipts)
     }
@@ -96,6 +100,10 @@ pub enum BatchBuildError {
 
 pub fn canonical_batch_data_hash(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Hash32 {
     batch_data_hash(txs, receipts)
+}
+
+pub fn canonical_batch_data_bytes(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Vec<u8> {
+    encode_batch_data(txs, receipts)
 }
 
 #[cfg(test)]

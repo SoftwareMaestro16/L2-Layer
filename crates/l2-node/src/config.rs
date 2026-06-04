@@ -58,6 +58,7 @@ pub struct NodeConfig {
     pub l1_batch_relayer_poll_interval_ms: u64,
     pub l1_batch_relayer_retry_backoff_ms: u64,
     pub l1_batch_relayer_max_attempts: u32,
+    pub da_max_payload_bytes: usize,
     pub mempool_replay_ttl_secs: u64,
     pub mempool_nonce_lock_ttl_secs: u64,
     pub mempool_leader_ttl_secs: u64,
@@ -244,6 +245,14 @@ impl NodeConfig {
                 &DEFAULT_L1_BATCH_RELAYER_MAX_ATTEMPTS.to_string(),
             ),
             "L1_BATCH_RELAYER_MAX_ATTEMPTS",
+        )?;
+        let da_max_payload_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "DA_MAX_PAYLOAD_BYTES",
+                &DEFAULT_DA_MAX_PAYLOAD_BYTES.to_string(),
+            ),
+            "DA_MAX_PAYLOAD_BYTES",
         )?;
         let mempool_replay_ttl_secs = parse_u64(
             &optional(
@@ -444,6 +453,7 @@ impl NodeConfig {
             l1_batch_relayer_poll_interval_ms,
             l1_batch_relayer_retry_backoff_ms,
             l1_batch_relayer_max_attempts,
+            da_max_payload_bytes,
             mempool_replay_ttl_secs,
             mempool_nonce_lock_ttl_secs,
             mempool_leader_ttl_secs,
