@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { KeyboardEvent, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowRight, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -35,11 +35,6 @@ function LookupFormInner({
   const inputRef = useRef<HTMLInputElement>(null);
   const [displayValue, setDisplayValue] = useState(initialValue);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    openBestMatch(readInputValue());
-  }
-
   function openBestMatch(input: string) {
     const next = input.trim();
     if (!next) return;
@@ -64,18 +59,22 @@ function LookupFormInner({
     return inputRef.current?.value ?? displayValue;
   }
 
+  function submitOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    openBestMatch(readInputValue());
+  }
+
   const isHero = variant === "hero";
   const buttonMode = isProbablyHash(displayValue) ? "Tx" : "Account";
 
   return (
-    <form
+    <div
+      role="search"
       className={cn(
         "flex w-full min-w-0 gap-2",
         isHero ? "mx-auto max-w-3xl flex-col sm:flex-row" : "flex-1",
       )}
-      action="/account"
-      method="get"
-      onSubmit={submit}
     >
       <div className="relative min-w-0 flex-1">
         <Search
@@ -86,7 +85,6 @@ function LookupFormInner({
         />
         <Input
           ref={inputRef}
-          name="q"
           className={cn(
             "border-white/10 bg-white/[0.06] font-mono shadow-inner shadow-black/20 placeholder:text-zinc-500 focus-visible:ring-violet-400/50",
             isHero
@@ -96,6 +94,7 @@ function LookupFormInner({
           spellCheck={false}
           defaultValue={initialValue}
           onInput={(event) => setDisplayValue(event.currentTarget.value)}
+          onKeyDown={submitOnEnter}
           placeholder="Paste L2 address or transaction hash"
         />
       </div>
@@ -105,12 +104,8 @@ function LookupFormInner({
             "inline-flex items-center justify-center gap-2 rounded-lg bg-[linear-gradient(135deg,#2563eb,#7c3aed)] text-sm font-semibold text-white shadow-lg shadow-violet-500/25 transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300",
             isHero ? "h-14 px-6" : "h-10 px-4",
           )}
-          formAction="/account"
-          type="submit"
-          onClick={(event) => {
-            event.preventDefault();
-            openBestMatch(readInputValue());
-          }}
+          type="button"
+          onClick={() => openBestMatch(readInputValue())}
         >
           Open
           <ArrowRight className="h-4 w-4" />
@@ -120,10 +115,8 @@ function LookupFormInner({
             "inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.07] text-sm font-semibold text-zinc-100 transition hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300",
             isHero ? "h-14 px-5" : "h-10 px-4",
           )}
-          type="submit"
-          formAction={buttonMode === "Tx" ? "/transaction" : "/account"}
-          onClick={(event) => {
-            event.preventDefault();
+          type="button"
+          onClick={() => {
             if (buttonMode === "Tx") {
               openTransaction();
               return;
@@ -134,7 +127,7 @@ function LookupFormInner({
           {buttonMode}
         </button>
       </div>
-    </form>
+    </div>
   );
 }
 
