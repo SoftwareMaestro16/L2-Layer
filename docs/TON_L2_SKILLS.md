@@ -80,6 +80,8 @@ TON_L2_SKILLS = {
     "For TON, L1 stores compact batch commitments: prevStateRoot, stateRoot, txRoot, receiptRoot, withdrawalRoot, dataHash, timestamp, finalized flag.",
     "RollupRoot and AssetVault cannot mutually include each other's final address in both StateInit cells. Entropis deploys RollupRoot with a zero-address vault sentinel, deploys AssetVault with the computed root address, then links the root once through admin-only SetAssetVault.",
     "Entropis DA stores canonical BatchData bytes, not JSON; relayer must verify retrievability and hash/block binding before asking a signer to submit CommitBatch.",
+    "Entropis public DA MVP uses Postgres as a mirror/cache plus a filesystem gateway path blocks/{height}/{blockHash}-{dataHash}.el2batch; the relayer verifies the public file when DA_PUBLIC_BACKEND=filesystem.",
+    "Public DA retrieval endpoints serve application/octet-stream payload bytes by block height or by height+dataHash and must re-hash the body before returning it.",
     "DA can start as external/Ton Storage-backed data referenced by dataHash, but production fraud proofs require reliable retrievability and challenge rules.",
     "Challenge design separates DA retrieval, deterministic replay, witness/proof generation, and L1 challenge submission; missing DA is an availability challenge, not a state-transition proof.",
     "The MVP is optimistic/trusted-sequencer until challenge verification is implemented."
@@ -126,7 +128,7 @@ TON_L2_SKILLS = {
     "SDK browser examples must not include admin bearer tokens; admin-only faucet helpers are for operator scripts or demo backends.",
     "Static dashboards may accept an admin token at runtime for operator panels but must not store it in localStorage, sessionStorage, generated bundles, or config files.",
     "Acton wallet metadata such as wallets.toml/global.wallets.toml and signer commands are local-only; prefer keyring or mnemonic-env and never commit mnemonic material.",
-    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit relay state, L1 batch finalization state, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
+    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, batch DA payload mirrors and public refs, L1 batch commit relay state, L1 batch finalization state, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
@@ -159,6 +161,6 @@ TON_L2_SKILLS = {
 ## Open Knowledge Gaps
 
 - Exact fraud-proof VM design for replaying TON-compatible L2 transitions on L1 is not implemented.
-- Data availability backend is not finalized: TON Storage vs external DA vs hybrid.
+- Production data availability backend is not finalized: TON Storage vs external DA vs hybrid.
 - Jetton release path is v2 work: MVP records failure for non-TON asset releases.
 - Acton cannot be run from native PowerShell in this environment; use WSL or Docker for contract checks.

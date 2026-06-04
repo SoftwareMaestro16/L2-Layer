@@ -217,7 +217,8 @@ Next Rust tests before enabling L1 challenges:
 
 - Challenge messages are not deployed in Tolk.
 - Withdrawals rely on delayed finalization but not fraud proof enforcement.
-- DA retrievability is checked by the relayer backend, not by public TON Storage.
+- DA retrievability is checked by the relayer backend and can use the filesystem
+  public gateway, but it is not yet proven by TON Storage.
 - `CallContract` remains fail-closed, so fraud proofs for TVM execution are
   blocked on the real deterministic TVM adapter.
 - No sequencer bond exists yet, so slashing is a future design item.

@@ -144,7 +144,10 @@ Symptoms:
 Actions:
 
 - Check `last_error` for the failed batch.
-- If `batch data unavailable`, inspect DA payload storage before retry.
+- If `batch data unavailable`, inspect Postgres mirror storage and, when
+  `DA_PUBLIC_BACKEND=filesystem`, the public payload at
+  `DA_PUBLIC_FS_DIR/blocks/{height}/{block_hash}-{data_hash}.el2batch` before
+  retry.
 - If `commit signer failed`, check signer service health and sender address.
 - If `commit signer response expired`, check signer clock sync and valid-until
   policy before retry.

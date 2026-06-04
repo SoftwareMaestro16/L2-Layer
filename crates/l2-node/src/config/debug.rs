@@ -93,6 +93,9 @@ impl fmt::Debug for NodeConfig {
                 &self.l1_batch_finalizer_max_attempts,
             )
             .field("da_max_payload_bytes", &self.da_max_payload_bytes)
+            .field("da_public_backend", &self.da_public_backend)
+            .field("da_public_fs_dir", &self.da_public_fs_dir)
+            .field("da_public_base_url", &self.da_public_base_url)
             .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
             .field(
                 "mempool_nonce_lock_ttl_secs",
