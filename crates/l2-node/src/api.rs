@@ -7,7 +7,7 @@ use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
 use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
-use crate::storage::{BatchFinalizationStatus, DynStorage};
+use crate::storage::DynStorage;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -26,12 +26,17 @@ use tower_http::trace::TraceLayer;
 
 mod auth;
 mod error;
+mod explorer;
 mod operator;
 #[cfg(test)]
 mod test_support;
 
 use auth::AdminAuth;
 use error::ApiError;
+use explorer::{
+    explorer_blocks, explorer_deposit, explorer_deposits, explorer_summary, explorer_withdrawal,
+    get_withdrawal_proof,
+};
 use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
@@ -147,6 +152,11 @@ pub fn build_router(state: AppState) -> Router {
             "/v1/operator/batch-finalizer",
             get(operator_batch_finalizer),
         )
+        .route("/v1/explorer/summary", get(explorer_summary))
+        .route("/v1/explorer/blocks", get(explorer_blocks))
+        .route("/v1/explorer/deposits", get(explorer_deposits))
+        .route("/v1/explorer/deposit/:id", get(explorer_deposit))
+        .route("/v1/explorer/withdrawal/:id", get(explorer_withdrawal))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
@@ -251,31 +261,6 @@ async fn get_tx(
         .await?
         .ok_or_else(|| ApiError::not_found("transaction not found"))?;
     Ok(Json(transaction))
-}
-
-async fn get_withdrawal_proof(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse, ApiError> {
-    let id = Hash32::from_hex(&id).map_err(|_| ApiError::bad_request("invalid withdrawal id"))?;
-    let proof = state
-        .storage
-        .get_withdrawal_proof(id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("withdrawal proof not found"))?;
-    let batch_no = proof
-        .block_height
-        .checked_add(1)
-        .ok_or_else(|| ApiError::bad_request("invalid withdrawal block height"))?;
-    let finalized = state
-        .storage
-        .get_batch_finalization(batch_no)
-        .await?
-        .is_some_and(|record| record.status == BatchFinalizationStatus::Finalized);
-    if !finalized {
-        return Err(ApiError::conflict("withdrawal batch not finalized"));
-    }
-    Ok(Json(proof))
 }
 
 async fn get_mempool_metrics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
@@ -528,6 +513,9 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
     Ok(())
 }
 
+#[cfg(test)]
+#[path = "api_explorer_tests.rs"]
+mod explorer_tests;
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;
