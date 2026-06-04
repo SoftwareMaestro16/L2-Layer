@@ -25,7 +25,7 @@ export function TransactionHistory({ transactions }: { transactions: MockTransac
         transaction.title.toLowerCase().includes(normalized) ||
         transaction.counterparty.toLowerCase().includes(normalized) ||
         transaction.id.toLowerCase().includes(normalized) ||
-        transaction.memo?.toLowerCase().includes(normalized);
+        Boolean(transaction.memo?.toLowerCase().includes(normalized));
       return matchesFilter && matchesQuery;
     });
   }, [filter, query, transactions]);
@@ -71,7 +71,9 @@ export function TransactionHistory({ transactions }: { transactions: MockTransac
               <div
                 className={cn(
                   "flex h-10 w-10 items-center justify-center rounded-md",
-                  outgoing ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"
+                  outgoing
+                    ? "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-100"
+                    : "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-100"
                 )}
               >
                 <Icon className="h-5 w-5" />
@@ -90,7 +92,7 @@ export function TransactionHistory({ transactions }: { transactions: MockTransac
                 </p>
               </div>
               <div className="text-left sm:text-right">
-                <p className={cn("font-semibold", outgoing ? "text-foreground" : "text-emerald-700")}>
+                <p className={cn("font-semibold", outgoing ? "text-foreground" : "text-blue-700 dark:text-blue-200")}>
                   {transaction.amount > 0 ? "+" : ""}
                   {formatEnt(transaction.amount)} ENT
                 </p>

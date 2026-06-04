@@ -1,4 +1,4 @@
-# Entropis Wallet
+# EnWallet
 
 Mock-only Entropis web wallet UI. This app does not generate seed phrases, derive
 keys, sign payloads, or send blockchain transactions.

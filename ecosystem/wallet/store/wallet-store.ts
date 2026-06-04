@@ -51,6 +51,15 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
           amount: Number((session.balance.amount - total).toFixed(6)),
           fiatValue: Number((session.balance.fiatValue - amount * 0.5).toFixed(2))
         },
+        tokens: session.tokens.map((token) =>
+          token.symbol === "ENT"
+            ? {
+                ...token,
+                amount: Number((token.amount - total).toFixed(6)),
+                fiatValue: Number((token.fiatValue - amount * 0.5).toFixed(2))
+              }
+            : token
+        ),
         transactions: [transaction, ...session.transactions]
       }
     });

@@ -16,6 +16,23 @@ export type AssetBalance = {
   change24h: number;
 };
 
+export type TokenHolding = {
+  id: string;
+  symbol: string;
+  name: string;
+  amount: number;
+  fiatValue: number;
+  color: string;
+};
+
+export type Collectible = {
+  id: string;
+  name: string;
+  collection: string;
+  rarity: string;
+  accent: string;
+};
+
 export type MockTransaction = {
   id: string;
   type: "send" | "receive" | "deposit" | "fee";
@@ -32,6 +49,8 @@ export type WalletSession = {
   account: WalletAccount;
   balance: AssetBalance;
   transactions: MockTransaction[];
+  tokens: TokenHolding[];
+  collectibles: Collectible[];
 };
 
 export type SendTransferInput = {

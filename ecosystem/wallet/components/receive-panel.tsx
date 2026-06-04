@@ -37,7 +37,7 @@ export function ReceivePanel({ address }: { address: string }) {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="mx-auto grid h-44 w-44 place-items-center rounded-lg border bg-muted text-center text-xs font-semibold text-muted-foreground">
+          <div className="mx-auto grid h-44 w-44 place-items-center rounded-lg border bg-gradient-to-br from-blue-50 to-violet-100 text-center text-xs font-semibold text-muted-foreground dark:from-blue-500/15 dark:to-violet-500/20">
             Mock QR
           </div>
           <div className="rounded-lg border bg-muted/50 p-3">

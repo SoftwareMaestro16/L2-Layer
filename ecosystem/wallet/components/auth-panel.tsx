@@ -44,18 +44,18 @@ export function AuthPanel() {
             <Image src="/entropis.png" alt="Entropis" width={34} height={34} priority />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold">Entropis Wallet</h1>
-            <p className="text-sm text-muted-foreground">Mock localnet interface</p>
+            <h1 className="text-2xl font-semibold">EnWallet</h1>
+            <p className="text-sm text-muted-foreground">Entropis mock wallet</p>
           </div>
         </div>
 
         <div className="space-y-4">
           <Badge variant="warning">UI prototype</Badge>
           <h2 className="max-w-xl text-4xl font-semibold leading-tight text-foreground">
-            Create or import a demo wallet without touching real keys.
+            Create or import a demo EnWallet without touching real keys.
           </h2>
           <p className="max-w-xl text-base leading-7 text-muted-foreground">
-            This screen models the Entropis wallet experience while blockchain logic, seed generation, and signing stay
+            This screen models the EnWallet experience while blockchain logic, seed generation, and signing stay
             out of scope.
           </p>
         </div>
@@ -77,7 +77,7 @@ export function AuthPanel() {
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Access wallet</CardTitle>
-          <CardDescription>Both paths create the same mocked Entropis session.</CardDescription>
+          <CardDescription>Both paths create the same mocked EnWallet session.</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="create" className="w-full">

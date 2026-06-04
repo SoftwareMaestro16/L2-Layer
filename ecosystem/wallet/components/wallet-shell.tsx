@@ -3,11 +3,13 @@
 import Image from "next/image";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Lock, RefreshCw, Send, WalletCards } from "lucide-react";
+import { AssetSections } from "@/components/asset-sections";
 import { useMemo, useState } from "react";
 import { BalanceCard } from "@/components/balance-card";
 import { ReceivePanel } from "@/components/receive-panel";
 import { SendDialog } from "@/components/send-dialog";
 import { TransactionHistory } from "@/components/transaction-history";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,7 +57,7 @@ export function WalletShell() {
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold">Entropis Wallet</h1>
+              <h1 className="text-xl font-semibold">EnWallet</h1>
               <Badge variant="warning">Mock mode</Badge>
             </div>
             <p className="text-sm text-muted-foreground">{session.account.network}</p>
@@ -75,6 +77,7 @@ export function WalletShell() {
             <RefreshCw className={isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             Refresh
           </Button>
+          <ThemeToggle />
           <Button variant="secondary" onClick={lockWallet}>
             <Lock className="h-4 w-4" />
             Lock
@@ -138,6 +141,7 @@ export function WalletShell() {
               </div>
             </CardContent>
           </Card>
+          <AssetSections tokens={session.tokens} collectibles={session.collectibles} />
         </div>
         <TransactionHistory transactions={session.transactions} />
       </section>

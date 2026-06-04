@@ -1,4 +1,12 @@
-import type { AssetBalance, MockTransaction, NetworkSnapshot, WalletAccount, WalletSession } from "@/lib/types";
+import type {
+  AssetBalance,
+  Collectible,
+  MockTransaction,
+  NetworkSnapshot,
+  TokenHolding,
+  WalletAccount,
+  WalletSession
+} from "@/lib/types";
 
 export const mockAccountBase: Omit<WalletAccount, "createdFrom"> = {
   id: "acct_demo_entropis_001",
@@ -62,6 +70,50 @@ export const mockTransactions: MockTransaction[] = [
   }
 ];
 
+export const mockTokens: TokenHolding[] = [
+  {
+    id: "token-ent",
+    symbol: "ENT",
+    name: "Entropis",
+    amount: 1284.642,
+    fiatValue: 642.32,
+    color: "from-blue-500 to-violet-600"
+  },
+  {
+    id: "token-stent",
+    symbol: "stENT",
+    name: "Staked ENT",
+    amount: 318.2,
+    fiatValue: 190.92,
+    color: "from-indigo-500 to-fuchsia-500"
+  },
+  {
+    id: "token-demo",
+    symbol: "DEMO",
+    name: "Demo Jetton",
+    amount: 4200,
+    fiatValue: 84,
+    color: "from-sky-500 to-purple-500"
+  }
+];
+
+export const mockCollectibles: Collectible[] = [
+  {
+    id: "nft-validator-pass",
+    name: "Validator Pass #018",
+    collection: "Entropis Access",
+    rarity: "Rare",
+    accent: "from-blue-500 via-indigo-500 to-violet-600"
+  },
+  {
+    id: "nft-genesis-node",
+    name: "Genesis Node #204",
+    collection: "L2 Operators",
+    rarity: "Epic",
+    accent: "from-violet-500 via-purple-500 to-blue-500"
+  }
+];
+
 export const mockNetworkSnapshot: NetworkSnapshot = {
   chainId: "entropis-localnet-mock",
   latestBatch: 1842,
@@ -78,6 +130,8 @@ export function createMockSession(createdFrom: WalletAccount["createdFrom"]): Wa
     balance: {
       ...mockBalance
     },
-    transactions: mockTransactions.map((transaction) => ({ ...transaction }))
+    transactions: mockTransactions.map((transaction) => ({ ...transaction })),
+    tokens: mockTokens.map((token) => ({ ...token })),
+    collectibles: mockCollectibles.map((collectible) => ({ ...collectible }))
   };
 }
