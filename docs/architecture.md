@@ -28,9 +28,10 @@ path or a ZK validity proof is added.
 
 ## Hashing
 
-The MVP uses SHA-256 over domain-separated byte sequences. State leaves are sorted by
-account id before Merkleization. Transaction, receipt, withdrawal, and block hashes
-preserve canonical block order.
+The MVP uses SHA-256 over domain-separated v1 consensus bytes. JSON is allowed for
+API and storage presentation, but not for transaction hashes, receipt leaves,
+withdrawal leaves, account leaves, block headers, Merkle nodes, or batch data
+commitments. The byte layout is documented in `docs/consensus-encoding.md`.
 
 ## Gas Coin
 

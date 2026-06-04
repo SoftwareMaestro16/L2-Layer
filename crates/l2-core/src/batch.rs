@@ -1,4 +1,5 @@
-use crate::crypto::{hash_domain, Hash32};
+use crate::consensus::batch_data_hash;
+use crate::crypto::Hash32;
 use crate::types::{L2Block, L2BlockHeader, Receipt, SignedL2Transaction, WithdrawalLeaf};
 use thiserror::Error;
 
@@ -89,9 +90,7 @@ pub enum BatchBuildError {
 }
 
 pub fn canonical_batch_data_hash(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Hash32 {
-    let tx_bytes = serde_json::to_vec(txs).expect("transactions are serializable");
-    let receipt_bytes = serde_json::to_vec(receipts).expect("receipts are serializable");
-    hash_domain("l2.batch.data", &[&tx_bytes, &receipt_bytes])
+    batch_data_hash(txs, receipts)
 }
 
 #[cfg(test)]

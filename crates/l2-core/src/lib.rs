@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod consensus;
 pub mod crypto;
 pub mod executor;
 pub mod merkle;

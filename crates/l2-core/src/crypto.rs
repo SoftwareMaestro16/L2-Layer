@@ -86,7 +86,7 @@ pub fn hash_domain(domain: &str, parts: &[&[u8]]) -> Hash32 {
 }
 
 pub fn derive_account_id(public_key: &[u8; 32]) -> Hash32 {
-    hash_domain("l2.account.ed25519", &[public_key])
+    crate::consensus::derive_account_id(public_key)
 }
 
 pub fn verify_signature(public_key_hex: &str, signature_hex: &str, payload: &[u8]) -> bool {

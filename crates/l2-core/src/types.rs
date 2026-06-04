@@ -1,4 +1,5 @@
-use crate::crypto::{hash_domain, sha256_bytes, Hash32};
+use crate::consensus;
+use crate::crypto::Hash32;
 use crate::merkle::{build_merkle_proof, merkle_root, MerkleProof};
 use serde::{Deserialize, Serialize};
 
@@ -92,11 +93,11 @@ impl SignedL2Transaction {
     }
 
     pub fn signing_payload(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.unsigned()).expect("transaction payload is serializable")
+        consensus::signing_payload(self)
     }
 
     pub fn tx_hash(&self) -> Hash32 {
-        sha256_bytes(&self.signing_payload())
+        consensus::transaction_hash(self)
     }
 
     pub fn is_system(&self) -> bool {
@@ -153,8 +154,7 @@ impl Receipt {
     }
 
     pub fn leaf_hash(&self) -> Hash32 {
-        let bytes = serde_json::to_vec(self).expect("receipt is serializable");
-        hash_domain("l2.receipt.leaf", &[&bytes])
+        consensus::receipt_leaf_hash(self)
     }
 }
 
@@ -176,18 +176,8 @@ impl WithdrawalLeaf {
         l2_sender: Hash32,
         l1_recipient: String,
     ) -> Self {
-        let asset_bytes = asset_id.to_be_bytes();
-        let amount_bytes = amount.to_be_bytes();
-        let withdrawal_id = hash_domain(
-            "l2.withdrawal.id",
-            &[
-                tx_hash.as_bytes(),
-                &asset_bytes,
-                &amount_bytes,
-                l2_sender.as_bytes(),
-                l1_recipient.as_bytes(),
-            ],
-        );
+        let withdrawal_id =
+            consensus::withdrawal_id(tx_hash, asset_id, amount, l2_sender, &l1_recipient);
         Self {
             withdrawal_id,
             asset_id,
@@ -198,8 +188,7 @@ impl WithdrawalLeaf {
     }
 
     pub fn leaf_hash(&self) -> Hash32 {
-        let bytes = serde_json::to_vec(self).expect("withdrawal is serializable");
-        hash_domain("l2.withdrawal.leaf", &[&bytes])
+        consensus::withdrawal_leaf_hash(self)
     }
 }
 
@@ -218,8 +207,7 @@ pub struct L2BlockHeader {
 
 impl L2BlockHeader {
     pub fn block_hash(&self) -> Hash32 {
-        let bytes = serde_json::to_vec(self).expect("block header is serializable");
-        hash_domain("l2.block.header", &[&bytes])
+        consensus::block_header_hash(self)
     }
 }
 

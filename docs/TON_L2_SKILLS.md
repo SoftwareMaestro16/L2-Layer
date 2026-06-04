@@ -64,7 +64,8 @@ TON_L2_SKILLS = {
     "BoC serializes a forest/DAG of cells for storage, network transport, messages, code, data, and proofs.",
     "Merkle proof exotic cells commit to a referenced subtree while allowing verification against a root hash without the full tree.",
     "Merkle update exotic cells represent old/new subtree commitments and are relevant for future fraud/challenge paths.",
-    "L2 state roots should be canonical hashes over sparse Merkle/cell-compatible account leaves, with explicit domain separation."
+    "L2 state roots should be canonical hashes over sparse Merkle/cell-compatible account leaves, with explicit domain separation.",
+    "Consensus-critical L2 hashes use Entropis consensus encoding v1 (`EL2C`, version byte, type tag, big-endian integers, length-prefixed strings/bytes, explicit option tags), not JSON serialization."
   ],
   l2_rollup_design: [
     "Optimistic rollups move execution and state storage off-chain, batch transactions, and commit roots/data commitments to L1.",
