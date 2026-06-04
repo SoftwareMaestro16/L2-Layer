@@ -6,6 +6,7 @@ pub mod finalizer;
 pub mod indexer;
 pub mod mempool;
 pub mod observability;
+pub mod observer;
 pub mod relayer;
 pub mod signer;
 pub mod storage;

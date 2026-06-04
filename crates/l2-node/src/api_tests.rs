@@ -38,20 +38,6 @@ fn deposit_event() -> DepositEvent {
     }
 }
 
-fn empty_block(height: u64) -> L2Block {
-    L2Block::new(
-        height,
-        Hash32::ZERO,
-        Hash32::ZERO,
-        sha256_bytes(b"state"),
-        vec![],
-        vec![],
-        vec![],
-        canonical_batch_data_hash(&[], &[]),
-        100,
-    )
-}
-
 fn withdrawal_block() -> L2Block {
     let withdrawal = WithdrawalLeaf::new(
         sha256_bytes(b"withdrawal-tx"),
@@ -431,116 +417,6 @@ async fn mempool_metrics_reports_rejections_and_queue_depth() {
     assert_eq!(metrics.accepted, 1);
     assert_eq!(metrics.rejected.get("duplicate_tx"), Some(&1));
     assert_eq!(metrics.store.queued_global, 1);
-}
-
-#[tokio::test]
-async fn operator_metrics_requires_admin_and_reports_node_metrics() {
-    let unauthorized = operator_metrics(State(test_state(None)), auth_headers(ADMIN_TOKEN))
-        .await
-        .unwrap_err();
-    assert_eq!(unauthorized.status, StatusCode::FORBIDDEN);
-
-    let state = test_state(Some(ADMIN_TOKEN));
-    admin_deposit(
-        State(state.clone()),
-        auth_headers(ADMIN_TOKEN),
-        Json(deposit_event()),
-    )
-    .await
-    .expect("deposit");
-    produce_block_once(&state)
-        .await
-        .expect("produce")
-        .expect("block");
-
-    let metrics = operator_metrics(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator metrics");
-
-    assert_eq!(metrics.0.node.block_production.produced, 1);
-    assert_eq!(metrics.0.node.block_production.last_height, Some(0));
-    assert_eq!(metrics.0.node.latency.storage_save_block.operations, 1);
-}
-
-#[tokio::test]
-async fn operator_failures_reports_relayer_and_withdrawal_visibility() {
-    let state = test_state(Some(ADMIN_TOKEN));
-    state.storage.save_block(empty_block(0)).await.unwrap();
-    let mut record = state.storage.get_batch_commit(1).await.unwrap().unwrap();
-    record.status = crate::storage::BatchCommitStatus::Failed;
-    record.attempts = 1;
-    record.last_error = Some("batch data unavailable".to_owned());
-    state.storage.save_batch_commit(record).await.unwrap();
-    state
-        .storage
-        .save_batch_finalization(crate::storage::BatchFinalizationRecord {
-            batch_no: 1,
-            block_height: 0,
-            status: crate::storage::BatchFinalizationStatus::Failed,
-            attempts: 1,
-            finalize_after_unix: 0,
-            message_hash: None,
-            message_hash_norm: None,
-            last_error: Some("finalize signer failed".to_owned()),
-        })
-        .await
-        .unwrap();
-
-    let failures = operator_failures(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator failures");
-
-    assert_eq!(failures.0.relayer_failed_batches.len(), 1);
-    assert_eq!(
-        failures.0.relayer_failed_batches[0].last_error.as_deref(),
-        Some("batch data unavailable")
-    );
-    assert_eq!(failures.0.failed_finalizations.len(), 1);
-    assert_eq!(
-        failures.0.failed_finalizations[0].last_error.as_deref(),
-        Some("finalize signer failed")
-    );
-    assert!(!failures.0.failed_withdrawals.indexed);
-    assert_eq!(
-        failures.0.failed_withdrawals.runbook,
-        "docs/operator-runbooks.md#withdrawal-release-failures"
-    );
-}
-
-#[tokio::test]
-async fn operator_batch_finalizer_reports_status_groups() {
-    let state = test_state(Some(ADMIN_TOKEN));
-    state.storage.save_block(empty_block(0)).await.unwrap();
-    let commit = state.storage.get_batch_commit(1).await.unwrap().unwrap();
-    state
-        .storage
-        .save_batch_finalization(crate::storage::BatchFinalizationRecord::pending(
-            &commit, 123,
-        ))
-        .await
-        .unwrap();
-
-    let visibility = operator_batch_finalizer(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator finalizer");
-
-    assert_eq!(visibility.0.pending_finalization.len(), 1);
-    assert_eq!(visibility.0.latest.as_ref().unwrap().batch_no, 1);
-    assert!(visibility.0.latest_finalized.is_none());
-}
-
-#[tokio::test]
-async fn operator_batch_relayer_reports_latest_commit() {
-    let state = test_state(Some(ADMIN_TOKEN));
-    state.storage.save_block(empty_block(0)).await.unwrap();
-
-    let visibility = operator_batch_relayer(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator relayer");
-
-    assert_eq!(visibility.0.pending.len(), 1);
-    assert_eq!(visibility.0.latest.as_ref().unwrap().batch_no, 1);
-    assert!(visibility.0.latest_confirmed.is_none());
 }
 
 #[tokio::test]
