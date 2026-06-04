@@ -215,16 +215,55 @@ until the Jetton/wrapped-gas release path is implemented.
 ## Acton
 
 Acton must be installed before Tolk contracts can be built and wrappers generated.
-The latest release checked during implementation was `v1.1.0`; its release assets
-publish Linux/macOS archives and a shell installer, but no native Windows archive.
+The project pins Acton `1.1.0` in `Acton.toml`. Native Windows Acton is not part
+of the supported local path; run checks in Linux, WSL, or the pinned Docker image.
 
-Expected commands once Acton is available:
+Linux or WSL setup:
 
-```powershell
+```bash
+curl -LsSf https://github.com/ton-blockchain/acton/releases/latest/download/acton-installer.sh | sh
+exec "$SHELL" -l
+acton up 1.1.0
+bash scripts/ci/acton_contract_checks.sh
+```
+
+The shared check script runs:
+
+```text
 acton --version
 acton doctor
 acton build
 acton test
-acton wrapper RollupRoot --ts
-acton wrapper AssetVault --ts
+acton check
+acton fmt --check
 ```
+
+From PowerShell, use WSL:
+
+```powershell
+wsl bash scripts/ci/acton_contract_checks.sh
+```
+
+If Acton is unavailable in WSL but Docker is available, use the pinned fallback:
+
+```powershell
+wsl env ACTON_USE_DOCKER=1 bash scripts/ci/acton_contract_checks.sh
+```
+
+The fallback image is `ghcr.io/ton-blockchain/acton:1.1.0`. It mounts the
+repository at `/workspace`, runs with `HOME=/tmp/acton-home` and
+`XDG_CACHE_HOME=/tmp/acton-cache`, and does not mount host wallet directories.
+Only safe CI flags are passed through by the script; deployment secrets stay in
+`.env.local` or the operator environment and are not needed for contract checks.
+
+Wrapper generation is separate from validation and should be committed only when
+contract ABI changes require regenerated wrappers:
+
+```powershell
+wsl acton wrapper RollupRoot --ts
+wsl acton wrapper AssetVault --ts
+```
+
+Acton local validation must not use `--net mainnet`. Deployment and verification
+scripts should use explicit testnet runbooks once testnet addresses and signer
+boundaries are ready.

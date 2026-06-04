@@ -41,6 +41,8 @@ TON_L2_SKILLS = {
     "Acton is the unified TON smart-contract CLI around Tolk: scaffold, build, test, script, wallet, verify, lint, format, and low-level tooling.",
     "Local first checks: acton --version, acton doctor, inspect Acton.toml, then acton build / acton test / acton check / acton fmt --check.",
     "On Windows, official Acton docs require WSL Ubuntu 22+; native Windows is unsupported.",
+    "Entropis runs contract checks through scripts/ci/acton_contract_checks.sh locally and in CI; CI pins ton-blockchain/setup-acton v1.0.0 by commit SHA and Acton 1.1.0.",
+    "Docker fallback uses ghcr.io/ton-blockchain/acton:1.1.0 with isolated HOME/XDG_CACHE_HOME and no wallet or deployment secret mounts.",
     "Acton contract test getters must use names beginning with `test`; otherwise a `.test.tolk` file may compile while reporting zero executed tests.",
     "Do not broadcast mainnet scripts before build, test, local emulation, and testnet validation.",
     "Regenerate wrappers when ABI changes; do not hand-edit generated wrappers unless unavoidable."
@@ -134,7 +136,7 @@ TON_L2_SKILLS = {
   best_practices: [
     "Design storage and message schemas before behavior; keep field order and integer widths explicit.",
     "Prefer Tolk typed auto-serialization and union dispatch over raw manual slice parsing unless a boundary requires it.",
-    "Run cargo test for Rust changes; run acton build/test/check/fmt when Acton is available.",
+    "Run cargo test for Rust changes; run scripts/ci/acton_contract_checks.sh for Tolk/Acton changes through Linux, WSL, CI, or Docker fallback.",
     "Keep source, tests, lockfiles, and docs in Git; ignore generated artifacts, caches, local databases, and secret material.",
     "When building new L2 features, document architecture, message flow, state model, bridge impact, Acton commands, risks, and limitations."
   ]
