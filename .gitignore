@@ -46,10 +46,15 @@ libraries.toml
 /.acton/
 /build/
 /gen/
+/deployments/
+wallets.toml
+global.wallets.toml
+libraries.toml
 *.boc
 *.fif
 *.fc.map
 *.source.map
+*.deployment.json
 
 # Rust
 /target/

@@ -271,3 +271,23 @@ wsl acton wrapper AssetVault --ts
 Acton local validation must not use `--net mainnet`. Deployment and verification
 scripts should use explicit testnet runbooks once testnet addresses and signer
 boundaries are ready.
+
+## L1 testnet deployment
+
+`RollupRoot` and `AssetVault` deploy through Acton scripts under `scripts/l1`.
+The local emulation path is:
+
+```powershell
+wsl acton run l1-deploy-plan -- <sequencer-address> <wrapped-gas-minter-address> 300 1 9
+```
+
+The testnet path is:
+
+```powershell
+wsl acton run l1-deploy-testnet -- <sequencer-address> <wrapped-gas-minter-address> 300 1 9
+```
+
+The deployment script writes ignored JSON to `L1_DEPLOY_OUTPUT_JSON`, defaulting to
+`build/testnet-l1-deployment.json`. Use `docs/testnet-l1-deployment.md` for wallet
+setup, replay safety, and getter verification. Do not run deployment scripts with
+`--net mainnet`.

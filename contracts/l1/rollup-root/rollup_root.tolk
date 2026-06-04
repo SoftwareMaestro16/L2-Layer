@@ -15,6 +15,7 @@ fun onInternalMessage(in: InMessage) {
     val msg = lazy RootMessage.fromSlice(in.body);
     match (msg) {
         CommitBatch => handleCommitBatch(in.senderAddress, msg),
+        SetAssetVault => handleSetAssetVault(in.senderAddress, msg),
         FinalizeBatch => handleFinalizeBatch(msg),
         ClaimWithdrawal => handleClaimWithdrawal(msg),
         RetryWithdrawal => handleRetryWithdrawal(msg),
@@ -31,6 +32,18 @@ fun onBouncedMessage(in: InMessageBounced) {
         ReleaseAuthorized => handleReleaseAuthorizedBounce(in.senderAddress, msg),
         else => {}
     }
+}
+
+fun handleSetAssetVault(senderAddress: address, msg: SetAssetVault) {
+    var storage = lazy RollupStorage.load();
+    assert (senderAddress == storage.admin) throw Errors.Unauthorized;
+    assert (storage.assetVault == unlinkedAssetVaultAddress()) throw Errors.AlreadyConfigured;
+    assert (msg.assetVault != unlinkedAssetVaultAddress()) throw Errors.BadAssetConfig;
+    assert (storage.lastCommitted == 0) throw Errors.AlreadyConfigured;
+    assert (storage.lastFinalized == 0) throw Errors.AlreadyConfigured;
+
+    storage.assetVault = msg.assetVault;
+    storage.save();
 }
 
 fun handleCommitBatch(senderAddress: address, msg: CommitBatch) {

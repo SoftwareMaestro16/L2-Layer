@@ -29,10 +29,16 @@ output-dir = "sdk/src/generated"
 
 [test]
 
+[scripts]
+l1-deploy-plan = "acton script scripts/l1/deploy_rollup_pair.tolk"
+l1-deploy-testnet = "acton script scripts/l1/deploy_rollup_pair.tolk --net testnet --explorer tonviewer"
+l1-verify-testnet = "acton script scripts/l1/verify_rollup_pair.tolk --fork-net testnet"
+
 [import-mappings]
 acton = ".acton"
 shared = "contracts/l1/shared"
 contracts = "contracts/l1"
 gen = "gen"
 tests = "tests"
+scripts = "scripts"
 wrappers = "wrappers"

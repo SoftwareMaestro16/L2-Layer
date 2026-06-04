@@ -73,5 +73,5 @@ The guard scripts inspect tracked files by default and staged files with
 `--staged`. They deliberately allow placeholder values in `.env.example`, but
 fail on live Redis/Postgres URLs, non-placeholder TON API/admin tokens, key or
 mnemonic assignments, local database files, `target/`, `node_modules/`,
-`sdk/dist/`, `.acton/`, `build/`, `gen/`, `wallets.toml`, and local wallet/key
-material.
+`sdk/dist/`, `.acton/`, `build/`, `deployments/`, `gen/`, `wallets.toml`,
+Acton wallet overlays, deployment output JSON, and local wallet/key material.

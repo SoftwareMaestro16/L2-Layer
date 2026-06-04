@@ -38,6 +38,7 @@ FORBIDDEN = (
     "libraries.toml",
     ".acton/**",
     "build/**",
+    "deployments/**",
     "gen/**",
     "target/**",
     "**/target/**",
@@ -55,6 +56,7 @@ FORBIDDEN = (
     "*.fif",
     "*.fc.map",
     "*.source.map",
+    "*.deployment.json",
     ".codex/skills/cosmos-vulnerability-scanner/**",
 )
 
