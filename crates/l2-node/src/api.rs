@@ -1,14 +1,13 @@
 use crate::config::NodeConfig;
 use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
-use crate::mempool::{MempoolError, MempoolService};
+use crate::mempool::MempoolService;
 use crate::relayer::{
     BatchRelayer, BatchRelayerConfig, RemoteCommitBatchSigner, ToncenterCommitProvider,
 };
-use crate::storage::{DynStorage, StorageError};
+use crate::storage::DynStorage;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -17,12 +16,21 @@ use l2_core::{
     crypto::sha256_bytes, DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig,
     SignedL2Transaction, SubmitTxResponse,
 };
-use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+
+mod auth;
+mod error;
+#[cfg(test)]
+mod test_support;
+
+use auth::AdminAuth;
+use error::ApiError;
+#[cfg(test)]
+use test_support::test_config;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -44,6 +52,7 @@ impl AppState {
         Ok(Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
                 chain_id: config.chain_id.clone(),
+                gas_schedule: config.executor_gas_schedule,
                 ..SequencerConfig::default()
             }))),
             storage,
@@ -346,139 +355,9 @@ fn current_unix_time() -> u64 {
         .unwrap_or_default()
 }
 
-#[derive(Debug, Serialize)]
-struct ApiErrorBody {
-    error: String,
-}
-
-#[derive(Debug)]
-struct ApiError {
-    status: StatusCode,
-    message: String,
-}
-
-impl ApiError {
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: message.into(),
-        }
-    }
-
-    fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            message: message.into(),
-        }
-    }
-
-    fn unauthorized(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            message: message.into(),
-        }
-    }
-
-    fn forbidden(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::FORBIDDEN,
-            message: message.into(),
-        }
-    }
-
-    fn internal(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: message.into(),
-        }
-    }
-}
-
-impl From<StorageError> for ApiError {
-    fn from(error: StorageError) -> Self {
-        tracing::error!(?error, "storage error");
-        Self::internal("storage error")
-    }
-}
-
-impl From<MempoolError> for ApiError {
-    fn from(error: MempoolError) -> Self {
-        if error.is_conflict() {
-            return Self {
-                status: StatusCode::CONFLICT,
-                message: error.to_string(),
-            };
-        }
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: error.to_string(),
-        }
-    }
-}
-
-impl From<FaucetError> for ApiError {
-    fn from(error: FaucetError) -> Self {
-        match error {
-            FaucetError::InvalidAccountId | FaucetError::ZeroAccountId => {
-                Self::bad_request(error.to_string())
-            }
-            FaucetError::Storage(storage_error) => storage_error.into(),
-            FaucetError::AmountOverflow => Self::internal(error.to_string()),
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        (
-            self.status,
-            Json(ApiErrorBody {
-                error: self.message,
-            }),
-        )
-            .into_response()
-    }
-}
-
 #[allow(dead_code)]
 fn dev_deposit_id(seed: &str) -> Hash32 {
     sha256_bytes(seed.as_bytes())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct AdminAuth {
-    token: Option<String>,
-}
-
-impl AdminAuth {
-    fn new(token: Option<String>) -> Self {
-        Self {
-            token: token.and_then(|token| {
-                let token = token.trim().to_owned();
-                (!token.is_empty()).then_some(token)
-            }),
-        }
-    }
-
-    fn authorize(&self, headers: &HeaderMap) -> Result<(), ApiError> {
-        let Some(expected_token) = self.token.as_deref() else {
-            return Err(ApiError::forbidden("admin api disabled"));
-        };
-        let Some(header_value) = headers.get(AUTHORIZATION) else {
-            return Err(ApiError::unauthorized("missing admin bearer token"));
-        };
-        let header_value = header_value
-            .to_str()
-            .map_err(|_| ApiError::unauthorized("invalid authorization header"))?;
-        let Some(actual_token) = header_value.strip_prefix("Bearer ") else {
-            return Err(ApiError::unauthorized("missing admin bearer token"));
-        };
-        if !constant_time_eq(actual_token, expected_token) {
-            return Err(ApiError::forbidden("invalid admin bearer token"));
-        }
-
-        Ok(())
-    }
 }
 
 fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
@@ -499,60 +378,6 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
     }
 
     Ok(())
-}
-
-fn constant_time_eq(left: &str, right: &str) -> bool {
-    let left = left.as_bytes();
-    let right = right.as_bytes();
-    let max_len = left.len().max(right.len());
-    let mut diff = left.len() ^ right.len();
-
-    for index in 0..max_len {
-        let left_byte = left.get(index).copied().unwrap_or_default();
-        let right_byte = right.get(index).copied().unwrap_or_default();
-        diff |= (left_byte ^ right_byte) as usize;
-    }
-
-    diff == 0
-}
-
-#[cfg(test)]
-fn test_config() -> NodeConfig {
-    use std::collections::BTreeMap;
-
-    let env = BTreeMap::from([
-        ("L2_NAME".to_owned(), "Entropis".to_owned()),
-        ("L2_CHAIN_ID".to_owned(), "entropis-testnet".to_owned()),
-        ("L2_NATIVE_TOKEN_NAME".to_owned(), "Entropis".to_owned()),
-        ("L2_NATIVE_TOKEN_SYMBOL".to_owned(), "ENT".to_owned()),
-        ("TON_NETWORK".to_owned(), "testnet".to_owned()),
-        (
-            "TONCENTER_V3_BASE_URL".to_owned(),
-            "https://testnet.toncenter.com/api/v3".to_owned(),
-        ),
-        (
-            "TONCENTER_API_KEY".to_owned(),
-            "test-api-token-a".to_owned(),
-        ),
-        (
-            "TONAPI_BASE_URL".to_owned(),
-            "https://testnet.tonapi.io".to_owned(),
-        ),
-        ("TONAPI_KEY".to_owned(), "test-api-token-b".to_owned()),
-        (
-            "DATABASE_URL".to_owned(),
-            "postgresql://user:pass@localhost:5432/l2".to_owned(),
-        ),
-        (
-            "REDIS_URL".to_owned(),
-            "redis://default:pass@localhost:6379".to_owned(),
-        ),
-        ("L2_ADMIN_TOKEN".to_owned(), "admin-secret-token".to_owned()),
-        ("ENT_DECIMALS".to_owned(), "9".to_owned()),
-        ("ENT_LOGO_PATH".to_owned(), "assets/entropis.png".to_owned()),
-        ("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "true".to_owned()),
-    ]);
-    NodeConfig::from_lookup(|key| env.get(key).cloned()).expect("test config")
 }
 
 #[cfg(test)]

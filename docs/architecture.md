@@ -41,7 +41,11 @@ commitments. The byte layout is documented in `docs/consensus-encoding.md`.
 ## Gas Coin
 
 Asset id `0` is the L2-native gas coin. Deposits can credit any asset id, but all
-non-system L2 transactions pay gas from asset id `0`.
+non-system L2 transactions pay gas from asset id `0`. The executor uses a
+versioned gas schedule and charges `gas_used * max_gas_price` from that asset.
+Rejected execution is no-refund for the MVP: an authenticated transaction that
+reaches the executor advances nonce and may pay the smaller configured rejection
+fee, while sequencer-level auth/nonce rejections remain uncharged.
 
 ## Deposit Indexing
 

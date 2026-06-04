@@ -1,4 +1,5 @@
 use super::*;
+use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderValue;
 use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::derive_account_id;

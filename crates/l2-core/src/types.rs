@@ -144,10 +144,18 @@ impl Receipt {
     }
 
     pub fn rejected(tx_hash: Hash32, reason: impl Into<String>) -> Self {
+        Self::rejected_with_gas(tx_hash, reason, 0)
+    }
+
+    pub fn rejected_with_gas(
+        tx_hash: Hash32,
+        reason: impl Into<String>,
+        gas_charged: u128,
+    ) -> Self {
         Self {
             tx_hash,
             status: ReceiptStatus::Rejected,
-            gas_charged: 0,
+            gas_charged,
             reason: Some(reason.into()),
             withdrawal_id: None,
         }

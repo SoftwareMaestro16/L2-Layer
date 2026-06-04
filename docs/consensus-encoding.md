@@ -68,7 +68,7 @@ Receipt:
 ```text
 tx_hash:Hash32
 status:uint8        # 0x01 applied, 0x02 rejected
-gas_charged:uint128
+gas_charged:uint128 # gas coin base units charged by the executor
 reason:optional<string>
 withdrawal_id:optional<Hash32>
 ```

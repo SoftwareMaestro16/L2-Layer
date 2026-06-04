@@ -1,55 +1,20 @@
-use anyhow::{anyhow, Context};
-use std::fmt;
+use anyhow::Context;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+mod debug;
+mod defaults;
 #[path = "config_helpers.rs"]
 mod helpers;
+mod validation;
 
+pub(crate) use defaults::*;
 pub use helpers::SecretString;
 use helpers::{
     bool_literal, optional, optional_secret, optional_string, parse_bool, parse_network,
     parse_u128, parse_u16, parse_u32, parse_u32_list, parse_u64, parse_u8, parse_usize,
     path_exists_in_cwd_or_ancestors, required,
 };
-
-const DEFAULT_NODE_ADDR: &str = "127.0.0.1:8080";
-const DEFAULT_CHAIN_ID: &str = "entropis-testnet";
-const DEFAULT_L2_NAME: &str = "Entropis";
-const DEFAULT_TOKEN_NAME: &str = "Entropis";
-const DEFAULT_TOKEN_SYMBOL: &str = "ENT";
-const DEFAULT_TONCENTER_TESTNET: &str = "https://testnet.toncenter.com/api/v3";
-const DEFAULT_TONAPI_TESTNET: &str = "https://testnet.tonapi.io";
-const DEFAULT_CHALLENGE_WINDOW_SEC: u32 = 300;
-const DEFAULT_ENT_FAUCET_AMOUNT: u128 = 1_000;
-const DEFAULT_ENT_DECIMALS: u8 = 9;
-const DEFAULT_ENT_LOGO_PATH: &str = "assets/entropis.png";
-const DEFAULT_ENT_FAUCET_REQUIRE_ADMIN: bool = true;
-const DEFAULT_L1_DEPOSIT_INDEXER_ENABLED: bool = false;
-const DEFAULT_L1_DEPOSIT_POLL_INTERVAL_MS: u64 = 5_000;
-const DEFAULT_L1_DEPOSIT_BATCH_LIMIT: u16 = 100;
-const DEFAULT_L1_DEPOSIT_CONFIRMATION_LAG_LT: u64 = 0;
-const DEFAULT_L1_TON_ASSET_ID: u32 = 1;
-const DEFAULT_DEV_ADMIN_DEPOSITS_ENABLED: bool = false;
-const DEFAULT_L1_BATCH_RELAYER_ENABLED: bool = false;
-const DEFAULT_L1_COMMIT_MSG_VALUE_NANOTON: u64 = 100_000_000;
-const DEFAULT_L1_BATCH_RELAYER_POLL_INTERVAL_MS: u64 = 5_000;
-const DEFAULT_L1_BATCH_RELAYER_RETRY_BACKOFF_MS: u64 = 15_000;
-const DEFAULT_L1_BATCH_RELAYER_MAX_ATTEMPTS: u32 = 8;
-const DEFAULT_MEMPOOL_REPLAY_TTL_SECS: u64 = 86_400;
-const DEFAULT_MEMPOOL_NONCE_LOCK_TTL_SECS: u64 = 300;
-const DEFAULT_MEMPOOL_LEADER_TTL_SECS: u64 = 10;
-const DEFAULT_MEMPOOL_RATE_LIMIT_WINDOW_SECS: u64 = 60;
-const DEFAULT_MEMPOOL_MAX_GLOBAL_QUEUE: usize = 10_000;
-const DEFAULT_MEMPOOL_MAX_ACCOUNT_QUEUE: usize = 64;
-const DEFAULT_MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW: u32 = 120;
-const DEFAULT_MEMPOOL_MAX_PAYLOAD_BYTES: usize = 16 * 1024;
-const DEFAULT_MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES: usize = 8 * 1024;
-const DEFAULT_MEMPOOL_MIN_GAS_LIMIT: u64 = 1;
-const DEFAULT_MEMPOOL_MAX_GAS_LIMIT: u64 = 1_000_000;
-const DEFAULT_MEMPOOL_MIN_GAS_PRICE: u128 = 1;
-const DEFAULT_MEMPOOL_MAX_TX_FEE: u128 = 1_000_000_000_000;
-const DEFAULT_MEMPOOL_POP_BATCH_SIZE: usize = 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TonNetwork {
@@ -107,6 +72,7 @@ pub struct NodeConfig {
     pub mempool_min_gas_price: u128,
     pub mempool_max_tx_fee: u128,
     pub mempool_pop_batch_size: usize,
+    pub executor_gas_schedule: l2_core::GasSchedule,
 }
 
 impl NodeConfig {
@@ -391,6 +357,56 @@ impl NodeConfig {
             ),
             "MEMPOOL_POP_BATCH_SIZE",
         )?;
+        let executor_gas_schedule = l2_core::GasSchedule {
+            version: parse_u32(
+                &optional(
+                    &mut lookup,
+                    "EXECUTOR_GAS_SCHEDULE_VERSION",
+                    &DEFAULT_EXECUTOR_GAS_SCHEDULE_VERSION.to_string(),
+                ),
+                "EXECUTOR_GAS_SCHEDULE_VERSION",
+            )?,
+            transfer_gas: parse_u64(
+                &optional(
+                    &mut lookup,
+                    "EXECUTOR_TRANSFER_GAS",
+                    &DEFAULT_EXECUTOR_TRANSFER_GAS.to_string(),
+                ),
+                "EXECUTOR_TRANSFER_GAS",
+            )?,
+            withdraw_gas: parse_u64(
+                &optional(
+                    &mut lookup,
+                    "EXECUTOR_WITHDRAW_GAS",
+                    &DEFAULT_EXECUTOR_WITHDRAW_GAS.to_string(),
+                ),
+                "EXECUTOR_WITHDRAW_GAS",
+            )?,
+            call_contract_gas: parse_u64(
+                &optional(
+                    &mut lookup,
+                    "EXECUTOR_CALL_CONTRACT_GAS",
+                    &DEFAULT_EXECUTOR_CALL_CONTRACT_GAS.to_string(),
+                ),
+                "EXECUTOR_CALL_CONTRACT_GAS",
+            )?,
+            rejected_execution_gas: parse_u64(
+                &optional(
+                    &mut lookup,
+                    "EXECUTOR_REJECTED_EXECUTION_GAS",
+                    &DEFAULT_EXECUTOR_REJECTED_EXECUTION_GAS.to_string(),
+                ),
+                "EXECUTOR_REJECTED_EXECUTION_GAS",
+            )?,
+            min_gas_price: parse_u128(
+                &optional(
+                    &mut lookup,
+                    "EXECUTOR_MIN_GAS_PRICE",
+                    &DEFAULT_EXECUTOR_MIN_GAS_PRICE.to_string(),
+                ),
+                "EXECUTOR_MIN_GAS_PRICE",
+            )?,
+        };
 
         let config = Self {
             l2_name,
@@ -442,254 +458,14 @@ impl NodeConfig {
             mempool_min_gas_price,
             mempool_max_tx_fee,
             mempool_pop_batch_size,
+            executor_gas_schedule,
         };
         config.validate()?;
         Ok(config)
     }
 
-    fn validate(&self) -> anyhow::Result<()> {
-        if self.ton_network != TonNetwork::Testnet {
-            return Err(anyhow!("only TON testnet is allowed for this node"));
-        }
-        if self.chain_id != DEFAULT_CHAIN_ID {
-            return Err(anyhow!("L2_CHAIN_ID must be {DEFAULT_CHAIN_ID}"));
-        }
-        if !self.toncenter_v3_base_url.contains("testnet.toncenter.com") {
-            return Err(anyhow!("TONCENTER_V3_BASE_URL must point to TON testnet"));
-        }
-        if !self.tonapi_base_url.contains("testnet.tonapi.io") {
-            return Err(anyhow!("TONAPI_BASE_URL must point to TON testnet"));
-        }
-        if !self.database_url.expose().starts_with("postgresql://") {
-            return Err(anyhow!("DATABASE_URL must be a PostgreSQL URL"));
-        }
-        if !self.redis_url.expose().starts_with("redis://") {
-            return Err(anyhow!("REDIS_URL must be a Redis URL"));
-        }
-        if self.admin_token.expose().len() < 16 {
-            return Err(anyhow!("L2_ADMIN_TOKEN must be at least 16 bytes"));
-        }
-        if self.native_token_symbol != DEFAULT_TOKEN_SYMBOL {
-            return Err(anyhow!(
-                "L2_NATIVE_TOKEN_SYMBOL must be {DEFAULT_TOKEN_SYMBOL}"
-            ));
-        }
-        if self.ent_faucet_amount == 0 {
-            return Err(anyhow!("ENT_FAUCET_AMOUNT must be non-zero"));
-        }
-        if self.ent_decimals != DEFAULT_ENT_DECIMALS {
-            return Err(anyhow!("ENT_DECIMALS must be {DEFAULT_ENT_DECIMALS}"));
-        }
-        if !path_exists_in_cwd_or_ancestors(&self.ent_logo_path) {
-            return Err(anyhow!("ENT_LOGO_PATH must point to an existing file"));
-        }
-        if !self.ent_faucet_require_admin {
-            return Err(anyhow!("ENT_FAUCET_REQUIRE_ADMIN must be true for MVP"));
-        }
-        if self.l1_deposit_indexer_enabled && self.l1_vault_address.is_none() {
-            return Err(anyhow!(
-                "L1_VAULT_ADDRESS is required when L1_DEPOSIT_INDEXER_ENABLED=true"
-            ));
-        }
-        if self.l1_deposit_poll_interval_ms == 0 {
-            return Err(anyhow!("L1_DEPOSIT_POLL_INTERVAL_MS must be non-zero"));
-        }
-        if self.l1_deposit_batch_limit == 0 || self.l1_deposit_batch_limit > 1000 {
-            return Err(anyhow!("L1_DEPOSIT_BATCH_LIMIT must be between 1 and 1000"));
-        }
-        if self.l1_ton_asset_id == self.ent_gas_asset_id() {
-            return Err(anyhow!(
-                "L1_TON_ASSET_ID must not equal the ENT gas asset id"
-            ));
-        }
-        if self
-            .l1_deposit_asset_ids
-            .iter()
-            .any(|asset_id| *asset_id == self.ent_gas_asset_id())
-        {
-            return Err(anyhow!(
-                "L1_DEPOSIT_ASSET_IDS must not include the ENT gas asset id"
-            ));
-        }
-        if self.l1_batch_relayer_enabled {
-            if self.l1_rollup_root_address.is_none() {
-                return Err(anyhow!(
-                    "L1_ROLLUP_ROOT_ADDRESS is required when L1_BATCH_RELAYER_ENABLED=true"
-                ));
-            }
-            if self.l1_sequencer_sender_address.is_none() {
-                return Err(anyhow!(
-                    "L1_SEQUENCER_SENDER_ADDRESS is required when L1_BATCH_RELAYER_ENABLED=true"
-                ));
-            }
-            if self.l1_commit_signer_endpoint.is_none() {
-                return Err(anyhow!(
-                    "L1_COMMIT_SIGNER_ENDPOINT is required when L1_BATCH_RELAYER_ENABLED=true"
-                ));
-            }
-            if self.l1_commit_signer_token.is_none() {
-                return Err(anyhow!(
-                    "L1_COMMIT_SIGNER_TOKEN is required when L1_BATCH_RELAYER_ENABLED=true"
-                ));
-            }
-        }
-        if let Some(endpoint) = self.l1_commit_signer_endpoint.as_deref() {
-            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-                return Err(anyhow!("L1_COMMIT_SIGNER_ENDPOINT must be an HTTP URL"));
-            }
-        }
-        if self.l1_commit_msg_value_nanoton == 0 {
-            return Err(anyhow!("L1_COMMIT_MSG_VALUE_NANOTON must be non-zero"));
-        }
-        if self.l1_batch_relayer_poll_interval_ms == 0 {
-            return Err(anyhow!(
-                "L1_BATCH_RELAYER_POLL_INTERVAL_MS must be non-zero"
-            ));
-        }
-        if self.l1_batch_relayer_retry_backoff_ms == 0 {
-            return Err(anyhow!(
-                "L1_BATCH_RELAYER_RETRY_BACKOFF_MS must be non-zero"
-            ));
-        }
-        if self.l1_batch_relayer_max_attempts == 0 || self.l1_batch_relayer_max_attempts > 100 {
-            return Err(anyhow!(
-                "L1_BATCH_RELAYER_MAX_ATTEMPTS must be between 1 and 100"
-            ));
-        }
-        if self.mempool_replay_ttl_secs == 0
-            || self.mempool_nonce_lock_ttl_secs == 0
-            || self.mempool_leader_ttl_secs == 0
-            || self.mempool_rate_limit_window_secs == 0
-        {
-            return Err(anyhow!("mempool TTL/window values must be non-zero"));
-        }
-        if self.mempool_max_global_queue == 0
-            || self.mempool_max_account_queue == 0
-            || self.mempool_max_account_submissions_per_window == 0
-            || self.mempool_max_payload_bytes == 0
-            || self.mempool_max_call_body_boc_base64_bytes == 0
-            || self.mempool_pop_batch_size == 0
-        {
-            return Err(anyhow!("mempool limits must be non-zero"));
-        }
-        if self.mempool_max_account_queue > self.mempool_max_global_queue {
-            return Err(anyhow!(
-                "MEMPOOL_MAX_ACCOUNT_QUEUE must not exceed MEMPOOL_MAX_GLOBAL_QUEUE"
-            ));
-        }
-        if self.mempool_min_gas_limit == 0
-            || self.mempool_min_gas_limit > self.mempool_max_gas_limit
-        {
-            return Err(anyhow!(
-                "MEMPOOL_MIN_GAS_LIMIT must be non-zero and <= MEMPOOL_MAX_GAS_LIMIT"
-            ));
-        }
-        if self.mempool_min_gas_price == 0 || self.mempool_max_tx_fee == 0 {
-            return Err(anyhow!(
-                "MEMPOOL_MIN_GAS_PRICE and MEMPOOL_MAX_TX_FEE must be non-zero"
-            ));
-        }
-        Ok(())
-    }
-
     pub fn ent_gas_asset_id(&self) -> u32 {
         l2_core::L2_NATIVE_GAS_ASSET
-    }
-}
-
-impl fmt::Debug for NodeConfig {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("NodeConfig")
-            .field("l2_name", &self.l2_name)
-            .field("chain_id", &self.chain_id)
-            .field("native_token_name", &self.native_token_name)
-            .field("native_token_symbol", &self.native_token_symbol)
-            .field("node_addr", &self.node_addr)
-            .field("ton_network", &self.ton_network)
-            .field("toncenter_v3_base_url", &self.toncenter_v3_base_url)
-            .field("toncenter_api_key", &self.toncenter_api_key)
-            .field("tonapi_base_url", &self.tonapi_base_url)
-            .field("tonapi_key", &self.tonapi_key)
-            .field("database_url", &self.database_url)
-            .field("redis_url", &self.redis_url)
-            .field("admin_token", &self.admin_token)
-            .field("challenge_window_sec", &self.challenge_window_sec)
-            .field("ent_faucet_amount", &self.ent_faucet_amount)
-            .field("ent_decimals", &self.ent_decimals)
-            .field("ent_logo_path", &self.ent_logo_path)
-            .field("ent_faucet_require_admin", &self.ent_faucet_require_admin)
-            .field(
-                "l1_deposit_indexer_enabled",
-                &self.l1_deposit_indexer_enabled,
-            )
-            .field("l1_vault_address", &self.l1_vault_address)
-            .field(
-                "l1_deposit_poll_interval_ms",
-                &self.l1_deposit_poll_interval_ms,
-            )
-            .field("l1_deposit_batch_limit", &self.l1_deposit_batch_limit)
-            .field(
-                "l1_deposit_confirmation_lag_lt",
-                &self.l1_deposit_confirmation_lag_lt,
-            )
-            .field("l1_ton_asset_id", &self.l1_ton_asset_id)
-            .field("l1_deposit_asset_ids", &self.l1_deposit_asset_ids)
-            .field(
-                "dev_admin_deposits_enabled",
-                &self.dev_admin_deposits_enabled,
-            )
-            .field("l1_batch_relayer_enabled", &self.l1_batch_relayer_enabled)
-            .field("l1_rollup_root_address", &self.l1_rollup_root_address)
-            .field(
-                "l1_sequencer_sender_address",
-                &self.l1_sequencer_sender_address,
-            )
-            .field("l1_commit_signer_endpoint", &self.l1_commit_signer_endpoint)
-            .field("l1_commit_signer_token", &self.l1_commit_signer_token)
-            .field(
-                "l1_commit_msg_value_nanoton",
-                &self.l1_commit_msg_value_nanoton,
-            )
-            .field(
-                "l1_batch_relayer_poll_interval_ms",
-                &self.l1_batch_relayer_poll_interval_ms,
-            )
-            .field(
-                "l1_batch_relayer_retry_backoff_ms",
-                &self.l1_batch_relayer_retry_backoff_ms,
-            )
-            .field(
-                "l1_batch_relayer_max_attempts",
-                &self.l1_batch_relayer_max_attempts,
-            )
-            .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
-            .field(
-                "mempool_nonce_lock_ttl_secs",
-                &self.mempool_nonce_lock_ttl_secs,
-            )
-            .field("mempool_leader_ttl_secs", &self.mempool_leader_ttl_secs)
-            .field(
-                "mempool_rate_limit_window_secs",
-                &self.mempool_rate_limit_window_secs,
-            )
-            .field("mempool_max_global_queue", &self.mempool_max_global_queue)
-            .field("mempool_max_account_queue", &self.mempool_max_account_queue)
-            .field(
-                "mempool_max_account_submissions_per_window",
-                &self.mempool_max_account_submissions_per_window,
-            )
-            .field("mempool_max_payload_bytes", &self.mempool_max_payload_bytes)
-            .field(
-                "mempool_max_call_body_boc_base64_bytes",
-                &self.mempool_max_call_body_boc_base64_bytes,
-            )
-            .field("mempool_min_gas_limit", &self.mempool_min_gas_limit)
-            .field("mempool_max_gas_limit", &self.mempool_max_gas_limit)
-            .field("mempool_min_gas_price", &self.mempool_min_gas_price)
-            .field("mempool_max_tx_fee", &self.mempool_max_tx_fee)
-            .field("mempool_pop_batch_size", &self.mempool_pop_batch_size)
-            .finish()
     }
 }
 

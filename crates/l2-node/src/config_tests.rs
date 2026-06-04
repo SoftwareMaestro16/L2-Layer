@@ -63,6 +63,10 @@ fn valid_entropis_testnet_config_loads() {
     assert_eq!(config.mempool_nonce_lock_ttl_secs, 300);
     assert_eq!(config.mempool_max_global_queue, 10_000);
     assert_eq!(config.mempool_max_account_queue, 64);
+    assert_eq!(
+        config.executor_gas_schedule,
+        l2_core::GasSchedule::default()
+    );
 }
 
 #[test]
@@ -216,6 +220,34 @@ fn config_validates_mempool_admission_limits() {
     let mut env = valid_env();
     env.insert("MEMPOOL_MIN_GAS_LIMIT".to_owned(), "100".to_owned());
     env.insert("MEMPOOL_MAX_GAS_LIMIT".to_owned(), "10".to_owned());
+    assert!(load_from(&env).is_err());
+}
+
+#[test]
+fn config_validates_executor_gas_schedule() {
+    let mut env = valid_env();
+    env.insert("EXECUTOR_TRANSFER_GAS".to_owned(), "12".to_owned());
+    env.insert("EXECUTOR_WITHDRAW_GAS".to_owned(), "24".to_owned());
+    env.insert("EXECUTOR_CALL_CONTRACT_GAS".to_owned(), "60".to_owned());
+    env.insert("EXECUTOR_REJECTED_EXECUTION_GAS".to_owned(), "2".to_owned());
+    env.insert("EXECUTOR_MIN_GAS_PRICE".to_owned(), "3".to_owned());
+    let config = load_from(&env).expect("executor gas config");
+    assert_eq!(config.executor_gas_schedule.transfer_gas, 12);
+    assert_eq!(config.executor_gas_schedule.withdraw_gas, 24);
+    assert_eq!(config.executor_gas_schedule.call_contract_gas, 60);
+    assert_eq!(config.executor_gas_schedule.rejected_execution_gas, 2);
+    assert_eq!(config.executor_gas_schedule.min_gas_price, 3);
+
+    let mut env = valid_env();
+    env.insert("EXECUTOR_GAS_SCHEDULE_VERSION".to_owned(), "2".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("EXECUTOR_TRANSFER_GAS".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("EXECUTOR_MIN_GAS_PRICE".to_owned(), "0".to_owned());
     assert!(load_from(&env).is_err());
 }
 

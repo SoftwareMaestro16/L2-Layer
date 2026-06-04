@@ -91,6 +91,31 @@ with a valid sender/public-key pair consume the same per-account rate limit as
 valid submissions. `GET /v1/mempool/metrics` exposes accepted/rejected counters
 and current store queue depth for operators.
 
+## Executor gas schedule
+
+The executor uses a versioned gas schedule for consensus-critical fee debits and
+receipt roots:
+
+```text
+EXECUTOR_GAS_SCHEDULE_VERSION=1
+EXECUTOR_TRANSFER_GAS=10
+EXECUTOR_WITHDRAW_GAS=20
+EXECUTOR_CALL_CONTRACT_GAS=50
+EXECUTOR_REJECTED_EXECUTION_GAS=1
+EXECUTOR_MIN_GAS_PRICE=1
+```
+
+For user transactions, the charged fee is `gas_used * max_gas_price` in the
+configured gas coin asset, currently ENT asset id `0`. Transfers and withdrawals
+debit the moved asset and gas coin separately unless the moved asset is also the
+gas coin; in that case `amount + fee` is checked with overflow-safe arithmetic.
+
+Rejected execution uses no-refund MVP semantics: if the transaction passed
+sequencer auth/nonce checks and reached the executor, the sender nonce advances
+and the executor attempts to charge `EXECUTOR_REJECTED_EXECUTION_GAS *
+max_gas_price`. Sequencer-level rejections such as bad signatures, wrong chain id,
+or bad nonce are not charged because they are rejected before execution.
+
 ## TON deposit indexer
 
 The deposit indexer is disabled by default. Enable it only after `AssetVault` is
