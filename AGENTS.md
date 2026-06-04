@@ -30,8 +30,10 @@
 
 - For every feature, consider replay, double spend, forged proof, state-root manipulation, malformed cell/message, gas griefing, mempool flooding, and sequencer censorship paths.
 - Add or update unit tests for local behavior, adversarial tests for invalid inputs, integration tests for cross-module flows, and determinism tests for state roots.
+- Run `python scripts/ci/secret_scan.py --staged` and `python scripts/ci/artifact_guard.py --staged` before every commit that changes tracked files.
 - Run `cargo test` for Rust changes and `npm run typecheck` for SDK changes.
 - Run `acton build`, `acton test`, `acton check`, and `acton fmt --check` for Tolk changes when Acton is available through WSL or Docker.
+- GitHub Actions must keep security/artifact guards, Rust formatting/tests, SDK typecheck, Postgres/Redis service readiness, and optional Acton contract checks wired.
 
 ## Required response shape for build/design requests
 

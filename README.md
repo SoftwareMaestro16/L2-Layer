@@ -32,7 +32,7 @@ flowchart TB
 - `crates/l2-node`: Axum HTTP/WebSocket node exposing the planned L2 API.
 - `contracts/l1`: Tolk contract sources for `RollupRoot` and `AssetVault`.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
-- `docs`: Architecture and local operation notes.
+- `docs`: Architecture, local operation notes, CI quality gates, and operator runbooks.
 
 ## Current MVP Boundaries
 
@@ -70,3 +70,10 @@ cargo run -p l2-node
 
 The node listens on `127.0.0.1:8080` by default. Put real testnet secrets only in
 `.env.local`; it is ignored by git.
+
+## Quality Gates
+
+GitHub Actions runs security and artifact guards, Rust format/tests, SDK
+typecheck, Postgres/Redis service readiness, and optional Acton contract checks.
+See `docs/ci-quality-gates.md` for the local pre-commit commands and CI job
+layout.
