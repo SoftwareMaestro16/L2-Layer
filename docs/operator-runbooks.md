@@ -14,6 +14,8 @@ Admin-only:
 
 - `GET /v1/operator/metrics`: node counters, mempool metrics, relayer/indexer
   counters, and DA/storage latency snapshots.
+- `GET /v1/operator/batch-commits`: latest L1 batch relay records with
+  pending/submitted/confirmed/failed status and safe error reasons.
 - `GET /v1/operator/failures`: failed L1 batch relays and current failed
   withdrawal visibility status.
 - `GET /v1/mempool/metrics`: mempool admission and queue metrics.
@@ -137,6 +139,8 @@ Symptoms:
 - `/v1/operator/failures.relayer_failed_batches` is non-empty.
 - `node.relayer.failed` increases.
 - `l1_batch_commits.status = failed`.
+- `GET /v1/operator/batch-commits` shows a batch stuck in `failed` or
+  `submitted` longer than the expected Toncenter confirmation lag.
 
 Actions:
 
@@ -144,6 +148,7 @@ Actions:
 - If `batch data unavailable`, inspect DA payload storage before retry.
 - If `commit signer failed`, check signer service health and sender address.
 - If `ton provider send failed`, check Toncenter and retry backoff.
+- Follow `docs/testnet-batch-commit-e2e.md` before manually resetting attempts.
 
 Relayer errors must remain static safe reason strings. Do not store raw provider
 responses with secrets in `last_error`.

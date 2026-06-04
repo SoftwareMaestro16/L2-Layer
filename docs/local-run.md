@@ -201,6 +201,8 @@ matches `L1_SEQUENCER_SENDER_ADDRESS`, then broadcasts the signed external BoC
 through Toncenter v3 `/message`. Submitted message hashes are stored in
 `l1_batch_commits`; confirmation is checked through Toncenter v3
 `/transactionsByMessage`. Retries are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
+Use `GET /v1/operator/batch-commits` for per-batch relay status and
+`docs/testnet-batch-commit-e2e.md` for the live commit rehearsal.
 
 ## Withdrawal operations
 

@@ -104,7 +104,7 @@ TON_L2_SKILLS = {
     "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
-    "Relayer/operator visibility should expose failed batch records with safe static reason codes and no raw provider payloads or signer secrets.",
+    "Relayer/operator visibility should expose latest batch commit records and failed batch records with safe static reason codes and no raw provider payloads or signer secrets.",
     "The node should not hold raw TON wallet credentials for relaying; use a signer boundary and verify the returned signer address matches RollupRoot.sequencer before broadcasting.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
     "The committed withdrawalRoot is the Merkle root of ReleaseAuthorized cell representation hashes; withdrawal tree node hashes are representation hashes of a compact cell containing left uint256 then right uint256.",
