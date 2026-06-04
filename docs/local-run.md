@@ -302,3 +302,7 @@ python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.j
 Use the registry as the public source for `L1_ROLLUP_ROOT_ADDRESS` and
 `L1_VAULT_ADDRESS`; keep signer tokens, API keys, wallet data, and provider
 endpoints in `.env.local`.
+
+After the registry and testnet profile are configured, follow
+`docs/testnet-ton-deposit-e2e.md` for the live wallet-to-AssetVault deposit
+rehearsal and L2 balance verification.

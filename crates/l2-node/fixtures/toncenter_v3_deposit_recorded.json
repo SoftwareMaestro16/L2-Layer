@@ -1,0 +1,26 @@
+{
+  "messages": [
+    {
+      "hash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "hash_norm": "4444444444444444444444444444444444444444444444444444444444444444",
+      "source": "EQvault",
+      "destination": null,
+      "opcode": "0x4c324407",
+      "created_lt": "70000000000001",
+      "message_content": {
+        "body": "sanitized-redacted-boc-base64",
+        "decoded": {
+          "type": "DepositRecorded",
+          "queryId": "77",
+          "depositId": "1111111111111111111111111111111111111111111111111111111111111111",
+          "assetId": "1",
+          "amount": "250000000",
+          "l2Recipient": "2222222222222222222222222222222222222222222222222222222222222222",
+          "extra": {
+            "l1Sender": "EQsender"
+          }
+        }
+      }
+    }
+  ]
+}

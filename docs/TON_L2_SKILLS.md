@@ -99,6 +99,7 @@ TON_L2_SKILLS = {
   ],
   bridge_design: [
     "TON deposits: user sends TON to AssetVault with DepositTon body; vault records locked amount and emits DepositRecorded external log.",
+    "Live TON deposit rehearsals should build DepositTon bodies through SDK helpers, send TON Connect raw messages with testnet network id -3, and keep wallet credentials outside the repository.",
     "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles transfer_notification only from registered vault-owned Jetton wallets.",
     "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",

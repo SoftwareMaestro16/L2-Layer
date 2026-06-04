@@ -94,6 +94,11 @@ latency snapshots. Admin endpoints require `Authorization: Bearer
 <L2_ADMIN_TOKEN>` and should not be exposed without an authenticated reverse
 proxy.
 
+After the node is ready, use the live TON deposit rehearsal in
+`docs/testnet-ton-deposit-e2e.md` to send a testnet wallet deposit, observe the
+Toncenter v3 log, and confirm the L2 account balance without admin deposit
+shortcuts.
+
 For token rotation, stop the node or remove it from public traffic, update
 `.env.local`, restart the signer if `L1_COMMIT_SIGNER_TOKEN` changed, then restart
 `l2-node`. Rotate `L2_ADMIN_TOKEN` and signer tokens independently. Provider API
