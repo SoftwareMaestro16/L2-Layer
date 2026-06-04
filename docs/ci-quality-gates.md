@@ -30,6 +30,12 @@ python scripts/ci/secret_scan.py --staged
 python scripts/ci/artifact_guard.py --staged
 ```
 
+For testnet deployment registry edits:
+
+```powershell
+python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json
+```
+
 For Rust changes:
 
 ```powershell
@@ -73,5 +79,7 @@ The guard scripts inspect tracked files by default and staged files with
 `--staged`. They deliberately allow placeholder values in `.env.example`, but
 fail on live Redis/Postgres URLs, non-placeholder TON API/admin tokens, key or
 mnemonic assignments, local database files, `target/`, `node_modules/`,
-`sdk/dist/`, `.acton/`, `build/`, `deployments/`, `gen/`, Acton wallet overlays,
-deployment output JSON, and local wallet/key material.
+`sdk/dist/`, `.acton/`, `build/`, generic `deployments/`, `gen/`, Acton wallet
+overlays, deployment output JSON, and local wallet/key material. The only tracked
+deployment exceptions are the curated public registry files
+`deployments/testnet/entropis.json` and `deployments/testnet/entropis.schema.json`.

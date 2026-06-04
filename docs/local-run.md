@@ -287,3 +287,15 @@ The deployment script writes ignored JSON to `L1_DEPLOY_OUTPUT_JSON`, defaulting
 `build/testnet-l1-deployment.json`. Use `docs/testnet-l1-deployment.md` for wallet
 setup, replay safety, and getter verification. Do not run deployment scripts with
 `--net mainnet`.
+
+After getter verification, copy only public deployment metadata into
+`deployments/testnet/entropis.json`. The registry is safe to commit only after it
+passes:
+
+```powershell
+python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json
+```
+
+Use the registry as the public source for `L1_ROLLUP_ROOT_ADDRESS` and
+`L1_VAULT_ADDRESS`; keep signer tokens, API keys, wallet data, and provider
+endpoints in `.env.local`.

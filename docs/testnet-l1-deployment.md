@@ -51,8 +51,8 @@ Arguments are:
 
 The script prints planned addresses, deploys in emulation, links the root to the
 vault, verifies getters, and writes JSON to `L1_DEPLOY_OUTPUT_JSON`. The default
-path is under ignored `build/`. If you prefer `deployments/testnet-l1.json`, create
-that directory first; `deployments/` is ignored.
+path is under ignored `build/`. Keep raw deployment outputs ignored; only the
+curated public registry files under `deployments/testnet/` are tracked.
 
 ## Testnet Deploy
 
@@ -119,6 +119,30 @@ Expected getter values:
 - `AssetVault.vaultStatus().tonDecimals == 9`
 - `AssetVault.vaultStatus().lockedTon == 0`
 - `AssetVault.vaultStatus().paused == false`
+
+## Public Registry Update
+
+After the testnet deploy and getter readback pass, update
+`deployments/testnet/entropis.json` from the ignored deployment output:
+
+- move the deployment status from `draft` to `verified`;
+- set `activeDeploymentId` to the verified deployment id;
+- add `RollupRoot` and `AssetVault` addresses, code hashes, data hashes, and
+  deploy transaction hashes;
+- add deployer public address, sequencer address, challenge window, wrapper
+  generation commit, deployed timestamp, and getter verification evidence;
+- leave API keys, signer tokens, wallet files, provider endpoints, and database
+  URLs out of the registry.
+
+Validate the registry before staging:
+
+```bash
+python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json
+```
+
+The registry is the public source of truth for SDK examples, operator runbooks,
+and node address references. Deprecated deployments should remain in the file
+with `status: "deprecated"` instead of being overwritten.
 
 ## Node Config Sync
 

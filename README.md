@@ -31,8 +31,23 @@ flowchart TB
 - `crates/l2-core`: Rust L2 state model, Merkle hashing, sequencer, mempool, executor boundary, and tests.
 - `crates/l2-node`: Axum HTTP/WebSocket node exposing the planned L2 API.
 - `contracts/l1`: Tolk contract sources for `RollupRoot` and `AssetVault`.
+- `deployments/testnet/entropis.json`: public testnet L1 registry with root/vault metadata.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
 - `docs`: Architecture, local operation notes, CI quality gates, and operator runbooks.
+
+## Testnet Deployment Registry
+
+Public TON testnet contract metadata lives in `deployments/testnet/entropis.json`.
+The registry starts in `draft` state until a verified testnet deployment exists.
+It may contain only public addresses, hashes, timestamps, versions, and getter
+expectations. Runtime endpoints, API keys, signer tokens, wallet material, and
+database/Redis URLs stay in `.env.local` or the operator environment.
+
+Validate registry edits before committing:
+
+```powershell
+python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json
+```
 
 ## Current MVP Boundaries
 

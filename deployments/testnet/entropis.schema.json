@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entropis.local/schemas/testnet-deployment-registry.schema.json",
+  "title": "Entropis TON testnet deployment registry",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "chainId",
+    "tonNetwork",
+    "activeDeploymentId",
+    "deployments"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "chainId": {
+      "const": "entropis-testnet"
+    },
+    "tonNetwork": {
+      "const": "testnet"
+    },
+    "activeDeploymentId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "deployments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "contractVersion",
+          "parameters",
+          "contracts",
+          "verification"
+        ],
+        "properties": {
+          "status": {
+            "enum": [
+              "draft",
+              "deployed",
+              "verified",
+              "deprecated"
+            ]
+          },
+          "parameters": {
+            "type": "object",
+            "required": [
+              "challengeWindowSec",
+              "tonAssetId",
+              "tonDecimals"
+            ]
+          },
+          "contracts": {
+            "type": "object",
+            "required": [
+              "RollupRoot",
+              "AssetVault"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

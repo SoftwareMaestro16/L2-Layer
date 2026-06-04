@@ -1,0 +1,102 @@
+{
+  "$schema": "./entropis.schema.json",
+  "schemaVersion": 1,
+  "name": "Entropis TON testnet L1 deployment registry",
+  "chainId": "entropis-testnet",
+  "tonNetwork": "testnet",
+  "activeDeploymentId": null,
+  "deployments": [
+    {
+      "id": "entropis-testnet-v0.1.0-draft",
+      "status": "draft",
+      "contractVersion": "0.1.0",
+      "deployedAt": null,
+      "deployer": {
+        "publicAddress": null
+      },
+      "source": {
+        "actonVersion": "1.1.0",
+        "wrapperGeneration": {
+          "tool": "acton wrapper",
+          "contracts": [
+            "RollupRoot",
+            "AssetVault"
+          ],
+          "commit": null
+        }
+      },
+      "parameters": {
+        "challengeWindowSec": 300,
+        "sequencer": null,
+        "tonAssetId": 1,
+        "tonDecimals": 9,
+        "wrappedGasMinter": null
+      },
+      "contracts": {
+        "RollupRoot": {
+          "address": null,
+          "codeHash": null,
+          "dataHash": null,
+          "deployTxHash": null,
+          "expectedGetters": {
+            "rollupStatus": {
+              "assetVault": null,
+              "challengeWindowSec": 300,
+              "lastCommitted": 0,
+              "lastFinalized": 0,
+              "paused": false,
+              "sequencer": null
+            }
+          }
+        },
+        "AssetVault": {
+          "address": null,
+          "codeHash": null,
+          "dataHash": null,
+          "deployTxHash": null,
+          "expectedGetters": {
+            "vaultStatus": {
+              "lockedTon": "0",
+              "paused": false,
+              "rollupRoot": null,
+              "tonAssetId": 1,
+              "tonDecimals": 9,
+              "wrappedGasMinter": null
+            }
+          },
+          "initialAssets": [
+            {
+              "assetId": 1,
+              "decimals": 9,
+              "symbol": "TON",
+              "type": "native_ton"
+            }
+          ]
+        }
+      },
+      "transactions": {
+        "rootDeploy": null,
+        "vaultDeploy": null,
+        "rootVaultLink": null
+      },
+      "verification": {
+        "status": "not_deployed",
+        "getterVerifiedAt": null,
+        "evidence": []
+      }
+    }
+  ],
+  "updatePolicy": {
+    "publicValuesOnly": true,
+    "sourceOfTruth": "Update from ignored Acton deployment output only after testnet getter verification.",
+    "requiredChecks": [
+      "acton build",
+      "acton test",
+      "acton check",
+      "acton fmt --check",
+      "python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json",
+      "python scripts/ci/secret_scan.py --staged",
+      "python scripts/ci/artifact_guard.py --staged"
+    ]
+  }
+}

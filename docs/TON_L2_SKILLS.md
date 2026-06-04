@@ -45,7 +45,7 @@ TON_L2_SKILLS = {
     "Docker fallback uses ghcr.io/ton-blockchain/acton:1.1.0 with isolated HOME/XDG_CACHE_HOME and no wallet or deployment secret mounts.",
     "Acton contract test getters must use names beginning with `test`; otherwise a `.test.tolk` file may compile while reporting zero executed tests.",
     "Acton deployment scripts can run in local emulation without `--net`; only explicit `--net testnet` aliases should broadcast for Entropis testnet deployment.",
-    "Deployment output JSON belongs under ignored `build/` or `deployments/`; wallet overlays (`wallets.toml`, `global.wallets.toml`) must remain local-only.",
+    "Raw deployment output JSON belongs under ignored `build/`; curated public registry files under `deployments/testnet/` may be tracked only after validation and must contain no endpoints, tokens, wallet material, or private operator data.",
     "Do not broadcast mainnet scripts before build, test, local emulation, and testnet validation.",
     "Regenerate wrappers when ABI changes; do not hand-edit generated wrappers unless unavoidable."
   ],
@@ -117,6 +117,7 @@ TON_L2_SKILLS = {
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
+    "The public testnet deployment registry is the tracked source for safe root/vault addresses, code hashes, deploy tx hashes, wrapper versions, status, and getter expectations; runtime secrets still come only from environment or .env.local.",
     "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],
   security_patterns: [
