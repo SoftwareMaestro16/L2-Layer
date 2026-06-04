@@ -176,7 +176,7 @@ impl Storage for PostgresStorage {
                 deposit_id, asset_id, recipient, amount, l1_tx_hash, l1_lt, deposit_json
             )
             VALUES ($1, $2, $3, $4::numeric, $5, $6, $7)
-            ON CONFLICT (deposit_id) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING deposit_id
             "#,
         )

@@ -129,6 +129,23 @@ async fn admin_deposit_rejects_invalid_payload() {
 }
 
 #[tokio::test]
+async fn admin_deposit_is_dev_mode_only() {
+    let mut state = test_state(Some(ADMIN_TOKEN));
+    state.dev_admin_deposits_enabled = false;
+
+    let error = admin_deposit(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(deposit_event()),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::FORBIDDEN);
+    assert_eq!(error.message, "dev admin deposits disabled");
+}
+
+#[tokio::test]
 async fn admin_deposit_accepts_authorized_valid_payload() {
     let state = test_state(Some(ADMIN_TOKEN));
     let deposit = deposit_event();

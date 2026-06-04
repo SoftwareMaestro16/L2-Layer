@@ -15,6 +15,12 @@ const DEFAULT_ENT_FAUCET_AMOUNT: u128 = 1_000;
 const DEFAULT_ENT_DECIMALS: u8 = 9;
 const DEFAULT_ENT_LOGO_PATH: &str = "assets/entropis.png";
 const DEFAULT_ENT_FAUCET_REQUIRE_ADMIN: bool = true;
+const DEFAULT_L1_DEPOSIT_INDEXER_ENABLED: bool = false;
+const DEFAULT_L1_DEPOSIT_POLL_INTERVAL_MS: u64 = 5_000;
+const DEFAULT_L1_DEPOSIT_BATCH_LIMIT: u16 = 100;
+const DEFAULT_L1_DEPOSIT_CONFIRMATION_LAG_LT: u64 = 0;
+const DEFAULT_L1_TON_ASSET_ID: u32 = 1;
+const DEFAULT_DEV_ADMIN_DEPOSITS_ENABLED: bool = false;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TonNetwork {
@@ -64,6 +70,13 @@ pub struct NodeConfig {
     pub ent_decimals: u8,
     pub ent_logo_path: PathBuf,
     pub ent_faucet_require_admin: bool,
+    pub l1_deposit_indexer_enabled: bool,
+    pub l1_vault_address: Option<String>,
+    pub l1_deposit_poll_interval_ms: u64,
+    pub l1_deposit_batch_limit: u16,
+    pub l1_deposit_confirmation_lag_lt: u64,
+    pub l1_ton_asset_id: u32,
+    pub dev_admin_deposits_enabled: bool,
 }
 
 impl NodeConfig {
@@ -126,6 +139,58 @@ impl NodeConfig {
             ),
             "ENT_FAUCET_REQUIRE_ADMIN",
         )?;
+        let l1_deposit_indexer_enabled = parse_bool(
+            &optional(
+                &mut lookup,
+                "L1_DEPOSIT_INDEXER_ENABLED",
+                bool_literal(DEFAULT_L1_DEPOSIT_INDEXER_ENABLED),
+            ),
+            "L1_DEPOSIT_INDEXER_ENABLED",
+        )?;
+        let l1_vault_address = optional(&mut lookup, "L1_VAULT_ADDRESS", "")
+            .trim()
+            .to_owned();
+        let l1_vault_address = (!l1_vault_address.is_empty()).then_some(l1_vault_address);
+        let l1_deposit_poll_interval_ms = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_DEPOSIT_POLL_INTERVAL_MS",
+                &DEFAULT_L1_DEPOSIT_POLL_INTERVAL_MS.to_string(),
+            ),
+            "L1_DEPOSIT_POLL_INTERVAL_MS",
+        )?;
+        let l1_deposit_batch_limit = parse_u16(
+            &optional(
+                &mut lookup,
+                "L1_DEPOSIT_BATCH_LIMIT",
+                &DEFAULT_L1_DEPOSIT_BATCH_LIMIT.to_string(),
+            ),
+            "L1_DEPOSIT_BATCH_LIMIT",
+        )?;
+        let l1_deposit_confirmation_lag_lt = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_DEPOSIT_CONFIRMATION_LAG_LT",
+                &DEFAULT_L1_DEPOSIT_CONFIRMATION_LAG_LT.to_string(),
+            ),
+            "L1_DEPOSIT_CONFIRMATION_LAG_LT",
+        )?;
+        let l1_ton_asset_id = parse_u32(
+            &optional(
+                &mut lookup,
+                "L1_TON_ASSET_ID",
+                &DEFAULT_L1_TON_ASSET_ID.to_string(),
+            ),
+            "L1_TON_ASSET_ID",
+        )?;
+        let dev_admin_deposits_enabled = parse_bool(
+            &optional(
+                &mut lookup,
+                "L2_DEV_ADMIN_DEPOSITS_ENABLED",
+                bool_literal(DEFAULT_DEV_ADMIN_DEPOSITS_ENABLED),
+            ),
+            "L2_DEV_ADMIN_DEPOSITS_ENABLED",
+        )?;
 
         let config = Self {
             l2_name,
@@ -146,6 +211,13 @@ impl NodeConfig {
             ent_decimals,
             ent_logo_path,
             ent_faucet_require_admin,
+            l1_deposit_indexer_enabled,
+            l1_vault_address,
+            l1_deposit_poll_interval_ms,
+            l1_deposit_batch_limit,
+            l1_deposit_confirmation_lag_lt,
+            l1_ton_asset_id,
+            dev_admin_deposits_enabled,
         };
         config.validate()?;
         Ok(config)
@@ -190,7 +262,27 @@ impl NodeConfig {
         if !self.ent_faucet_require_admin {
             return Err(anyhow!("ENT_FAUCET_REQUIRE_ADMIN must be true for MVP"));
         }
+        if self.l1_deposit_indexer_enabled && self.l1_vault_address.is_none() {
+            return Err(anyhow!(
+                "L1_VAULT_ADDRESS is required when L1_DEPOSIT_INDEXER_ENABLED=true"
+            ));
+        }
+        if self.l1_deposit_poll_interval_ms == 0 {
+            return Err(anyhow!("L1_DEPOSIT_POLL_INTERVAL_MS must be non-zero"));
+        }
+        if self.l1_deposit_batch_limit == 0 || self.l1_deposit_batch_limit > 1000 {
+            return Err(anyhow!("L1_DEPOSIT_BATCH_LIMIT must be between 1 and 1000"));
+        }
+        if self.l1_ton_asset_id == self.ent_gas_asset_id() {
+            return Err(anyhow!(
+                "L1_TON_ASSET_ID must not equal the ENT gas asset id"
+            ));
+        }
         Ok(())
+    }
+
+    pub fn ent_gas_asset_id(&self) -> u32 {
+        l2_core::L2_NATIVE_GAS_ASSET
     }
 }
 
@@ -216,6 +308,25 @@ impl fmt::Debug for NodeConfig {
             .field("ent_decimals", &self.ent_decimals)
             .field("ent_logo_path", &self.ent_logo_path)
             .field("ent_faucet_require_admin", &self.ent_faucet_require_admin)
+            .field(
+                "l1_deposit_indexer_enabled",
+                &self.l1_deposit_indexer_enabled,
+            )
+            .field("l1_vault_address", &self.l1_vault_address)
+            .field(
+                "l1_deposit_poll_interval_ms",
+                &self.l1_deposit_poll_interval_ms,
+            )
+            .field("l1_deposit_batch_limit", &self.l1_deposit_batch_limit)
+            .field(
+                "l1_deposit_confirmation_lag_lt",
+                &self.l1_deposit_confirmation_lag_lt,
+            )
+            .field("l1_ton_asset_id", &self.l1_ton_asset_id)
+            .field(
+                "dev_admin_deposits_enabled",
+                &self.dev_admin_deposits_enabled,
+            )
             .finish()
     }
 }
@@ -243,6 +354,18 @@ fn parse_u32(value: &str, key: &str) -> anyhow::Result<u32> {
     value
         .parse::<u32>()
         .with_context(|| format!("{key} must be an unsigned 32-bit integer"))
+}
+
+fn parse_u16(value: &str, key: &str) -> anyhow::Result<u16> {
+    value
+        .parse::<u16>()
+        .with_context(|| format!("{key} must be an unsigned 16-bit integer"))
+}
+
+fn parse_u64(value: &str, key: &str) -> anyhow::Result<u64> {
+    value
+        .parse::<u64>()
+        .with_context(|| format!("{key} must be an unsigned 64-bit integer"))
 }
 
 fn parse_u128(value: &str, key: &str) -> anyhow::Result<u128> {
@@ -292,116 +415,5 @@ fn path_exists_in_cwd_or_ancestors(path: &PathBuf) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    fn valid_env() -> BTreeMap<String, String> {
-        BTreeMap::from([
-            ("L2_NAME".to_owned(), "Entropis".to_owned()),
-            ("L2_CHAIN_ID".to_owned(), "entropis-testnet".to_owned()),
-            ("L2_NATIVE_TOKEN_NAME".to_owned(), "Entropis".to_owned()),
-            ("L2_NATIVE_TOKEN_SYMBOL".to_owned(), "ENT".to_owned()),
-            ("TON_NETWORK".to_owned(), "testnet".to_owned()),
-            (
-                "TONCENTER_V3_BASE_URL".to_owned(),
-                DEFAULT_TONCENTER_TESTNET.to_owned(),
-            ),
-            (
-                "TONCENTER_API_KEY".to_owned(),
-                "toncenter-secret-key".to_owned(),
-            ),
-            (
-                "TONAPI_BASE_URL".to_owned(),
-                DEFAULT_TONAPI_TESTNET.to_owned(),
-            ),
-            ("TONAPI_KEY".to_owned(), "tonapi-secret-key".to_owned()),
-            (
-                "DATABASE_URL".to_owned(),
-                "postgresql://user:pass@localhost:5432/l2".to_owned(),
-            ),
-            (
-                "REDIS_URL".to_owned(),
-                "redis://default:pass@localhost:6379".to_owned(),
-            ),
-            ("L2_ADMIN_TOKEN".to_owned(), "admin-secret-token".to_owned()),
-            ("ENT_DECIMALS".to_owned(), "9".to_owned()),
-            ("ENT_LOGO_PATH".to_owned(), "assets/entropis.png".to_owned()),
-            ("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "true".to_owned()),
-        ])
-    }
-
-    fn load_from(map: &BTreeMap<String, String>) -> anyhow::Result<NodeConfig> {
-        NodeConfig::from_lookup(|key| map.get(key).cloned())
-    }
-
-    #[test]
-    fn valid_entropis_testnet_config_loads() {
-        let config = load_from(&valid_env()).expect("config");
-
-        assert_eq!(config.l2_name, "Entropis");
-        assert_eq!(config.chain_id, "entropis-testnet");
-        assert_eq!(config.native_token_symbol, "ENT");
-        assert_eq!(config.ton_network, TonNetwork::Testnet);
-        assert_eq!(config.ent_decimals, 9);
-        assert_eq!(config.ent_logo_path, PathBuf::from("assets/entropis.png"));
-        assert!(config.ent_faucet_require_admin);
-    }
-
-    #[test]
-    fn config_rejects_mainnet_or_wrong_endpoints() {
-        let mut env = valid_env();
-        env.insert("TON_NETWORK".to_owned(), "mainnet".to_owned());
-        assert!(load_from(&env).is_err());
-
-        let mut env = valid_env();
-        env.insert(
-            "TONCENTER_V3_BASE_URL".to_owned(),
-            "https://toncenter.com/api/v3".to_owned(),
-        );
-        assert!(load_from(&env).is_err());
-    }
-
-    #[test]
-    fn config_rejects_missing_or_invalid_secrets() {
-        let mut env = valid_env();
-        env.remove("DATABASE_URL");
-        assert!(load_from(&env).is_err());
-
-        let mut env = valid_env();
-        env.insert("L2_ADMIN_TOKEN".to_owned(), "short".to_owned());
-        assert!(load_from(&env).is_err());
-    }
-
-    #[test]
-    fn config_rejects_invalid_ent_metadata() {
-        let mut env = valid_env();
-        env.insert("ENT_DECIMALS".to_owned(), "6".to_owned());
-        assert!(load_from(&env).is_err());
-
-        let mut env = valid_env();
-        env.insert(
-            "ENT_LOGO_PATH".to_owned(),
-            "assets/missing-ent.png".to_owned(),
-        );
-        assert!(load_from(&env).is_err());
-
-        let mut env = valid_env();
-        env.insert("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "false".to_owned());
-        assert!(load_from(&env).is_err());
-    }
-
-    #[test]
-    fn debug_output_redacts_secrets() {
-        let env = valid_env();
-        let config = load_from(&env).expect("config");
-        let debug = format!("{config:?}");
-
-        assert!(debug.contains("<redacted>"));
-        assert!(!debug.contains(env.get("TONAPI_KEY").unwrap()));
-        assert!(!debug.contains(env.get("TONCENTER_API_KEY").unwrap()));
-        assert!(!debug.contains(env.get("DATABASE_URL").unwrap()));
-        assert!(!debug.contains(env.get("REDIS_URL").unwrap()));
-        assert!(!debug.contains(env.get("L2_ADMIN_TOKEN").unwrap()));
-    }
-}
+#[path = "config_tests.rs"]
+mod tests;

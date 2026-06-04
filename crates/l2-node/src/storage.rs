@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use l2_core::{DepositEvent, Hash32, L2Block, Receipt, SignedL2Transaction, WithdrawalProof};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -72,6 +72,7 @@ pub async fn build_storage(config: &NodeConfig) -> Result<DynStorage, StorageErr
 pub struct InMemoryStorage {
     blocks: RwLock<Vec<L2Block>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
+    deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
     ent_faucet_grants: RwLock<BTreeMap<Hash32, u128>>,
     cursors: RwLock<BTreeMap<String, L1Cursor>>,
 }
@@ -137,7 +138,14 @@ impl Storage for InMemoryStorage {
 
     async fn save_deposit(&self, deposit: DepositEvent) -> Result<bool, StorageError> {
         let mut deposits = self.deposits.write().await;
-        Ok(deposits.insert(deposit.deposit_id, deposit).is_none())
+        let mut l1_keys = self.deposit_l1_keys.write().await;
+        let l1_key = (deposit.l1_tx_hash, deposit.l1_lt);
+        if deposits.contains_key(&deposit.deposit_id) || l1_keys.contains(&l1_key) {
+            return Ok(false);
+        }
+        l1_keys.insert(l1_key);
+        deposits.insert(deposit.deposit_id, deposit);
+        Ok(true)
     }
 
     async fn save_ent_faucet_grant(
@@ -182,6 +190,17 @@ mod tests {
 
         assert!(storage.save_deposit(deposit.clone()).await.unwrap());
         assert!(!storage.save_deposit(deposit).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn memory_storage_deposit_l1_cursor_rejects_replay() {
+        let storage = InMemoryStorage::default();
+        let deposit = deposit_event();
+        let mut replay = deposit.clone();
+        replay.deposit_id = sha256_bytes(b"different-deposit-id");
+
+        assert!(storage.save_deposit(deposit).await.unwrap());
+        assert!(!storage.save_deposit(replay).await.unwrap());
     }
 
     #[tokio::test]

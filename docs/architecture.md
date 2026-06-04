@@ -6,7 +6,8 @@ flowchart TB
   SDK --> API["L2 API REST / WS"]
   API --> Mempool["Mempool"]
   Mempool --> Sequencer["Rust Sequencer"]
-  Indexer["TON Indexer"] --> Sequencer
+  Indexer["TON Deposit Indexer"] --> Sequencer
+  Indexer --> Cursor["Postgres l1_cursors"]
   Sequencer --> Executor["Deterministic Executor"]
   Executor --> State["L2 State DB + Merkle root"]
   Sequencer --> Builder["Deterministic Batch Builder"]
@@ -37,3 +38,12 @@ commitments. The byte layout is documented in `docs/consensus-encoding.md`.
 
 Asset id `0` is the L2-native gas coin. Deposits can credit any asset id, but all
 non-system L2 transactions pay gas from asset id `0`.
+
+## Deposit Indexing
+
+TON deposits are observed through Toncenter v3 log messages from `AssetVault`.
+The indexer filters by vault source, external-log destination, `DepositRecorded`
+opcode, logical time cursor, and expected bridged TON asset id. Each valid event is
+stored through the deposit table before it is handed to the sequencer, so replayed
+`l1_tx_hash + lt` events are idempotent. Malformed expected logs do not advance the
+cursor; temporary TON API failures are logged and do not block block production.

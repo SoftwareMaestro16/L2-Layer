@@ -1,5 +1,6 @@
 use crate::config::NodeConfig;
 use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
+use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::{MempoolError, MempoolService};
 use crate::storage::{DynStorage, StorageError};
 use axum::extract::ws::{Message, WebSocketUpgrade};
@@ -27,6 +28,7 @@ pub struct AppState {
     mempool: MempoolService,
     ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
+    dev_admin_deposits_enabled: bool,
 }
 
 impl AppState {
@@ -44,6 +46,7 @@ impl AppState {
             mempool,
             ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
+            dev_admin_deposits_enabled: config.dev_admin_deposits_enabled,
         })
     }
 
@@ -58,6 +61,7 @@ impl AppState {
             ),
             ent_faucet: EntFaucetService::from_config(&test_config()).expect("faucet config"),
             admin_auth: AdminAuth::new(admin_token.map(str::to_owned)),
+            dev_admin_deposits_enabled: true,
         }
     }
 }
@@ -69,6 +73,7 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
     let state = AppState::new(&config, storage, mempool)?;
     spawn_block_producer(state.clone());
+    spawn_deposit_indexer(&config, state.clone());
 
     let app = build_router(state);
 
@@ -113,6 +118,9 @@ async fn admin_deposit(
     Json(deposit): Json<DepositEvent>,
 ) -> Result<StatusCode, ApiError> {
     state.admin_auth.authorize(&headers)?;
+    if !state.dev_admin_deposits_enabled {
+        return Err(ApiError::forbidden("dev admin deposits disabled"));
+    }
     validate_deposit_event(&deposit)?;
 
     let inserted = state.storage.save_deposit(deposit.clone()).await?;
@@ -221,6 +229,28 @@ fn spawn_block_producer(state: AppState) {
             sleep(Duration::from_secs(2)).await;
             if let Err(error) = produce_block_once(&state).await {
                 tracing::error!(?error, "failed to produce l2 block");
+            }
+        }
+    });
+}
+
+fn spawn_deposit_indexer(config: &NodeConfig, state: AppState) {
+    let Some(indexer_config) = DepositIndexerConfig::from_node_config(config) else {
+        return;
+    };
+    let poll_interval = Duration::from_millis(config.l1_deposit_poll_interval_ms);
+    let indexer = TonDepositIndexer::new(indexer_config, ToncenterClient::from_config(config));
+    tokio::spawn(async move {
+        loop {
+            sleep(poll_interval).await;
+            match indexer.poll_once(&state.storage, &state.sequencer).await {
+                Ok(stats) => tracing::info!(
+                    fetched = stats.fetched,
+                    accepted = stats.accepted,
+                    duplicates = stats.duplicates,
+                    "ton deposit indexer poll completed"
+                ),
+                Err(error) => tracing::warn!(?error, "ton deposit indexer poll failed"),
             }
         }
     });
@@ -450,13 +480,13 @@ fn test_config() -> NodeConfig {
         ),
         (
             "TONCENTER_API_KEY".to_owned(),
-            "toncenter-secret-key".to_owned(),
+            "test-api-token-a".to_owned(),
         ),
         (
             "TONAPI_BASE_URL".to_owned(),
             "https://testnet.tonapi.io".to_owned(),
         ),
-        ("TONAPI_KEY".to_owned(), "tonapi-secret-key".to_owned()),
+        ("TONAPI_KEY".to_owned(), "test-api-token-b".to_owned()),
         (
             "DATABASE_URL".to_owned(),
             "postgresql://user:pass@localhost:5432/l2".to_owned(),
