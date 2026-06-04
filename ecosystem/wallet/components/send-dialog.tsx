@@ -19,39 +19,55 @@ import { Textarea } from "@/components/ui/textarea";
 import { sendTransferSchema } from "@/lib/schemas";
 import { useWalletStore } from "@/store/wallet-store";
 
-export function SendDialog({ children }: { children: ReactNode }) {
-  const sendMockTransfer = useWalletStore((state) => state.sendMockTransfer);
+export function SendDialog({
+  children,
+  onSubmitted
+}: {
+  children: ReactNode;
+  onSubmitted: () => Promise<void>;
+}) {
+  const sendTransfer = useWalletStore((state) => state.sendTransfer);
   const [open, setOpen] = useState(false);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   function reset() {
     setRecipient("");
     setAmount("");
     setMemo("");
     setError(null);
+    setStatus(null);
+    setSubmitting(false);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setStatus(null);
+    setSubmitting(true);
 
     try {
       const parsed = sendTransferSchema.parse({ recipient, amount, memo });
-      const result = sendMockTransfer(parsed);
+      const result = await sendTransfer(parsed);
       if (!result.ok) {
         setError(result.message);
+        setSubmitting(false);
         return;
       }
+      setStatus(`Submitted ${result.txHash.slice(0, 12)}...`);
+      await onSubmitted();
       reset();
       setOpen(false);
     } catch (validationError) {
+      setSubmitting(false);
       if (validationError instanceof ZodError) {
         setError(validationError.issues[0]?.message ?? "Invalid transfer.");
       } else {
-        setError("Invalid transfer.");
+        setError(validationError instanceof Error ? validationError.message : "Invalid transfer.");
       }
     }
   }
@@ -71,7 +87,7 @@ export function SendDialog({ children }: { children: ReactNode }) {
         <DialogHeader>
           <DialogTitle>Send ENT</DialogTitle>
           <DialogDescription>
-            Creates a pending mock transaction in local UI state. No signature or network request is made.
+            Signs a canonical L2 transfer locally and submits it to the configured Entropis node.
           </DialogDescription>
         </DialogHeader>
 
@@ -82,7 +98,7 @@ export function SendDialog({ children }: { children: ReactNode }) {
               id="recipient"
               value={recipient}
               onChange={(event) => setRecipient(event.target.value)}
-              placeholder="EX..."
+              placeholder="EX... or 8:..."
               spellCheck={false}
             />
           </div>
@@ -96,7 +112,9 @@ export function SendDialog({ children }: { children: ReactNode }) {
               placeholder="25.5"
               inputMode="decimal"
             />
-            <p className="text-xs text-muted-foreground">Mock fee: 0.013 ENT.</p>
+            <p className="text-xs text-muted-foreground">
+              Asset 0 ENT is sent. Gas is charged in ENT by the L2 executor.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -105,11 +123,12 @@ export function SendDialog({ children }: { children: ReactNode }) {
               id="memo"
               value={memo}
               onChange={(event) => setMemo(event.target.value)}
-              placeholder="Optional note"
+              placeholder="Local note, not sent on-chain"
             />
           </div>
 
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+          {status ? <p className="text-sm font-semibold text-muted-foreground">{status}</p> : null}
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <DialogClose asChild>
@@ -117,9 +136,9 @@ export function SendDialog({ children }: { children: ReactNode }) {
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit">
+            <Button type="submit" disabled={submitting}>
               <Send className="h-4 w-4" />
-              Create mock send
+              {submitting ? "Submitting" : "Sign and send"}
             </Button>
           </div>
         </form>

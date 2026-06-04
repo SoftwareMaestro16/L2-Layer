@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Gem, Layers3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatEnt, formatUsd } from "@/lib/format";
+import { formatEnt } from "@/lib/format";
 import type { Collectible, TokenHolding } from "@/lib/types";
 
 export function AssetSections({
@@ -49,7 +49,7 @@ export function AssetSections({
 
       {activeSection === "tokens" ? (
         <CardContent className="space-y-3">
-          {tokens.map((token) => (
+          {tokens.length > 0 ? tokens.map((token) => (
             <div key={token.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/35 p-3">
               <div className="flex min-w-0 items-center gap-3">
                 <div
@@ -66,14 +66,18 @@ export function AssetSections({
                 <p className="text-sm font-semibold">
                   {formatEnt(token.amount)} {token.symbol}
                 </p>
-                <p className="text-xs text-muted-foreground">{formatUsd(token.fiatValue)}</p>
+                <p className="text-xs text-muted-foreground">asset {token.assetId}</p>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              No live token balances yet. Use the faucet or bridge deposit flow to fund this wallet.
+            </div>
+          )}
         </CardContent>
       ) : (
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-          {collectibles.map((collectible) => (
+          {collectibles.length > 0 ? collectibles.map((collectible) => (
             <div key={collectible.id} className="overflow-hidden rounded-lg border bg-card">
               <div className={`aspect-square bg-gradient-to-br ${collectible.accent}`} />
               <div className="p-3">
@@ -88,7 +92,11 @@ export function AssetSections({
                 </div>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              No live L2 NFT indexer data is available for this account yet.
+            </div>
+          )}
         </CardContent>
       )}
     </Card>

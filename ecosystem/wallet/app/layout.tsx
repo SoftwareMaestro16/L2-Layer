@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "EnWallet",
-  description: "Mock EnWallet interface for Entropis"
+  description: "Entropis L2 testnet wallet"
 };
 
 export default function RootLayout({

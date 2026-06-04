@@ -8,11 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatDateTime, formatEnt } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { MockTransaction } from "@/lib/types";
+import type { WalletTransaction } from "@/lib/types";
 
-type FilterValue = "all" | "send" | "receive" | "deposit";
+type FilterValue = "all" | WalletTransaction["type"];
 
-export function TransactionHistory({ transactions }: { transactions: MockTransaction[] }) {
+export function TransactionHistory({ transactions }: { transactions: WalletTransaction[] }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterValue>("all");
 
@@ -36,7 +36,7 @@ export function TransactionHistory({ transactions }: { transactions: MockTransac
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Transaction history</CardTitle>
           <div className="flex flex-wrap gap-2">
-            {(["all", "send", "receive", "deposit"] as FilterValue[]).map((value) => (
+            {(["all", "send", "receive", "deposit", "withdraw"] as FilterValue[]).map((value) => (
               <Button
                 key={value}
                 size="sm"
@@ -94,7 +94,7 @@ export function TransactionHistory({ transactions }: { transactions: MockTransac
               <div className="text-left sm:text-right">
                 <p className={cn("font-semibold", outgoing ? "text-foreground" : "text-blue-700 dark:text-blue-200")}>
                   {transaction.amount > 0 ? "+" : ""}
-                  {formatEnt(transaction.amount)} ENT
+                  {formatEnt(transaction.amount)} {transaction.symbol}
                 </p>
                 <p className="text-xs text-muted-foreground">fee {formatEnt(transaction.fee)} ENT</p>
               </div>
@@ -104,7 +104,7 @@ export function TransactionHistory({ transactions }: { transactions: MockTransac
 
         {visibleTransactions.length === 0 ? (
           <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No mock transactions match this view.
+            No live L2 transactions match this view.
           </div>
         ) : null}
       </CardContent>

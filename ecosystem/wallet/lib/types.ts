@@ -1,27 +1,31 @@
 export type WalletAccount = {
-  id: string;
+  accountId: string;
+  rawAddress: string;
   label: string;
   address: string;
   shortAddress: string;
-  network: "Entropis localnet";
+  network: "Entropis testnet";
   createdFrom: "created" | "imported";
+  publicKey: string;
 };
 
 export type AssetBalance = {
-  assetId: "ENT";
-  symbol: "ENT";
+  assetId: number;
+  symbol: string;
   name: "Entropis";
   amount: number;
-  fiatValue: number;
-  change24h: number;
+  baseUnits: string;
+  decimals: number;
 };
 
 export type TokenHolding = {
   id: string;
+  assetId: number;
   symbol: string;
   name: string;
   amount: number;
-  fiatValue: number;
+  baseUnits: string;
+  decimals: number;
   color: string;
 };
 
@@ -33,13 +37,14 @@ export type Collectible = {
   accent: string;
 };
 
-export type MockTransaction = {
+export type WalletTransaction = {
   id: string;
-  type: "send" | "receive" | "deposit" | "fee";
+  type: "send" | "receive" | "deposit" | "withdraw" | "contract" | "fee";
   status: "confirmed" | "pending" | "failed";
   title: string;
   counterparty: string;
   amount: number;
+  symbol: string;
   fee: number;
   timestamp: string;
   memo?: string;
@@ -47,10 +52,7 @@ export type MockTransaction = {
 
 export type WalletSession = {
   account: WalletAccount;
-  balance: AssetBalance;
-  transactions: MockTransaction[];
-  tokens: TokenHolding[];
-  collectibles: Collectible[];
+  recoveryWords: string;
 };
 
 export type SendTransferInput = {
@@ -63,5 +65,12 @@ export type NetworkSnapshot = {
   chainId: string;
   latestBatch: number;
   finality: string;
-  status: "mock-online";
+  status: "ready" | "offline" | "degraded";
+};
+
+export type WalletLiveData = {
+  balance: AssetBalance;
+  transactions: WalletTransaction[];
+  tokens: TokenHolding[];
+  collectibles: Collectible[];
 };

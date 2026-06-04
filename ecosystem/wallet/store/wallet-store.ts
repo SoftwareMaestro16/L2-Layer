@@ -1,69 +1,117 @@
 "use client";
 
 import { create } from "zustand";
-import { createMockSession } from "@/lib/mock-data";
-import type { MockTransaction, SendTransferInput, WalletSession } from "@/lib/types";
+import {
+  identityFromMnemonic,
+  parseTokenAmount,
+  shortAddress
+} from "@/lib/enwallet";
+import {
+  getAccountNonce,
+  pendingTransfer,
+  submitEntTransfer
+} from "@/lib/l2-api";
+import type { SendTransferInput, WalletSession, WalletTransaction } from "@/lib/types";
 
-const mockFee = 0.013;
+const STORAGE_KEY = "enwallet.entropis-testnet.mnemonic.v1";
+
+type SendResult =
+  | { ok: true; txHash: string; pending: WalletTransaction }
+  | { ok: false; message: string };
 
 type WalletStore = {
   session: WalletSession | null;
-  createWallet: () => void;
-  importWallet: () => void;
+  hasStoredWallet: boolean;
+  openStoredWallet: () => boolean;
+  importWallet: (seedPhrase: string, createdFrom?: "created" | "imported") => void;
   lockWallet: () => void;
-  sendMockTransfer: (input: SendTransferInput) => { ok: true } | { ok: false; message: string };
+  forgetWallet: () => void;
+  sendTransfer: (input: SendTransferInput) => Promise<SendResult>;
 };
 
 export const useWalletStore = create<WalletStore>((set, get) => ({
   session: null,
-  createWallet: () => set({ session: createMockSession("created") }),
-  importWallet: () => set({ session: createMockSession("imported") }),
-  lockWallet: () => set({ session: null }),
-  sendMockTransfer: (input) => {
+  hasStoredWallet: false,
+  openStoredWallet: () => {
+    const storedWords = readStoredWords();
+    if (!storedWords) {
+      set({ hasStoredWallet: false });
+      return false;
+    }
+    try {
+      set({ session: sessionFromWords(storedWords, "imported"), hasStoredWallet: true });
+      return true;
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+      set({ session: null, hasStoredWallet: false });
+      return false;
+    }
+  },
+  importWallet: (seedPhrase, createdFrom = "imported") => {
+    const session = sessionFromWords(seedPhrase, createdFrom);
+    localStorage.setItem(STORAGE_KEY, session.recoveryWords);
+    set({ session, hasStoredWallet: true });
+  },
+  lockWallet: () => set({ session: null, hasStoredWallet: Boolean(readStoredWords()) }),
+  forgetWallet: () => {
+    localStorage.removeItem(STORAGE_KEY);
+    set({ session: null, hasStoredWallet: false });
+  },
+  sendTransfer: async (input) => {
     const session = get().session;
     if (!session) {
       return { ok: false, message: "Wallet is locked." };
     }
 
-    const amount = Number(input.amount);
-    const total = amount + mockFee;
-    if (total > session.balance.amount) {
-      return { ok: false, message: "Mock balance is too low for this transfer." };
+    try {
+      const amountBaseUnits = parseTokenAmount(input.amount);
+      const nonce = await getAccountNonce(session.account.accountId);
+      const txHash = await submitEntTransfer({
+        recoveryWords: session.recoveryWords,
+        accountId: session.account.accountId,
+        nonce,
+        recipient: input.recipient,
+        amountBaseUnits
+      });
+
+      return {
+        ok: true,
+        txHash,
+        pending: pendingTransfer(txHash, input.recipient, Number(input.amount))
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "Transfer failed."
+      };
     }
-
-    const transaction: MockTransaction = {
-      id: `tx_mock_${Date.now()}`,
-      type: "send",
-      status: "pending",
-      title: "Pending mock send",
-      counterparty: input.recipient,
-      amount: -amount,
-      fee: mockFee,
-      timestamp: new Date().toISOString(),
-      memo: input.memo || undefined
-    };
-
-    set({
-      session: {
-        ...session,
-        balance: {
-          ...session.balance,
-          amount: Number((session.balance.amount - total).toFixed(6)),
-          fiatValue: Number((session.balance.fiatValue - amount * 0.5).toFixed(2))
-        },
-        tokens: session.tokens.map((token) =>
-          token.symbol === "ENT"
-            ? {
-                ...token,
-                amount: Number((token.amount - total).toFixed(6)),
-                fiatValue: Number((token.fiatValue - amount * 0.5).toFixed(2))
-              }
-            : token
-        ),
-        transactions: [transaction, ...session.transactions]
-      }
-    });
-
-    return { ok: true };
   }
 }));
+
+export function checkStoredWallet(): boolean {
+  return Boolean(readStoredWords());
+}
+
+function sessionFromWords(seedPhrase: string, createdFrom: "created" | "imported"): WalletSession {
+  const identity = identityFromMnemonic(seedPhrase);
+  return {
+    recoveryWords: identity.recoveryWords,
+    account: {
+      accountId: identity.accountId,
+      rawAddress: identity.rawAddress,
+      label: "Entropis Account",
+      address: identity.friendlyAddress,
+      shortAddress: shortAddress(identity.friendlyAddress),
+      network: "Entropis testnet",
+      createdFrom,
+      publicKey: identity.publicKeyHex
+    }
+  };
+}
+
+function readStoredWords(): string | null {
+  if (typeof localStorage === "undefined") {
+    return null;
+  }
+  return localStorage.getItem(STORAGE_KEY);
+}

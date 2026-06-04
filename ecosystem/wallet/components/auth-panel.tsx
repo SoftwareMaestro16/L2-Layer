@@ -2,38 +2,57 @@
 
 import Image from "next/image";
 import { FormEvent, useState } from "react";
-import { KeyRound, Plus, ShieldCheck, Wallet } from "lucide-react";
+import { Copy, KeyRound, Plus, ShieldCheck, Wallet } from "lucide-react";
 import { ZodError } from "zod";
+import { createMnemonic24 } from "@/lib/enwallet";
 import { seedImportSchema } from "@/lib/schemas";
-import { useWalletStore } from "@/store/wallet-store";
+import { checkStoredWallet, useWalletStore } from "@/store/wallet-store";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 
 export function AuthPanel() {
-  const createWallet = useWalletStore((state) => state.createWallet);
   const importWallet = useWalletStore((state) => state.importWallet);
+  const openStoredWallet = useWalletStore((state) => state.openStoredWallet);
+  const [generatedSeed, setGeneratedSeed] = useState("");
   const [seedPhrase, setSeedPhrase] = useState("");
   const [seedError, setSeedError] = useState<string | null>(null);
+  const [hasStored] = useState(() => typeof window !== "undefined" && checkStoredWallet());
+  const [copied, setCopied] = useState(false);
+
+  function handleGenerate() {
+    setGeneratedSeed(createMnemonic24());
+    setSeedError(null);
+  }
+
+  function handleOpenGenerated() {
+    importWallet(generatedSeed, "created");
+  }
 
   function handleImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSeedError(null);
 
     try {
-      seedImportSchema.parse({ seedPhrase });
+      const parsed = seedImportSchema.parse({ seedPhrase });
       setSeedPhrase("");
-      importWallet();
+      importWallet(parsed.seedPhrase, "imported");
     } catch (error) {
       if (error instanceof ZodError) {
-        setSeedError(error.issues[0]?.message ?? "Invalid mock seed phrase.");
+        setSeedError(error.issues[0]?.message ?? "Invalid seed phrase.");
       } else {
-        setSeedError("Invalid mock seed phrase.");
+        setSeedError("Invalid seed phrase.");
       }
     }
+  }
+
+  async function copySeed() {
+    await navigator.clipboard.writeText(generatedSeed);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
   }
 
   return (
@@ -45,26 +64,26 @@ export function AuthPanel() {
           </div>
           <div>
             <h1 className="text-2xl font-semibold">EnWallet</h1>
-            <p className="text-sm text-muted-foreground">Entropis mock wallet</p>
+            <p className="text-sm text-muted-foreground">Entropis L2 testnet wallet</p>
           </div>
         </div>
 
         <div className="space-y-4">
-          <Badge variant="warning">UI prototype</Badge>
+          <Badge variant="warning">Testnet only</Badge>
           <h2 className="max-w-xl text-4xl font-semibold leading-tight text-foreground">
-            Create or import a demo EnWallet without touching real keys.
+            Create a real Entropis L2 wallet from a 24-word seed phrase.
           </h2>
           <p className="max-w-xl text-base leading-7 text-muted-foreground">
-            This screen models the EnWallet experience while blockchain logic, seed generation, and signing stay
-            out of scope.
+            EnWallet derives an Ed25519 keypair locally, builds an EX address, signs L2 transactions in the browser,
+            and stores the seed phrase only in this browser&apos;s local storage for now.
           </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            ["No seed storage", ShieldCheck],
-            ["Mock balances", Wallet],
-            ["Local UI state", KeyRound]
+            ["24-word BIP39", ShieldCheck],
+            ["EX address", Wallet],
+            ["Local signing", KeyRound]
           ].map(([label, Icon]) => (
             <div key={label as string} className="rounded-lg border bg-card p-4">
               <Icon className="mb-3 h-5 w-5 text-primary" />
@@ -77,9 +96,16 @@ export function AuthPanel() {
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Access wallet</CardTitle>
-          <CardDescription>Both paths create the same mocked EnWallet session.</CardDescription>
+          <CardDescription>Create a new seed, import an existing seed, or reopen the saved local wallet.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {hasStored ? (
+            <Button className="w-full" variant="secondary" onClick={openStoredWallet}>
+              <Wallet className="h-4 w-4" />
+              Open saved wallet
+            </Button>
+          ) : null}
+
           <Tabs defaultValue="create" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="create">Create wallet</TabsTrigger>
@@ -88,37 +114,59 @@ export function AuthPanel() {
 
             <TabsContent value="create" className="space-y-4">
               <div className="rounded-lg border bg-muted/50 p-4">
-                <p className="text-sm font-semibold">Demo account</p>
+                <p className="text-sm font-semibold">Recovery phrase</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Creates a fixed mock address, balance, and transaction history for UI testing.
+                  Save these 24 words before opening the wallet. This prototype stores them in localStorage.
                 </p>
               </div>
-              <Button className="w-full" onClick={createWallet}>
-                <Plus className="h-4 w-4" />
-                Create mock wallet
+
+              {generatedSeed ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {generatedSeed.split(" ").map((word, index) => (
+                    <div key={`${word}-${index}`} className="rounded-md border bg-card px-3 py-2 text-sm">
+                      <span className="mr-2 text-xs text-muted-foreground">{index + 1}</span>
+                      <span className="font-semibold">{word}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Button variant="outline" onClick={handleGenerate}>
+                  <Plus className="h-4 w-4" />
+                  Generate 24 words
+                </Button>
+                <Button variant="outline" onClick={copySeed} disabled={!generatedSeed}>
+                  <Copy className="h-4 w-4" />
+                  {copied ? "Copied" : "Copy seed"}
+                </Button>
+              </div>
+              <Button className="w-full" onClick={handleOpenGenerated} disabled={!generatedSeed}>
+                <Wallet className="h-4 w-4" />
+                I saved it, open wallet
               </Button>
             </TabsContent>
 
             <TabsContent value="import">
               <form className="space-y-4" onSubmit={handleImport}>
                 <div className="space-y-2">
-                  <Label htmlFor="seedPhrase">Seed phrase</Label>
+                  <Label htmlFor="seedPhrase">24-word seed phrase</Label>
                   <Textarea
                     id="seedPhrase"
                     value={seedPhrase}
                     onChange={(event) => setSeedPhrase(event.target.value)}
-                    placeholder="twelve mock words are accepted here for visual testing only"
+                    placeholder="enter 24 BIP39 words"
                     spellCheck={false}
                     autoComplete="off"
                   />
                   <p className="text-xs text-muted-foreground">
-                    The phrase is validated for length, then cleared. It is never stored or used for derivation.
+                    The phrase is validated with the English BIP39 wordlist and stored locally for testnet use.
                   </p>
                   {seedError ? <p className="text-sm font-semibold text-destructive">{seedError}</p> : null}
                 </div>
                 <Button className="w-full" type="submit">
                   <KeyRound className="h-4 w-4" />
-                  Open mock wallet
+                  Open EnWallet
                 </Button>
               </form>
             </TabsContent>
