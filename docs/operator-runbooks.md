@@ -16,6 +16,10 @@ Admin-only:
   counters, and DA/storage latency snapshots.
 - `GET /v1/operator/failures`: failed L1 batch relays and current failed
   withdrawal visibility status.
+- `GET /v1/operator/batch-relayer`: pending/submitted/failed/latest L1 commit
+  relay state.
+- `GET /v1/operator/batch-finalizer`: pending/submitted/failed/latest L1
+  finalization state.
 - `GET /v1/mempool/metrics`: mempool admission and queue metrics.
 
 Admin endpoints require:
@@ -59,6 +63,7 @@ Suggested alert thresholds for testnet:
 - No increase in `node.block_production.produced` for 2 block intervals while
   mempool queue is non-empty.
 - `node.relayer.failed` increases.
+- `node.finalizer.failed` increases.
 - `node.indexer.errors` increases for 3 consecutive polls.
 - `latency.storage_save_block.max_ms` above 1000 ms.
 - `latency.da_write.max_ms` above 1000 ms.
@@ -152,6 +157,31 @@ responses with secrets in `last_error`.
 
 Signer setup and dry-run signing are documented in
 `docs/testnet-signer-service.md`.
+
+### Batch Finalizer Failures
+
+Symptoms:
+
+- `/v1/operator/batch-finalizer.failed_finalization` is non-empty.
+- `node.finalizer.failed` increases.
+- `l1_batch_finalizations.status = failed`.
+
+Actions:
+
+- If `batch commit not confirmed`, check `/v1/operator/batch-relayer` and wait
+  for commit confirmation before retry.
+- If `finalize signer failed`, check the signer service, bearer token, role, and
+  `L2_SIGNER_ROLLUP_ROOT_ADDRESS`.
+- If `finalize signer address mismatch`, check `L1_SEQUENCER_SENDER_ADDRESS`
+  against the signer public address before retrying.
+- If `signed boc malformed`, fix the signer command output and do not broadcast
+  the BoC manually.
+- If `ton provider finalization send failed`, check Toncenter testnet status and
+  retry after the configured backoff.
+
+Finalizer retries are bounded by `L1_BATCH_FINALIZER_MAX_ATTEMPTS`. Persistent
+errors must remain static safe reason strings and must not include raw signed
+BoCs, provider JSON, signer tokens, or API keys.
 
 ### Withdrawal Release Failures
 

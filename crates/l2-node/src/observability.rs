@@ -59,6 +59,7 @@ pub struct OperatorMetrics {
     pub block_production: BlockProductionMetrics,
     pub indexer: IndexerMetrics,
     pub relayer: RelayerMetrics,
+    pub finalizer: FinalizerMetrics,
     pub latency: LatencyMetricsSnapshot,
 }
 
@@ -88,6 +89,19 @@ pub struct RelayerMetrics {
     pub submitted: u64,
     pub confirmed: u64,
     pub failed: u64,
+    pub skipped: u64,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct FinalizerMetrics {
+    pub polls: u64,
+    pub errors: u64,
+    pub created_pending: u64,
+    pub considered: u64,
+    pub submitted: u64,
+    pub finalized: u64,
+    pub failed: u64,
+    pub waiting: u64,
     pub skipped: u64,
 }
 
@@ -124,6 +138,15 @@ pub struct NodeMetrics {
     relayer_confirmed: AtomicU64,
     relayer_failed: AtomicU64,
     relayer_skipped: AtomicU64,
+    finalizer_polls: AtomicU64,
+    finalizer_errors: AtomicU64,
+    finalizer_created_pending: AtomicU64,
+    finalizer_considered: AtomicU64,
+    finalizer_submitted: AtomicU64,
+    finalizer_finalized: AtomicU64,
+    finalizer_failed: AtomicU64,
+    finalizer_waiting: AtomicU64,
+    finalizer_skipped: AtomicU64,
     da_write_latency: LatencyMetric,
     storage_save_block_latency: LatencyMetric,
 }
@@ -186,6 +209,37 @@ impl NodeMetrics {
         self.relayer_errors.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn record_finalizer_poll(
+        &self,
+        created_pending: usize,
+        considered: usize,
+        submitted: usize,
+        finalized: usize,
+        failed: usize,
+        waiting: usize,
+        skipped: usize,
+    ) {
+        self.finalizer_polls.fetch_add(1, Ordering::Relaxed);
+        self.finalizer_created_pending
+            .fetch_add(created_pending as u64, Ordering::Relaxed);
+        self.finalizer_considered
+            .fetch_add(considered as u64, Ordering::Relaxed);
+        self.finalizer_submitted
+            .fetch_add(submitted as u64, Ordering::Relaxed);
+        self.finalizer_finalized
+            .fetch_add(finalized as u64, Ordering::Relaxed);
+        self.finalizer_failed
+            .fetch_add(failed as u64, Ordering::Relaxed);
+        self.finalizer_waiting
+            .fetch_add(waiting as u64, Ordering::Relaxed);
+        self.finalizer_skipped
+            .fetch_add(skipped as u64, Ordering::Relaxed);
+    }
+
+    pub fn record_finalizer_error(&self) {
+        self.finalizer_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn record_da_write_latency(&self, latency: Duration) {
         self.da_write_latency.record(latency);
     }
@@ -219,6 +273,17 @@ impl NodeMetrics {
                 confirmed: self.relayer_confirmed.load(Ordering::Relaxed),
                 failed: self.relayer_failed.load(Ordering::Relaxed),
                 skipped: self.relayer_skipped.load(Ordering::Relaxed),
+            },
+            finalizer: FinalizerMetrics {
+                polls: self.finalizer_polls.load(Ordering::Relaxed),
+                errors: self.finalizer_errors.load(Ordering::Relaxed),
+                created_pending: self.finalizer_created_pending.load(Ordering::Relaxed),
+                considered: self.finalizer_considered.load(Ordering::Relaxed),
+                submitted: self.finalizer_submitted.load(Ordering::Relaxed),
+                finalized: self.finalizer_finalized.load(Ordering::Relaxed),
+                failed: self.finalizer_failed.load(Ordering::Relaxed),
+                waiting: self.finalizer_waiting.load(Ordering::Relaxed),
+                skipped: self.finalizer_skipped.load(Ordering::Relaxed),
             },
             latency: LatencyMetricsSnapshot {
                 da_write: self.da_write_latency.snapshot(),

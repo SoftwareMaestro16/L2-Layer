@@ -58,6 +58,13 @@ pub struct NodeConfig {
     pub l1_batch_relayer_poll_interval_ms: u64,
     pub l1_batch_relayer_retry_backoff_ms: u64,
     pub l1_batch_relayer_max_attempts: u32,
+    pub l1_batch_finalizer_enabled: bool,
+    pub l1_finalize_signer_endpoint: Option<String>,
+    pub l1_finalize_signer_token: Option<SecretString>,
+    pub l1_finalize_msg_value_nanoton: u64,
+    pub l1_batch_finalizer_poll_interval_ms: u64,
+    pub l1_batch_finalizer_retry_backoff_ms: u64,
+    pub l1_batch_finalizer_max_attempts: u32,
     pub da_max_payload_bytes: usize,
     pub mempool_replay_ttl_secs: u64,
     pub mempool_nonce_lock_ttl_secs: u64,
@@ -245,6 +252,49 @@ impl NodeConfig {
                 &DEFAULT_L1_BATCH_RELAYER_MAX_ATTEMPTS.to_string(),
             ),
             "L1_BATCH_RELAYER_MAX_ATTEMPTS",
+        )?;
+        let l1_batch_finalizer_enabled = parse_bool(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_FINALIZER_ENABLED",
+                bool_literal(DEFAULT_L1_BATCH_FINALIZER_ENABLED),
+            ),
+            "L1_BATCH_FINALIZER_ENABLED",
+        )?;
+        let l1_finalize_signer_endpoint =
+            optional_string(&mut lookup, "L1_FINALIZE_SIGNER_ENDPOINT");
+        let l1_finalize_signer_token = optional_secret(&mut lookup, "L1_FINALIZE_SIGNER_TOKEN")?;
+        let l1_finalize_msg_value_nanoton = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_FINALIZE_MSG_VALUE_NANOTON",
+                &DEFAULT_L1_FINALIZE_MSG_VALUE_NANOTON.to_string(),
+            ),
+            "L1_FINALIZE_MSG_VALUE_NANOTON",
+        )?;
+        let l1_batch_finalizer_poll_interval_ms = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_FINALIZER_POLL_INTERVAL_MS",
+                &DEFAULT_L1_BATCH_FINALIZER_POLL_INTERVAL_MS.to_string(),
+            ),
+            "L1_BATCH_FINALIZER_POLL_INTERVAL_MS",
+        )?;
+        let l1_batch_finalizer_retry_backoff_ms = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_FINALIZER_RETRY_BACKOFF_MS",
+                &DEFAULT_L1_BATCH_FINALIZER_RETRY_BACKOFF_MS.to_string(),
+            ),
+            "L1_BATCH_FINALIZER_RETRY_BACKOFF_MS",
+        )?;
+        let l1_batch_finalizer_max_attempts = parse_u32(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_FINALIZER_MAX_ATTEMPTS",
+                &DEFAULT_L1_BATCH_FINALIZER_MAX_ATTEMPTS.to_string(),
+            ),
+            "L1_BATCH_FINALIZER_MAX_ATTEMPTS",
         )?;
         let da_max_payload_bytes = parse_usize(
             &optional(
@@ -453,6 +503,13 @@ impl NodeConfig {
             l1_batch_relayer_poll_interval_ms,
             l1_batch_relayer_retry_backoff_ms,
             l1_batch_relayer_max_attempts,
+            l1_batch_finalizer_enabled,
+            l1_finalize_signer_endpoint,
+            l1_finalize_signer_token,
+            l1_finalize_msg_value_nanoton,
+            l1_batch_finalizer_poll_interval_ms,
+            l1_batch_finalizer_retry_backoff_ms,
+            l1_batch_finalizer_max_attempts,
             da_max_payload_bytes,
             mempool_replay_ttl_secs,
             mempool_nonce_lock_ttl_secs,

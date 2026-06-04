@@ -67,6 +67,31 @@ impl fmt::Debug for NodeConfig {
                 "l1_batch_relayer_max_attempts",
                 &self.l1_batch_relayer_max_attempts,
             )
+            .field(
+                "l1_batch_finalizer_enabled",
+                &self.l1_batch_finalizer_enabled,
+            )
+            .field(
+                "l1_finalize_signer_endpoint",
+                &self.l1_finalize_signer_endpoint,
+            )
+            .field("l1_finalize_signer_token", &self.l1_finalize_signer_token)
+            .field(
+                "l1_finalize_msg_value_nanoton",
+                &self.l1_finalize_msg_value_nanoton,
+            )
+            .field(
+                "l1_batch_finalizer_poll_interval_ms",
+                &self.l1_batch_finalizer_poll_interval_ms,
+            )
+            .field(
+                "l1_batch_finalizer_retry_backoff_ms",
+                &self.l1_batch_finalizer_retry_backoff_ms,
+            )
+            .field(
+                "l1_batch_finalizer_max_attempts",
+                &self.l1_batch_finalizer_max_attempts,
+            )
             .field("da_max_payload_bytes", &self.da_max_payload_bytes)
             .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
             .field(

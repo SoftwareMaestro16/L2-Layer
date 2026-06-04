@@ -382,7 +382,8 @@ fn signer_validation_reason(error: &SignerValidationError) -> &'static str {
         | SignerValidationError::ExpiredRequest
         | SignerValidationError::RequestIdMismatch
         | SignerValidationError::ActionMismatch
-        | SignerValidationError::InvalidCommitRequest => "commit signer invalid response",
+        | SignerValidationError::InvalidCommitRequest
+        | SignerValidationError::InvalidFinalizeRequest => "commit signer invalid response",
     }
 }
 
