@@ -126,6 +126,88 @@ get fun `test valid finalized withdrawal claim is accepted and replay is rejecte
     });
 }
 
+get fun `test bounced vault release is recorded and permissionless root retry clears failure`() {
+    testing.setNow(205);
+    val (root, sequencer, vaultAddress) = setupRoot(0);
+    val user = testing.treasury("root-retry-user");
+    val retryOperator = testing.treasury("root-retry-operator");
+
+    val withdrawalId = 9234;
+    val leaf = releaseLeaf(withdrawalId, 1, user.address, ton("0.3"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, cellReprHash(leaf));
+
+    val claimMsg = createMessage({
+        bounce: BounceMode.NoBounce,
+        dest: root.address,
+        value: ton("0.1"),
+        body: ClaimWithdrawal {
+            batchNo: 1,
+            withdrawalId,
+            withdrawalLeaf: leaf,
+            merkleProof: emptyWithdrawalProof(),
+        },
+    });
+    testing.processSingleTraceStep(user.address, claimMsg);
+
+    val release = ReleaseAuthorized {
+        withdrawalId,
+        assetId: 1,
+        recipient: user.address,
+        amount: ton("0.3"),
+    };
+    testing.processSingleTraceStep(
+        vaultAddress,
+        rootRichReleaseBounce(root.address, release, ton("0.08")),
+    );
+
+    val failed = root.failedWithdrawal(withdrawalId);
+    expect(failed.exists).toEqual(true);
+    val failure = failed.failure.load();
+    expect(failure.reason).toEqual(RELEASE_FAILURE_VAULT_BOUNCE);
+    expect(failure.retryCount).toEqual(0);
+
+    val retry = root.sendRetryWithdrawal(
+        retryOperator.address,
+        withdrawalId,
+        { value: ton("0.1") },
+    );
+    expect(retry).toHaveSuccessfulTx<RetryWithdrawal>({
+        from: retryOperator.address,
+        to: root.address,
+    });
+    expect(root.failedWithdrawal(withdrawalId).exists).toEqual(false);
+
+    val duplicateRetry = root.sendRetryWithdrawal(
+        retryOperator.address,
+        withdrawalId,
+        { value: ton("0.1") },
+    );
+    expect(duplicateRetry).toHaveFailedTx({
+        from: retryOperator.address,
+        to: root.address,
+        exitCode: Errors.NoFailedWithdrawal,
+    });
+}
+
+get fun `test bounced vault release without proven claim is rejected`() {
+    testing.setNow(206);
+    val (root, _, vaultAddress) = setupRoot(0);
+    val user = testing.treasury("root-spoof-user");
+
+    val release = ReleaseAuthorized {
+        withdrawalId: 9345,
+        assetId: 1,
+        recipient: user.address,
+        amount: ton("0.3"),
+    };
+    testing.processSingleTraceStep(
+        vaultAddress,
+        rootRichReleaseBounce(root.address, release, ton("0.08")),
+    );
+
+    expect(root.failedWithdrawal(9345).exists).toEqual(false);
+}
+
 get fun `test finalized withdrawal claim rejects wrong root`() {
     testing.setNow(210);
     val (root, sequencer, _) = setupRoot(0);
@@ -292,6 +374,30 @@ fun oneSiblingWithdrawalProof(leafIndex: uint64, sibling: uint256): cell {
     }.toCell();
 }
 
+fun rootRichReleaseBounce(
+    dest: address,
+    release: ReleaseAuthorized,
+    valueCoins: coins,
+): OutMessage {
+    return createMessage({
+        bounce: BounceMode.NoBounce,
+        dest,
+        value: ton("0.02"),
+        body: RichBounceBody {
+            originalBody: release.toCell(),
+            originalInfo: RichBounceOriginalMsgInfo {
+                valueCoins,
+                valueExtra: [],
+                createdLt: 0,
+                createdAt: blockchain.now(),
+            }.toCell(),
+            bouncedByPhase: 1,
+            exitCode: Errors.Paused,
+            computePhase: null,
+        },
+    }).bounced();
+}
+
 fun commitAndFinalizeWithdrawalRoot(
     root: RollupRoot,
     sequencer: Treasury,
@@ -326,6 +432,7 @@ fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
         paused: false,
         commitments: [],
         claimedWithdrawals: [],
+        failedWithdrawals: [],
     });
     val deploy = root.deploy(deployer.address, { value: ton("0.1") });
     expect(deploy).toHaveSuccessfulDeploy({

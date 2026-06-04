@@ -100,6 +100,21 @@ fun RollupRoot.sendClaimWithdrawal(
     return net.send(from, genericMsg);
 }
 
+fun RollupRoot.sendRetryWithdrawal(
+    self,
+    from: address,
+    withdrawalId: uint256,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: RetryWithdrawal { withdrawalId },
+    });
+    return net.send(from, genericMsg);
+}
+
 /// Send message to the contract with a custom body cell
 fun RollupRoot.sendAny(self, from: address, body: cell, config: SendParams = {}): SendResultList {
     val genericMsg = createMessage({
@@ -117,4 +132,8 @@ fun RollupRoot.rollupStatus(self): RollupStatusReply {
 
 fun RollupRoot.commitment(self, batchNo: uint64): CommitmentReply {
     return net.runGetMethod(self.address, "commitment", [batchNo]);
+}
+
+fun RollupRoot.failedWithdrawal(self, withdrawalId: uint256): ReleaseFailureReply {
+    return net.runGetMethod(self.address, "failedWithdrawal", [withdrawalId]);
 }

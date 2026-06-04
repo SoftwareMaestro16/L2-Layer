@@ -195,6 +195,54 @@ get fun `test security vault authorized ton release reduces locked ton exactly`(
     expect(vault.vaultStatus().lockedTon).toEqual(ton("0.7"));
 }
 
+get fun `test security vault records recipient bounce and retry succeeds once`() {
+    val (vault, _, rollupRoot, attacker, user) = securityDeployVault();
+
+    vault.sendDepositTon(user.address, 104, ton("1"), 1000, { value: ton("1") });
+
+    val release = ReleaseAuthorized {
+        withdrawalId: 504,
+        assetId: 1,
+        recipient: user.address,
+        amount: ton("0.3"),
+    };
+    val releaseToVault = createMessage({
+        bounce: BounceMode.NoBounce,
+        dest: vault.address,
+        value: ton("0.05"),
+        body: release,
+    });
+    testing.processSingleTraceStep(rollupRoot.address, releaseToVault);
+    expect(vault.vaultStatus().lockedTon).toEqual(ton("0.7"));
+
+    testing.processSingleTraceStep(
+        user.address,
+        securityRichReleaseBounce(vault.address, release, ton("0.3")),
+    );
+
+    expect(vault.vaultStatus().lockedTon).toEqual(ton("1"));
+    val failed = vault.failedRelease(504);
+    expect(failed.exists).toEqual(true);
+    val failure = failed.failure.load();
+    expect(failure.reason).toEqual(RELEASE_FAILURE_RECIPIENT_BOUNCE);
+    expect(failure.retryCount).toEqual(0);
+
+    val retry = vault.sendRetryRelease(attacker.address, 504, { value: ton("0.05") });
+    expect(retry).toHaveSuccessfulTx<RetryRelease>({
+        from: attacker.address,
+        to: vault.address,
+    });
+    expect(vault.failedRelease(504).exists).toEqual(false);
+    expect(vault.vaultStatus().lockedTon).toEqual(ton("0.7"));
+
+    val duplicateRetry = vault.sendRetryRelease(attacker.address, 504, { value: ton("0.05") });
+    expect(duplicateRetry).toHaveFailedTx({
+        from: attacker.address,
+        to: vault.address,
+        exitCode: Errors.NoFailedWithdrawal,
+    });
+}
+
 get fun `test security vault unsupported release does not debit locked ton`() {
     val (vault, _, rollupRoot, _, user) = securityDeployVault();
 
@@ -213,6 +261,37 @@ get fun `test security vault unsupported release does not debit locked ton`() {
         to: vault.address,
     });
     expect(vault.vaultStatus().lockedTon).toEqual(ton("1"));
+
+    val failed = vault.failedRelease(503);
+    expect(failed.exists).toEqual(true);
+    val failure = failed.failure.load();
+    expect(failure.reason).toEqual(RELEASE_FAILURE_UNSUPPORTED_ASSET);
+
+    val retry = vault.sendRetryRelease(user.address, 503, { value: ton("0.05") });
+    expect(retry).toHaveFailedTx({
+        from: user.address,
+        to: vault.address,
+        exitCode: Errors.UnsupportedReleaseAsset,
+    });
+    expect(vault.failedRelease(503).exists).toEqual(true);
+}
+
+get fun `test security vault rejects spoofed recipient bounce`() {
+    val (vault, _, _, attacker, user) = securityDeployVault();
+
+    val release = ReleaseAuthorized {
+        withdrawalId: 505,
+        assetId: 1,
+        recipient: user.address,
+        amount: ton("0.3"),
+    };
+    testing.processSingleTraceStep(
+        attacker.address,
+        securityRichReleaseBounce(vault.address, release, ton("0.3")),
+    );
+
+    expect(vault.failedRelease(505).exists).toEqual(false);
+    expect(vault.vaultStatus().lockedTon).toEqual(0);
 }
 
 get fun `test security vault ignores empty topup and rejects unknown non empty message`() {
@@ -255,6 +334,7 @@ fun securityDeployRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, Treas
         paused: false,
         commitments: [],
         claimedWithdrawals: [],
+        failedWithdrawals: [],
     });
     val deploy = root.deploy(sequencer.address, { value: ton("0.1") });
     expect(deploy).toHaveSuccessfulDeploy({
@@ -285,6 +365,30 @@ fun securityDeployVault(): (AssetVault, Treasury, Treasury, Treasury, Treasury) 
     });
 
     return (vault, deployer, rollupRoot, attacker, user);
+}
+
+fun securityRichReleaseBounce(
+    dest: address,
+    release: ReleaseAuthorized,
+    valueCoins: coins,
+): OutMessage {
+    return createMessage({
+        bounce: BounceMode.NoBounce,
+        dest,
+        value: ton("0.02"),
+        body: RichBounceBody {
+            originalBody: release.toCell(),
+            originalInfo: RichBounceOriginalMsgInfo {
+                valueCoins,
+                valueExtra: [],
+                createdLt: 0,
+                createdAt: blockchain.now(),
+            }.toCell(),
+            bouncedByPhase: 1,
+            exitCode: Errors.Paused,
+            computePhase: null,
+        },
+    }).bounced();
 }
 
 fun securityRootsA(prevStateRoot: uint256, stateRoot: uint256, txRoot: uint256): BatchRootsA {

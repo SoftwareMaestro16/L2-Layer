@@ -12,4 +12,6 @@ enum Errors {
     BadWithdrawalProof = 0x100a
     BadDepositValue = 0x100b
     UnsupportedJettonDeposit = 0x100c
+    NoFailedWithdrawal = 0x100d
+    UnsupportedReleaseAsset = 0x100e
 }

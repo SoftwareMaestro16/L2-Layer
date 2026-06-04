@@ -92,7 +92,9 @@ TON_L2_SKILLS = {
     "The node should not hold raw TON wallet credentials for relaying; use a signer boundary and verify the returned signer address matches RollupRoot.sequencer before broadcasting.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
     "The committed withdrawalRoot is the Merkle root of ReleaseAuthorized cell representation hashes; withdrawal tree node hashes are representation hashes of a compact cell containing left uint256 then right uint256.",
-    "AssetVault must handle bounce/failure paths and avoid double release through claimed withdrawal tracking at RollupRoot."
+    "Root-to-vault release bounces are stored in RollupRoot.failedWithdrawals without deleting claimedWithdrawals; RetryWithdrawal is permissionless and resends only stored release fields.",
+    "Vault-to-recipient TON release bounces are stored in AssetVault.releaseFailures, re-credit lockedTon, and can be retried permissionlessly through RetryRelease.",
+    "Unsupported release assets remain visible as failures and are not retryable until Jetton/wrapped-gas release support is implemented."
   ],
   infrastructure: [
     "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",
@@ -106,6 +108,8 @@ TON_L2_SKILLS = {
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",
     "Bind ClaimWithdrawal.withdrawalId to the decoded ReleaseAuthorized.withdrawalId before marking claims or sending vault release messages.",
+    "Do not clear claimedWithdrawals on root-to-vault bounce; store a failed release and retry from stored fields to avoid reopening proof claims.",
+    "Recipient bounce handling must verify senderAddress equals the original recipient and must never accept caller-supplied retry amount or recipient.",
     "Use domain-separated hashes for deposits, transactions, receipts, withdrawals, and blocks.",
     "Never rely on unordered map iteration for root computation.",
     "Keep challengeWindowSec and finalization logic conservative until fraud proofs are implemented."

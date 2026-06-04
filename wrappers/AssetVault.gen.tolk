@@ -81,6 +81,21 @@ fun AssetVault.sendReleaseAuthorized(
     return net.send(from, genericMsg);
 }
 
+fun AssetVault.sendRetryRelease(
+    self,
+    from: address,
+    withdrawalId: uint256,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: RetryRelease { withdrawalId },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun AssetVault.sendJettonTransferNotification(
     self,
     from: address,
@@ -112,4 +127,8 @@ fun AssetVault.sendAny(self, from: address, body: cell, config: SendParams = {})
 
 fun AssetVault.vaultStatus(self): VaultStatusReply {
     return net.runGetMethod(self.address, "vaultStatus");
+}
+
+fun AssetVault.failedRelease(self, withdrawalId: uint256): ReleaseFailureReply {
+    return net.runGetMethod(self.address, "failedRelease", [withdrawalId]);
 }

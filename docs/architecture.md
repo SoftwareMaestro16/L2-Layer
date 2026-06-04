@@ -19,6 +19,8 @@ flowchart TB
   Relayer --> Root["RollupRoot.tolk"]
   User --> Vault["AssetVault.tolk"]
   Root --> Vault
+  Root --> RootRetry["failedWithdrawal + RetryWithdrawal"]
+  Vault --> VaultRetry["failedRelease + RetryRelease"]
   Vault --> Indexer
 ```
 
@@ -59,3 +61,18 @@ maps block height `0` to RollupRoot batch number `1`, forms `BatchRootsA`
 external message BoC, and sends that BoC to Toncenter v3 `/message`. The node
 stores `pending`, `submitted`, `confirmed`, or `failed` status per batch and
 uses bounded retries to avoid a retry storm during TON API or signer failures.
+
+## Withdrawal Bounce Recovery
+
+`RollupRoot` marks a withdrawal claimed before sending `ReleaseAuthorized` to
+`AssetVault`. If that root-to-vault message bounces, the claim remains marked and
+the root stores a compact `ReleaseFailure` under `failedWithdrawal(withdrawalId)`.
+Any actor can call `RetryWithdrawal(withdrawalId)`; retry uses only the stored
+release fields, so the caller cannot change amount, recipient, or asset.
+
+`AssetVault` stores `failedRelease(withdrawalId)` when an outbound release to the
+recipient bounces or when an unsupported release asset is requested. For TON
+asset releases, recipient bounces re-credit `lockedTon` before storing failure.
+Any actor can call `RetryRelease(withdrawalId)` for stored TON failures. Unsupported
+asset failures remain visible and reject retry until Jetton/wrapped-gas release
+support is implemented.

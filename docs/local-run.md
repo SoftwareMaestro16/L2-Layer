@@ -102,6 +102,19 @@ through Toncenter v3 `/message`. Submitted message hashes are stored in
 `l1_batch_commits`; confirmation is checked through Toncenter v3
 `/transactionsByMessage`. Retries are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
 
+## Withdrawal operations
+
+After a finalized batch, users claim withdrawals through `RollupRoot.ClaimWithdrawal`.
+If a root-to-vault release bounces, operators or users can inspect
+`RollupRoot.failedWithdrawal(withdrawalId)` and retry with
+`RollupRoot.RetryWithdrawal(withdrawalId)`.
+
+If a vault-to-recipient release bounces, `AssetVault` records
+`failedRelease(withdrawalId)` and re-credits TON asset custody accounting. Retry is
+permissionless through `AssetVault.RetryRelease(withdrawalId)` and uses the stored
+failure fields only. Unsupported asset ids remain failed and are not retryable
+until the Jetton/wrapped-gas release path is implemented.
+
 ## Acton
 
 Acton must be installed before Tolk contracts can be built and wrappers generated.

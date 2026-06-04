@@ -120,6 +120,10 @@ class StackReader {
     readSlice(): c.Slice {
         return this.popCellLike().beginParse();
     }
+
+    readCellRef<T>(loadFn_T: LoadCallback<T>): CellRef<T> {
+        return { ref: loadFn_T(this.readCell().beginParse()) };
+    }
 }
 
 // ————————————————————————————————————————————
@@ -128,6 +132,7 @@ class StackReader {
 
 type coins = bigint
 
+type uint8 = bigint
 type uint32 = bigint
 type uint64 = bigint
 type uint256 = bigint
@@ -232,6 +237,106 @@ export const ReleaseAuthorized = {
 }
 
 /**
+ > struct (0x4c325207) RetryRelease {
+ >     withdrawalId: uint256
+ > }
+ */
+export interface RetryRelease {
+    readonly $: 'RetryRelease'
+    withdrawalId: uint256
+}
+
+export const RetryRelease = {
+    PREFIX: 0x4c325207,
+
+    create(args: {
+        withdrawalId: uint256
+    }): RetryRelease {
+        return {
+            $: 'RetryRelease',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): RetryRelease {
+        loadAndCheckPrefix32(s, 0x4c325207, 'RetryRelease');
+        return {
+            $: 'RetryRelease',
+            withdrawalId: s.loadUintBig(256),
+        }
+    },
+    store(self: RetryRelease, b: c.Builder): void {
+        b.storeUint(0x4c325207, 32);
+        b.storeUint(self.withdrawalId, 256);
+    },
+    toCell(self: RetryRelease): c.Cell {
+        return makeCellFrom<RetryRelease>(self, RetryRelease.store);
+    }
+}
+
+/**
+ > struct ReleaseFailure {
+ >     withdrawalId: uint256
+ >     assetId: uint32
+ >     recipient: address
+ >     amount: coins
+ >     reason: uint8
+ >     failedAt: uint32
+ >     retryCount: uint32
+ > }
+ */
+export interface ReleaseFailure {
+    readonly $: 'ReleaseFailure'
+    withdrawalId: uint256
+    assetId: uint32
+    recipient: c.Address
+    amount: coins
+    reason: uint8
+    failedAt: uint32
+    retryCount: uint32
+}
+
+export const ReleaseFailure = {
+    create(args: {
+        withdrawalId: uint256
+        assetId: uint32
+        recipient: c.Address
+        amount: coins
+        reason: uint8
+        failedAt: uint32
+        retryCount: uint32
+    }): ReleaseFailure {
+        return {
+            $: 'ReleaseFailure',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): ReleaseFailure {
+        return {
+            $: 'ReleaseFailure',
+            withdrawalId: s.loadUintBig(256),
+            assetId: s.loadUintBig(32),
+            recipient: s.loadAddress(),
+            amount: s.loadCoins(),
+            reason: s.loadUintBig(8),
+            failedAt: s.loadUintBig(32),
+            retryCount: s.loadUintBig(32),
+        }
+    },
+    store(self: ReleaseFailure, b: c.Builder): void {
+        b.storeUint(self.withdrawalId, 256);
+        b.storeUint(self.assetId, 32);
+        b.storeAddress(self.recipient);
+        b.storeCoins(self.amount);
+        b.storeUint(self.reason, 8);
+        b.storeUint(self.failedAt, 32);
+        b.storeUint(self.retryCount, 32);
+    },
+    toCell(self: ReleaseFailure): c.Cell {
+        return makeCellFrom<ReleaseFailure>(self, ReleaseFailure.store);
+    }
+}
+
+/**
  > struct DepositRecordedExtra {
  >     l1Sender: address
  > }
@@ -327,58 +432,6 @@ export const DepositRecorded = {
 }
 
 /**
- > struct (0x4c325208) ReleaseFailed {
- >     withdrawalId: uint256
- >     assetId: uint32
- >     recipient: address
- >     amount: coins
- > }
- */
-export interface ReleaseFailed {
-    readonly $: 'ReleaseFailed'
-    withdrawalId: uint256
-    assetId: uint32
-    recipient: c.Address
-    amount: coins
-}
-
-export const ReleaseFailed = {
-    PREFIX: 0x4c325208,
-
-    create(args: {
-        withdrawalId: uint256
-        assetId: uint32
-        recipient: c.Address
-        amount: coins
-    }): ReleaseFailed {
-        return {
-            $: 'ReleaseFailed',
-            ...args
-        }
-    },
-    fromSlice(s: c.Slice): ReleaseFailed {
-        loadAndCheckPrefix32(s, 0x4c325208, 'ReleaseFailed');
-        return {
-            $: 'ReleaseFailed',
-            withdrawalId: s.loadUintBig(256),
-            assetId: s.loadUintBig(32),
-            recipient: s.loadAddress(),
-            amount: s.loadCoins(),
-        }
-    },
-    store(self: ReleaseFailed, b: c.Builder): void {
-        b.storeUint(0x4c325208, 32);
-        b.storeUint(self.withdrawalId, 256);
-        b.storeUint(self.assetId, 32);
-        b.storeAddress(self.recipient);
-        b.storeCoins(self.amount);
-    },
-    toCell(self: ReleaseFailed): c.Cell {
-        return makeCellFrom<ReleaseFailed>(self, ReleaseFailed.store);
-    }
-}
-
-/**
  > struct (0x7362d09c) JettonTransferNotification {
  >     queryId: uint64
  >     amount: coins
@@ -437,7 +490,7 @@ export const JettonTransferNotification = {
  >     wrappedGasMinter: address
  >     paused: bool
  >     lockedTon: coins
- >     releaseFailures: map<uint256, Cell<ReleaseFailed>>
+ >     releaseFailures: map<uint256, Cell<ReleaseFailure>>
  > }
  */
 export interface AssetVaultStorage {
@@ -447,7 +500,7 @@ export interface AssetVaultStorage {
     wrappedGasMinter: c.Address
     paused: boolean
     lockedTon: coins
-    releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailed>>
+    releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailure>>
 }
 
 export const AssetVaultStorage = {
@@ -457,7 +510,7 @@ export const AssetVaultStorage = {
         wrappedGasMinter: c.Address
         paused: boolean
         lockedTon: coins
-        releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailed>>
+        releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailure>>
     }): AssetVaultStorage {
         return {
             $: 'AssetVaultStorage',
@@ -472,9 +525,9 @@ export const AssetVaultStorage = {
             wrappedGasMinter: s.loadAddress(),
             paused: s.loadBoolean(),
             lockedTon: s.loadCoins(),
-            releaseFailures: c.Dictionary.load<uint256, CellRef<ReleaseFailed>>(c.Dictionary.Keys.BigUint(256), createDictionaryValue<CellRef<ReleaseFailed>>(
-                (s) => loadCellRef<ReleaseFailed>(s, ReleaseFailed.fromSlice),
-                (v,b) => storeCellRef<ReleaseFailed>(v, b, ReleaseFailed.store)
+            releaseFailures: c.Dictionary.load<uint256, CellRef<ReleaseFailure>>(c.Dictionary.Keys.BigUint(256), createDictionaryValue<CellRef<ReleaseFailure>>(
+                (s) => loadCellRef<ReleaseFailure>(s, ReleaseFailure.fromSlice),
+                (v,b) => storeCellRef<ReleaseFailure>(v, b, ReleaseFailure.store)
             ), s),
         }
     },
@@ -484,13 +537,51 @@ export const AssetVaultStorage = {
         b.storeAddress(self.wrappedGasMinter);
         b.storeBit(self.paused);
         b.storeCoins(self.lockedTon);
-        b.storeDict<uint256, CellRef<ReleaseFailed>>(self.releaseFailures, c.Dictionary.Keys.BigUint(256), createDictionaryValue<CellRef<ReleaseFailed>>(
-            (s) => loadCellRef<ReleaseFailed>(s, ReleaseFailed.fromSlice),
-            (v,b) => storeCellRef<ReleaseFailed>(v, b, ReleaseFailed.store)
+        b.storeDict<uint256, CellRef<ReleaseFailure>>(self.releaseFailures, c.Dictionary.Keys.BigUint(256), createDictionaryValue<CellRef<ReleaseFailure>>(
+            (s) => loadCellRef<ReleaseFailure>(s, ReleaseFailure.fromSlice),
+            (v,b) => storeCellRef<ReleaseFailure>(v, b, ReleaseFailure.store)
         ));
     },
     toCell(self: AssetVaultStorage): c.Cell {
         return makeCellFrom<AssetVaultStorage>(self, AssetVaultStorage.store);
+    }
+}
+
+/**
+ > struct ReleaseFailureReply {
+ >     exists: bool
+ >     failure: Cell<ReleaseFailure>
+ > }
+ */
+export interface ReleaseFailureReply {
+    readonly $: 'ReleaseFailureReply'
+    exists: boolean
+    failure: CellRef<ReleaseFailure>
+}
+
+export const ReleaseFailureReply = {
+    create(args: {
+        exists: boolean
+        failure: CellRef<ReleaseFailure>
+    }): ReleaseFailureReply {
+        return {
+            $: 'ReleaseFailureReply',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): ReleaseFailureReply {
+        return {
+            $: 'ReleaseFailureReply',
+            exists: s.loadBoolean(),
+            failure: loadCellRef<ReleaseFailure>(s, ReleaseFailure.fromSlice),
+        }
+    },
+    store(self: ReleaseFailureReply, b: c.Builder): void {
+        b.storeBit(self.exists);
+        storeCellRef<ReleaseFailure>(self.failure, b, ReleaseFailure.store);
+    },
+    toCell(self: ReleaseFailureReply): c.Cell {
+        return makeCellFrom<ReleaseFailureReply>(self, ReleaseFailureReply.store);
     }
 }
 
@@ -581,13 +672,15 @@ function calculateDeployedAddress(code: c.Cell, data: c.Cell, options: DeployedA
 }
 
 export class AssetVault implements c.Contract {
-    static CodeCell = c.Cell.fromBase64('te6ccgECCwEAAecAART/APSkE/S88sgLAQIBYgIDAgLPBAUAJaGnE9qJofSQY/SR9JGkAfQAYAME9T4kY5Y0x8x1ywiYZKQNI5K7UTQAdP/0x/6SPoAMAT6SPpI+kjWAPoA9AXIz5EwyUgiKc8L/xjLHxb6UlAI+gLJQGWDB/QXAcj6UhP6UhP6UhPOAfoC9ADJ7VTgMOAg1ywiYZIgLOMC1ywiYZKQNOMC1ywjmxaE5DHjAoAYHCAkB9ztRND6SPpI+kjSAPoA9AWBEAIjs/L0gRABUbXHBRvy9CfAAY45NzeBEAtTZL7y9FFToQLI+lL6UhT6UhTKAFj6AhP0AMntVMjPhYgS+lIB+gLPgXP6AnDPC2XJcPsA4MjPkTDJSCIpzwv/GMsfFvpSUAT6AslAZ4MH9BeAKAP4x0z/6ANcL//iS+JftRND6SPpI+kjSAPoAgRACI7Py9IEQC1F6vhfy9CigBMj6UhP6UvpSygAB+gLOye1UIMj6UiTPCz8j+gIizwv/+RaLAgLI+lLJyM+RMMkQHhbLP8v/z5AAAAAGUAP6Asv/EszJyM+HIBLOcc8LYczJcPsAACAx0//TH/pI+gAw+JJVMPABAAwwgRAM8vAADoQPAccA8vQAKgXI+lIU+lIT+lISygAB+gL0AMntVA==');
+    static CodeCell = c.Cell.fromBase64('te6ccgECEQEAAv4AART/APSkE/S88sgLAQIBYgIDAgLOBAUCASAODwIBIAYHAFFFBWXwWDB/QOb6GOGdTR0NP/MdMfMfpIMfoAMdMHMdMfMdMf0aTgMHCAP1PiRjmrXLCf////08r/XTNDXLCJhkpA0jlPT/9Mf+kj6ADD4ku1E0IEQAVEkxwU0A/L0AfpI+kj6SNIA+gAg9AUowAE5CJVRFqA2BZE24lR0MlR0OS3wAjA2NgLI+lL6UvpSE8oAAfoCzsntVOAw4CDXLCJhkiAs4wKJgCAkKAWk7UTQIPpI+kj6SNIA+gD0BYEQAiOz8vSBEAFRxccFHPL0KMAB4wJsNlN28AITXwPIzsntVIA0A/jHTP/oA1wv/+JL4l+1E0PpI+kj6SNIA+gCBEAIjs/L0gRALUXq+F/L0KKAEyPpSE/pS+lLKAAH6As7J7VQgyPpSJM8LPyP6AiLPC//5FosCAsj6UsnIz5EwyRAeFss/y//PkAAAAAZQA/oCy/8SzMnIz4cgEs5xzwthzMlw+wAACEwyUgYBatcnjhAx0//TH/pI+gAw+JJVMPAB4NcsImGSkDzjAtcsI5sWhOQxljCBEAzy8OCEDwHHAPL0CwH+MdcL/+1E0PpI+kj6SNIA+gD0BYEQAiOz8vRRZoMH9A5voYEQDQHy9NTR0NP/0x/6SPoA0wcx0x8x0x8x0YEQDiPAAfL0gRALU1G+8vRRRKFSOoMH9GZvoVsIyPpSF/pSFfpSE8oAUAb6AhT0AMntVMjPkTDJSBoTy/8Syx9SEAwAPPpSIvoCycjPhYgS+lJY+gLPgXP6AnHPC2XMyXD7AACuNYEQC1NWvvL0UUWhUoqDB/Rmb6FbA8j6UhL6UvpSEsoAUAb6AhX0AMntVMjPkTDJSBoTy//LH1IQ+lIi+gLJyM+FiBL6Ulj6As+Bc/oCcc8LZczJcPsAAUu+iSdqJofSQY/SQY/SQY6YAY/QAY+gLBg/oHN9DKP4DqaPAYOERBAAJb6cT2omh9JBj9JH0kaQB9ABgAwAAA==');
 
     static Errors = {
         'Errors.Unauthorized': 4097,
         'Errors.Paused': 4098,
         'Errors.BadDepositValue': 4107,
         'Errors.UnsupportedJettonDeposit': 4108,
+        'Errors.NoFailedWithdrawal': 4109,
+        'Errors.UnsupportedReleaseAsset': 4110,
         'Errors.UnknownOpcode': 65535,
     }
 
@@ -609,7 +702,7 @@ export class AssetVault implements c.Contract {
         wrappedGasMinter: c.Address
         paused: boolean
         lockedTon: coins
-        releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailed>>
+        releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailure>>
     }, deployedOptions?: DeployedAddrOptions) {
         const initialState = {
             code: deployedOptions?.overrideContractCode ?? AssetVault.CodeCell,
@@ -634,6 +727,12 @@ export class AssetVault implements c.Contract {
         amount: coins
     }) {
         return ReleaseAuthorized.toCell(ReleaseAuthorized.create(body));
+    }
+
+    static createCellOfRetryRelease(body: {
+        withdrawalId: uint256
+    }) {
+        return RetryRelease.toCell(RetryRelease.create(body));
     }
 
     static createCellOfJettonTransferNotification(body: {
@@ -678,6 +777,16 @@ export class AssetVault implements c.Contract {
         });
     }
 
+    async sendRetryRelease(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        withdrawalId: uint256
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: RetryRelease.toCell(RetryRelease.create(body)),
+            ...extraOptions
+        });
+    }
+
     async sendJettonTransferNotification(provider: ContractProvider, via: Sender, msgValue: coins, body: {
         queryId: uint64
         amount: coins
@@ -699,6 +808,17 @@ export class AssetVault implements c.Contract {
             wrappedGasMinter: r.readSlice().loadAddress(),
             lockedTon: r.readBigInt(),
             paused: r.readBoolean(),
+        });
+    }
+
+    async getFailedRelease(provider: ContractProvider, withdrawalId: uint256): Promise<ReleaseFailureReply> {
+        const r = StackReader.fromGetMethod(2, await provider.get('failedRelease', [
+            { type: 'int', value: withdrawalId },
+        ]));
+        return ({
+            $: 'ReleaseFailureReply',
+            exists: r.readBoolean(),
+            failure: r.readCellRef<ReleaseFailure>(ReleaseFailure.fromSlice),
         });
     }
 }
