@@ -8,6 +8,10 @@ use axum::Json;
 use l2_core::{Hash32, L2Block, L2TransactionKind, WithdrawalLeaf};
 use serde::{Deserialize, Serialize};
 
+pub(in crate::api) mod account;
+
+pub(super) use account::{explorer_account, explorer_account_transactions, explorer_tx};
+
 const DEFAULT_LIMIT: usize = 20;
 const MAX_LIMIT: usize = 100;
 const LOOKUP_BLOCK_LIMIT: usize = 500;

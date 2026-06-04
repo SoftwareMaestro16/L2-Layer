@@ -156,9 +156,10 @@ impl Storage for PostgresStorage {
     ) -> Result<Option<StoredTransaction>, StorageError> {
         let Some(row) = sqlx::query(
             r#"
-            SELECT block_height, tx_json, receipt_json
-            FROM l2_transactions
-            WHERE tx_hash = $1
+            SELECT t.block_height, t.tx_index, t.tx_json, t.receipt_json, b.block_json
+            FROM l2_transactions t
+            JOIN l2_blocks b ON b.height = t.block_height
+            WHERE t.tx_hash = $1
             "#,
         )
         .bind(hash.to_hex())
@@ -169,13 +170,77 @@ impl Storage for PostgresStorage {
         };
 
         let block_height: i64 = row.try_get("block_height")?;
+        let tx_index: i32 = row.try_get("tx_index")?;
         let transaction: serde_json::Value = row.try_get("tx_json")?;
         let receipt: Option<serde_json::Value> = row.try_get("receipt_json")?;
+        let block: L2Block = serde_json::from_value(row.try_get("block_json")?)?;
         Ok(Some(StoredTransaction {
             block_height: block_height as u64,
+            block_timestamp: block.header.timestamp,
+            block_hash: block.header.block_hash(),
+            tx_index: tx_index as usize,
             transaction: serde_json::from_value(transaction)?,
             receipt: receipt.map(serde_json::from_value).transpose()?,
         }))
+    }
+
+    async fn list_account_transactions(
+        &self,
+        account_id: Hash32,
+        before_height: Option<u64>,
+        before_index: Option<usize>,
+        limit: usize,
+    ) -> Result<Vec<StoredTransaction>, StorageError> {
+        let account_id = account_id.to_hex();
+        let before_height = before_height
+            .map(|height| checked_i64(height, "before_height"))
+            .transpose()?;
+        let before_index = checked_i32(before_index.unwrap_or(i32::MAX as usize), "before_index")?;
+        let rows = sqlx::query(
+            r#"
+            SELECT t.block_height, t.tx_index, t.tx_json, t.receipt_json, b.block_json
+            FROM l2_transactions t
+            JOIN l2_blocks b ON b.height = t.block_height
+            WHERE (
+                t.tx_json ->> 'from' = $1
+                OR t.tx_json #>> '{kind,Deposit,recipient}' = $1
+                OR t.tx_json #>> '{kind,Transfer,to}' = $1
+                OR t.tx_json #>> '{kind,DeployContract,contract}' = $1
+                OR t.tx_json #>> '{kind,CallContract,contract}' = $1
+            )
+            AND (
+                $2::BIGINT IS NULL
+                OR t.block_height < $2
+                OR (t.block_height = $2 AND t.tx_index < $3)
+            )
+            ORDER BY t.block_height DESC, t.tx_index DESC
+            LIMIT $4
+            "#,
+        )
+        .bind(account_id)
+        .bind(before_height)
+        .bind(before_index)
+        .bind(checked_i32(limit, "limit")?)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let block_height: i64 = row.try_get("block_height")?;
+                let tx_index: i32 = row.try_get("tx_index")?;
+                let transaction: serde_json::Value = row.try_get("tx_json")?;
+                let receipt: Option<serde_json::Value> = row.try_get("receipt_json")?;
+                let block: L2Block = serde_json::from_value(row.try_get("block_json")?)?;
+                Ok(StoredTransaction {
+                    block_height: block_height as u64,
+                    block_timestamp: block.header.timestamp,
+                    block_hash: block.header.block_hash(),
+                    tx_index: tx_index as usize,
+                    transaction: serde_json::from_value(transaction)?,
+                    receipt: receipt.map(serde_json::from_value).transpose()?,
+                })
+            })
+            .collect()
     }
 
     async fn get_withdrawal_proof(

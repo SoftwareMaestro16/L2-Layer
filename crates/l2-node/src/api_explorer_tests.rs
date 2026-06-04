@@ -1,8 +1,9 @@
 use super::*;
 use axum::extract::Query;
-use l2_core::crypto::sha256_bytes;
+use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
-    canonical_batch_data_hash, L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf,
+    canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address, L2TransactionKind,
+    Receipt, SignedL2Transaction, WithdrawalLeaf,
 };
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -19,6 +20,19 @@ fn deposit_tx() -> SignedL2Transaction {
         sha256_bytes(b"recipient"),
         100,
     )
+}
+
+fn user_tx(from: Hash32, nonce: u64, kind: L2TransactionKind) -> SignedL2Transaction {
+    SignedL2Transaction {
+        chain_id: "entropis-testnet".to_owned(),
+        from: Some(from),
+        nonce,
+        gas_limit: 1_000,
+        max_gas_price: 2,
+        kind,
+        public_key: Some(hex::encode([7u8; 32])),
+        signature: Some(hex::encode([8u8; 64])),
+    }
 }
 
 fn explorer_block(height: u64) -> L2Block {
@@ -41,6 +55,210 @@ fn explorer_block(height: u64) -> L2Block {
         canonical_batch_data_hash(&[tx], &[]),
         100 + height,
     )
+}
+
+#[tokio::test]
+async fn explorer_account_returns_addresses_and_balances() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"account");
+    {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(account_id);
+        account.nonce = 2;
+        account.credit(0, 123);
+        account.last_lt = 9;
+    }
+
+    let account = explorer_account(State(state), Path(l2_raw_address(account_id)))
+        .await
+        .expect("account")
+        .0;
+
+    assert_eq!(account.account_id, account_id);
+    assert_eq!(account.raw_address, l2_raw_address(account_id));
+    assert_eq!(
+        account.user_friendly_address,
+        l2_user_friendly_address(account_id)
+    );
+    assert_eq!(account.status, "active");
+    assert_eq!(account.nonce, 2);
+    assert_eq!(account.last_lt, 9);
+    assert_eq!(account.balances[0].asset_id, 0);
+    assert_eq!(account.balances[0].amount, 123);
+}
+
+#[tokio::test]
+async fn explorer_account_rejects_invalid_address() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let error = explorer_account(State(state), Path("not-an-address".to_owned()))
+        .await
+        .expect_err("invalid account");
+
+    assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn explorer_account_transactions_are_paginated_newest_first() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = derive_account_id(&[1u8; 32]);
+    let recipient = sha256_bytes(b"recipient");
+    let first = user_tx(
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 10,
+        },
+    );
+    let second = user_tx(
+        recipient,
+        0,
+        L2TransactionKind::Transfer {
+            to: account_id,
+            asset_id: 0,
+            amount: 5,
+        },
+    );
+    let contract = user_tx(
+        recipient,
+        1,
+        L2TransactionKind::CallContract {
+            contract: account_id,
+            body_boc_base64: "te6ccgEBAQEAAgAAAA==".to_owned(),
+        },
+    );
+    let block0 = L2Block::new(
+        0,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"state-0"),
+        vec![first.clone()],
+        vec![Receipt::applied(first.tx_hash(), 4, None)],
+        vec![],
+        canonical_batch_data_hash(&[first.clone()], &[]),
+        100,
+    );
+    let block1 = L2Block::new(
+        1,
+        block0.header.block_hash(),
+        block0.header.state_root,
+        sha256_bytes(b"state-1"),
+        vec![second.clone(), contract.clone()],
+        vec![
+            Receipt::applied(second.tx_hash(), 6, None),
+            Receipt::rejected_with_gas(contract.tx_hash(), "contract_error", 8),
+        ],
+        vec![],
+        canonical_batch_data_hash(&[second.clone(), contract.clone()], &[]),
+        101,
+    );
+    state.storage.save_block(block0).await.unwrap();
+    state.storage.save_block(block1).await.unwrap();
+
+    let first_page = explorer_account_transactions(
+        State(state.clone()),
+        Path(account_id.to_hex()),
+        Query(explorer::account::ExplorerAccountTransactionsQuery {
+            limit: Some(2),
+            before_height: None,
+            before_index: None,
+        }),
+    )
+    .await
+    .expect("first page")
+    .0;
+
+    assert_eq!(first_page.items.len(), 2);
+    assert_eq!(first_page.items[0].kind, "call_contract");
+    assert_eq!(first_page.items[0].direction, "in");
+    assert_eq!(first_page.items[0].status, "rejected");
+    assert_eq!(first_page.items[0].gas_charged.as_deref(), Some("8"));
+    assert_eq!(
+        first_page.items[0].reason.as_deref(),
+        Some("contract_error")
+    );
+    assert_eq!(first_page.items[1].kind, "transfer");
+    assert_eq!(first_page.items[1].direction, "in");
+    let cursor = first_page.next_cursor.expect("cursor");
+
+    let second_page = explorer_account_transactions(
+        State(state),
+        Path(account_id.to_hex()),
+        Query(explorer::account::ExplorerAccountTransactionsQuery {
+            limit: Some(2),
+            before_height: Some(cursor.before_height),
+            before_index: Some(cursor.before_index),
+        }),
+    )
+    .await
+    .expect("second page")
+    .0;
+
+    assert_eq!(second_page.items.len(), 1);
+    assert_eq!(second_page.items[0].tx_hash, first.tx_hash());
+    assert_eq!(second_page.items[0].direction, "out");
+    assert!(second_page.next_cursor.is_none());
+}
+
+#[tokio::test]
+async fn explorer_tx_returns_detail_roots_and_raw_payload() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let from = sha256_bytes(b"sender");
+    let to = sha256_bytes(b"recipient");
+    let tx = user_tx(
+        from,
+        7,
+        L2TransactionKind::Transfer {
+            to,
+            asset_id: 1,
+            amount: 55,
+        },
+    );
+    let receipt = Receipt::applied(tx.tx_hash(), 12, None);
+    let block = L2Block::new(
+        3,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"state"),
+        vec![tx.clone()],
+        vec![receipt],
+        vec![],
+        canonical_batch_data_hash(std::slice::from_ref(&tx), &[]),
+        222,
+    );
+    let tx_root = block.header.tx_root;
+    state.storage.save_block(block).await.unwrap();
+
+    let detail = explorer_tx(State(state), Path(tx.tx_hash().to_hex()))
+        .await
+        .expect("tx detail")
+        .0;
+
+    assert_eq!(detail.summary.tx_hash, tx.tx_hash());
+    assert_eq!(detail.summary.block_height, 3);
+    assert_eq!(detail.summary.timestamp, 222);
+    assert_eq!(detail.tx_root, tx_root);
+    assert_eq!(detail.summary.kind, "transfer");
+    assert_eq!(detail.summary.asset_id, Some(1));
+    assert_eq!(detail.summary.amount.as_deref(), Some("55"));
+    assert_eq!(detail.summary.status, "applied");
+    assert_eq!(detail.summary.gas_charged.as_deref(), Some("12"));
+    assert_eq!(detail.chain_id, "entropis-testnet");
+    assert_eq!(detail.nonce, 7);
+    assert_eq!(detail.gas_limit, 1_000);
+    assert_eq!(detail.max_gas_price, 2);
+    assert_eq!(detail.raw_transaction.tx_hash(), tx.tx_hash());
+}
+
+#[tokio::test]
+async fn explorer_tx_rejects_invalid_hash() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let error = explorer_tx(State(state), Path("not-a-hash".to_owned()))
+        .await
+        .expect_err("invalid tx");
+
+    assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

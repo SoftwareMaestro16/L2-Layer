@@ -98,6 +98,7 @@ TON_L2_SKILLS = {
     "Mempool admission must reject malformed signatures, bad nonces, insufficient balances, unsupported call types, non-canonical encodings, oversized payloads, bad gas/fee policy, per-account floods, global queue floods, and rate-limit abuse.",
     "Operator observability must split process liveness from dependency readiness; readiness responses expose safe component codes only and never include secret-bearing config.",
     "Explorer/operator endpoints should be read-only, bounded, and public-safe: show block/deposit/withdrawal inclusion and sanitized relay/finalization status, while failures and metrics remain admin-only.",
+    "Public explorer UI belongs in `ecosystem/explorer` as a standalone Next.js app and consumes only public read-only `l2-node` APIs; account transaction history must use server-side pagination instead of client-side block scans.",
     "Observer/challenger nodes replay canonical DA bytes from a trusted state checkpoint, compare tx/receipt/withdrawal/state roots, and locate the first invalid transition before L1 challenge submission; they must not trust local sequencer block JSON as the commitment source.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Executor gas is versioned config: applied fees are gas_used * max_gas_price in ENT asset id 0; authenticated rejected execution advances nonce and charges only rejected_execution_gas when possible.",

@@ -22,6 +22,9 @@ pub use postgres::PostgresStorage;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoredTransaction {
     pub block_height: u64,
+    pub block_timestamp: u64,
+    pub block_hash: Hash32,
+    pub tx_index: usize,
     pub transaction: SignedL2Transaction,
     pub receipt: Option<Receipt>,
 }
@@ -183,6 +186,13 @@ pub trait Storage: Send + Sync {
         &self,
         hash: Hash32,
     ) -> Result<Option<StoredTransaction>, StorageError>;
+    async fn list_account_transactions(
+        &self,
+        account_id: Hash32,
+        before_height: Option<u64>,
+        before_index: Option<usize>,
+        limit: usize,
+    ) -> Result<Vec<StoredTransaction>, StorageError>;
     async fn get_withdrawal_proof(
         &self,
         withdrawal_id: Hash32,
@@ -310,12 +320,51 @@ impl Storage for InMemoryStorage {
             {
                 return Ok(Some(StoredTransaction {
                     block_height: block.header.height,
+                    block_timestamp: block.header.timestamp,
+                    block_hash: block.header.block_hash(),
+                    tx_index: index,
                     transaction: transaction.clone(),
                     receipt: block.receipts.get(index).cloned(),
                 }));
             }
         }
         Ok(None)
+    }
+
+    async fn list_account_transactions(
+        &self,
+        account_id: Hash32,
+        before_height: Option<u64>,
+        before_index: Option<usize>,
+        limit: usize,
+    ) -> Result<Vec<StoredTransaction>, StorageError> {
+        let blocks = self.blocks.read().await;
+        let mut out = Vec::new();
+        for block in blocks.iter().rev() {
+            for (index, transaction) in block.transactions.iter().enumerate().rev() {
+                if !is_before_transaction_cursor(
+                    block.header.height,
+                    index,
+                    before_height,
+                    before_index,
+                ) || !transaction_touches_account(transaction, account_id)
+                {
+                    continue;
+                }
+                out.push(StoredTransaction {
+                    block_height: block.header.height,
+                    block_timestamp: block.header.timestamp,
+                    block_hash: block.header.block_hash(),
+                    tx_index: index,
+                    transaction: transaction.clone(),
+                    receipt: block.receipts.get(index).cloned(),
+                });
+                if out.len() >= limit {
+                    return Ok(out);
+                }
+            }
+        }
+        Ok(out)
     }
 
     async fn get_withdrawal_proof(
@@ -508,6 +557,32 @@ impl Storage for InMemoryStorage {
             .values()
             .max_by_key(|checkpoint| checkpoint.next_batch_no)
             .cloned())
+    }
+}
+
+fn is_before_transaction_cursor(
+    block_height: u64,
+    tx_index: usize,
+    before_height: Option<u64>,
+    before_index: Option<usize>,
+) -> bool {
+    let Some(before_height) = before_height else {
+        return true;
+    };
+    block_height < before_height
+        || (block_height == before_height && tx_index < before_index.unwrap_or(usize::MAX))
+}
+
+fn transaction_touches_account(transaction: &SignedL2Transaction, account_id: Hash32) -> bool {
+    if transaction.from == Some(account_id) {
+        return true;
+    }
+    match &transaction.kind {
+        l2_core::L2TransactionKind::Deposit { recipient, .. } => *recipient == account_id,
+        l2_core::L2TransactionKind::Transfer { to, .. } => *to == account_id,
+        l2_core::L2TransactionKind::Withdraw { .. } => false,
+        l2_core::L2TransactionKind::DeployContract { contract, .. } => *contract == account_id,
+        l2_core::L2TransactionKind::CallContract { contract, .. } => *contract == account_id,
     }
 }
 

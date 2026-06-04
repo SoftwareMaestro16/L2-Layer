@@ -39,8 +39,8 @@ use challenge::{operator_observer_checkpoint, operator_observer_replay};
 use da::{get_batch_da_payload, get_batch_da_payload_by_hash};
 use error::ApiError;
 use explorer::{
-    explorer_blocks, explorer_deposit, explorer_deposits, explorer_summary, explorer_withdrawal,
-    get_withdrawal_proof,
+    explorer_account, explorer_account_transactions, explorer_blocks, explorer_deposit,
+    explorer_deposits, explorer_summary, explorer_tx, explorer_withdrawal, get_withdrawal_proof,
 };
 use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
@@ -176,6 +176,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/explorer/summary", get(explorer_summary))
         .route("/v1/explorer/blocks", get(explorer_blocks))
         .route("/v1/explorer/deposits", get(explorer_deposits))
+        .route("/v1/explorer/account/:id", get(explorer_account))
+        .route(
+            "/v1/explorer/account/:id/transactions",
+            get(explorer_account_transactions),
+        )
+        .route("/v1/explorer/tx/:hash", get(explorer_tx))
         .route("/v1/explorer/deposit/:id", get(explorer_deposit))
         .route("/v1/explorer/withdrawal/:id", get(explorer_withdrawal))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
