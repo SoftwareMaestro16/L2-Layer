@@ -65,7 +65,10 @@ async fn parses_sanitized_toncenter_jetton_deposit_fixture() {
 
     let deposit = parse_deposit_message(&message, &config).expect("jetton deposit fixture");
 
-    assert_eq!(deposit.deposit_id, hash(0x31));
+    assert_eq!(
+        deposit.deposit_id,
+        canonical_deposit_id(VAULT, hash(0x46), 9, hash(0x31))
+    );
     assert_eq!(deposit.asset_id, 7);
     assert_eq!(deposit.amount, 123000000);
     assert_eq!(deposit.recipient, hash(0x32));
