@@ -2,6 +2,7 @@ use super::*;
 use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
 use crate::storage::{BatchCommitStatus, DynStorage, InMemoryStorage};
 use l2_core::crypto::sha256_bytes;
+use l2_core::L2Block;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -114,6 +115,51 @@ async fn bad_signer_sender_is_rejected_before_provider_send() {
 }
 
 #[tokio::test]
+async fn expired_signer_response_is_rejected_before_provider_send() {
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let relayer = BatchRelayer::new(
+        config(),
+        storage.clone(),
+        da,
+        MockSigner::expired("EQsequencer"),
+        MockProvider::ok(hash(0x44)),
+    );
+
+    let stats = relayer.relay_once().await.expect("relay");
+
+    assert_eq!(stats.failed, 1);
+    let record = storage.get_batch_commit(1).await.unwrap().unwrap();
+    assert_eq!(record.status, BatchCommitStatus::Failed);
+    assert_eq!(record.attempts, 1);
+    assert_eq!(
+        record.last_error.as_deref(),
+        Some("commit signer response expired")
+    );
+}
+
+#[tokio::test]
+async fn malformed_signer_boc_is_rejected_before_provider_send() {
+    let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
+    let provider = MockProvider::ok(hash(0x44));
+    let relayer = BatchRelayer::new(
+        config(),
+        storage.clone(),
+        da,
+        MockSigner::malformed_boc("EQsequencer"),
+        provider.clone(),
+    );
+
+    let stats = relayer.relay_once().await.expect("relay");
+
+    assert_eq!(stats.failed, 1);
+    assert_eq!(provider.sent_count().await, 0);
+    let record = storage.get_batch_commit(1).await.unwrap().unwrap();
+    assert_eq!(record.status, BatchCommitStatus::Failed);
+    assert_eq!(record.attempts, 1);
+    assert_eq!(record.last_error.as_deref(), Some("signed boc malformed"));
+}
+
+#[tokio::test]
 async fn block_hash_mismatch_fails_without_sending() {
     let (storage, da) = storage_with_block(block(0, Hash32::ZERO, sha256_bytes(b"state"))).await;
     let mut record = storage.get_batch_commit(1).await.unwrap().unwrap();
@@ -212,6 +258,8 @@ async fn corrupted_da_payload_fails_before_l1_commit() {
 #[derive(Clone, Default)]
 struct MockSigner {
     signer_address: String,
+    boc_base64: String,
+    valid_until: u64,
     requests: Arc<Mutex<Vec<CommitBatchSignRequest>>>,
 }
 
@@ -219,7 +267,23 @@ impl MockSigner {
     fn ok(signer_address: &str) -> Self {
         Self {
             signer_address: signer_address.to_owned(),
+            boc_base64: "te6ccgEBAQEA".to_owned(),
+            valid_until: unix_time() + 300,
             requests: Arc::new(Mutex::new(vec![])),
+        }
+    }
+
+    fn expired(signer_address: &str) -> Self {
+        Self {
+            valid_until: unix_time().saturating_sub(1),
+            ..Self::ok(signer_address)
+        }
+    }
+
+    fn malformed_boc(signer_address: &str) -> Self {
+        Self {
+            boc_base64: "***not-base64***".to_owned(),
+            ..Self::ok(signer_address)
         }
     }
 
@@ -233,11 +297,12 @@ impl CommitBatchSigner for MockSigner {
     async fn sign_commit_batch(
         &self,
         request: CommitBatchSignRequest,
-    ) -> Result<SignedCommitBatch, RelayerError> {
+    ) -> Result<SignedCommitBatch, crate::signer::SignerClientError> {
         self.requests.lock().await.push(request);
         Ok(SignedCommitBatch {
-            boc_base64: "te6ccgEBAQEA".to_owned(),
+            boc_base64: self.boc_base64.clone(),
             signer_address: self.signer_address.clone(),
+            valid_until: self.valid_until,
         })
     }
 }

@@ -193,11 +193,15 @@ L1_BATCH_RELAYER_MAX_ATTEMPTS=8
 ```
 
 The node does not store raw wallet credentials. It sends a `CommitBatch` signing
-request to a local/remote signer service, verifies the returned signer address
-matches `L1_SEQUENCER_SENDER_ADDRESS`, then broadcasts the signed external BoC
-through Toncenter v3 `/message`. Submitted message hashes are stored in
-`l1_batch_commits`; confirmation is checked through Toncenter v3
-`/transactionsByMessage`. Retries are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
+request to a local/remote signer service, verifies the returned signer address,
+expiry, and BoC shape, then broadcasts the signed external BoC through Toncenter
+v3 `/message`. Submitted message hashes are stored in `l1_batch_commits`;
+confirmation is checked through Toncenter v3 `/transactionsByMessage`. Retries
+are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
+
+The signer service is a separate process. Use `docs/testnet-signer-service.md`
+for the typed HTTP contract, role split, Acton wallet procedure, and local
+no-broadcast dry run.
 
 ## Withdrawal operations
 

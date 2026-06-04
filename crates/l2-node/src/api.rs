@@ -4,9 +4,8 @@ use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
-use crate::relayer::{
-    BatchRelayer, BatchRelayerConfig, RemoteCommitBatchSigner, ToncenterCommitProvider,
-};
+use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
+use crate::signer::RemoteCommitBatchSigner;
 use crate::storage::DynStorage;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};

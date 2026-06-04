@@ -1,10 +1,14 @@
 use crate::config::{NodeConfig, SecretString};
 use crate::da::{DaError, DynDa};
+use crate::signer::{
+    unix_time, BatchCommitment, CommitBatchSignRequest, CommitBatchSigner, SignedCommitBatch,
+    SignerValidationError, DEFAULT_SIGNER_MAX_BODY_BYTES,
+};
 use crate::storage::{BatchCommitRecord, BatchCommitStatus, DynStorage, StorageError};
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD};
-use l2_core::{Hash32, L2Block, L2BlockHeader};
-use serde::{Deserialize, Serialize};
+use l2_core::Hash32;
+use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -39,73 +43,6 @@ impl BatchRelayerConfig {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BatchRootsA {
-    pub prev_state_root: Hash32,
-    pub state_root: Hash32,
-    pub tx_root: Hash32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BatchRootsB {
-    pub receipt_root: Hash32,
-    pub withdrawal_root: Hash32,
-    pub data_hash: Hash32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BatchCommitment {
-    pub batch_no: u64,
-    pub block_height: u64,
-    pub block_hash: Hash32,
-    pub roots_a: BatchRootsA,
-    pub roots_b: BatchRootsB,
-}
-
-impl BatchCommitment {
-    pub fn from_block(block: &L2Block) -> Result<Self, RelayerError> {
-        Self::from_header(&block.header)
-    }
-
-    pub fn from_header(header: &L2BlockHeader) -> Result<Self, RelayerError> {
-        let batch_no = header
-            .height
-            .checked_add(1)
-            .ok_or(RelayerError::Validation(
-                "block height cannot be converted to L1 batch number",
-            ))?;
-        Ok(Self {
-            batch_no,
-            block_height: header.height,
-            block_hash: header.block_hash(),
-            roots_a: BatchRootsA {
-                prev_state_root: header.prev_state_root,
-                state_root: header.state_root,
-                tx_root: header.tx_root,
-            },
-            roots_b: BatchRootsB {
-                receipt_root: header.receipt_root,
-                withdrawal_root: header.withdrawal_root,
-                data_hash: header.data_hash,
-            },
-        })
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CommitBatchSignRequest {
-    pub rollup_root_address: String,
-    pub sender_address: String,
-    pub msg_value_nanoton: u64,
-    pub commitment: BatchCommitment,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SignedCommitBatch {
-    pub boc_base64: String,
-    pub signer_address: String,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TonSubmitResult {
     pub message_hash: Hash32,
@@ -122,14 +59,6 @@ pub struct RelayerStats {
 }
 
 #[async_trait]
-pub trait CommitBatchSigner: Send + Sync {
-    async fn sign_commit_batch(
-        &self,
-        request: CommitBatchSignRequest,
-    ) -> Result<SignedCommitBatch, RelayerError>;
-}
-
-#[async_trait]
 pub trait TonCommitProvider: Send + Sync {
     async fn send_signed_boc(
         &self,
@@ -137,52 +66,6 @@ pub trait TonCommitProvider: Send + Sync {
     ) -> Result<TonSubmitResult, RelayerError>;
 
     async fn message_confirmed(&self, message_hash: Hash32) -> Result<bool, RelayerError>;
-}
-
-#[derive(Clone, Debug)]
-pub struct RemoteCommitBatchSigner {
-    endpoint: String,
-    token: SecretString,
-    client: reqwest::Client,
-}
-
-impl RemoteCommitBatchSigner {
-    pub fn from_config(config: &NodeConfig) -> Option<Self> {
-        Some(Self {
-            endpoint: config.l1_commit_signer_endpoint.clone()?,
-            token: config.l1_commit_signer_token.clone()?,
-            client: reqwest::Client::new(),
-        })
-    }
-}
-
-#[async_trait]
-impl CommitBatchSigner for RemoteCommitBatchSigner {
-    async fn sign_commit_batch(
-        &self,
-        request: CommitBatchSignRequest,
-    ) -> Result<SignedCommitBatch, RelayerError> {
-        let response = self
-            .client
-            .post(&self.endpoint)
-            .bearer_auth(self.token.expose())
-            .json(&request)
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<RemoteSignerResponse>()
-            .await?;
-        Ok(SignedCommitBatch {
-            boc_base64: response.boc_base64,
-            signer_address: response.signer_address,
-        })
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoteSignerResponse {
-    boc_base64: String,
-    signer_address: String,
 }
 
 #[derive(Clone, Debug)]
@@ -384,7 +267,9 @@ where
             rollup_root_address: self.config.rollup_root_address.clone(),
             sender_address: self.config.sequencer_sender_address.clone(),
             msg_value_nanoton: self.config.commit_msg_value_nanoton,
-            commitment: BatchCommitment::from_block(&block)?,
+            commitment: BatchCommitment::from_block(&block).ok_or(RelayerError::Validation(
+                "block height cannot be converted to L1 batch number",
+            ))?,
         };
 
         let signed = match self.signer.sign_commit_batch(request).await {
@@ -401,8 +286,9 @@ where
                 .await?;
             return Ok(SubmitOutcome::Failed);
         }
-        if signed.boc_base64.trim().is_empty() {
-            self.mark_failed(&mut record, "signed boc is empty").await?;
+        if let Err(error) = signed.validate(unix_time(), DEFAULT_SIGNER_MAX_BODY_BYTES) {
+            self.mark_failed(&mut record, signer_validation_reason(&error))
+                .await?;
             return Ok(SubmitOutcome::Failed);
         }
 
@@ -482,6 +368,22 @@ fn parse_hash_or_base64(value: &str) -> Result<Hash32, RelayerError> {
         .try_into()
         .map_err(|_| RelayerError::Decode("hash must be 32 bytes"))?;
     Ok(Hash32::new(bytes))
+}
+
+fn signer_validation_reason(error: &SignerValidationError) -> &'static str {
+    match error {
+        SignerValidationError::ExpiredResponse => "commit signer response expired",
+        SignerValidationError::EmptyBoc | SignerValidationError::MalformedBoc => {
+            "signed boc malformed"
+        }
+        SignerValidationError::OversizedBoc => "signed boc oversized",
+        SignerValidationError::MissingSignerAddress => "commit signer address mismatch",
+        SignerValidationError::BadRequestId
+        | SignerValidationError::ExpiredRequest
+        | SignerValidationError::RequestIdMismatch
+        | SignerValidationError::ActionMismatch
+        | SignerValidationError::InvalidCommitRequest => "commit signer invalid response",
+    }
 }
 
 #[cfg(test)]
