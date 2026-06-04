@@ -133,3 +133,23 @@ L2_CHALLENGE_WINDOW_SEC=300
 ```
 
 Keep deployment secrets and wallet material outside tracked files.
+
+## Testnet TON Deposit
+
+After the node is pointed at the deployed `AssetVault`, a funded Acton testnet
+wallet can send a real `DepositTon` message:
+
+```bash
+export L1_DEPOSIT_WALLET_LABEL=entropis-testnet-deployer
+export L1_DEPOSIT_FEE_BUFFER_NANOTON=20000000
+
+acton run l1-deposit-testnet -- \
+  <asset-vault-address> \
+  100000000 \
+  0x<l2-recipient-account-id-hex> \
+  <query-id>
+```
+
+`amount` is the TON value credited to the L2 bridged TON asset. The script sends
+`amount + L1_DEPOSIT_FEE_BUFFER_NANOTON` as the attached L1 message value so the
+vault has fee headroom while the `DepositRecorded` log credits exactly `amount`.

@@ -106,6 +106,7 @@ TON_L2_SKILLS = {
   ],
   bridge_design: [
     "TON deposits: user sends TON to AssetVault with DepositTon body; vault records locked amount and emits DepositRecorded external log.",
+    "Live Acton DepositTon scripts should attach amount plus an explicit fee buffer while recording only amount in the message body, so receiver-side L1 fees do not make vault balance fall below lockedTon accounting.",
     "Native TON deposits must reject zero L2 recipients at the vault boundary, not only in the Rust indexer, because otherwise funds can be locked while the log is later discarded.",
     "The credited L2 deposit id should be derived from unique L1 event identity such as vault source, message hash, logical time, and event id; user-controlled query ids are not sufficient uniqueness for repeated real deposits.",
     "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles canonical transfer_notification bodies only from registered vault-owned Jetton wallets.",
