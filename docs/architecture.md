@@ -126,11 +126,17 @@ BoCs before Toncenter broadcast. See `docs/testnet-signer-service.md`.
 
 ## Fraud and Challenge Roadmap
 
-Challenge support is a planned L1/L2 boundary. A challenger replays canonical DA
-payloads from a trusted previous state root, recomputes `txRoot`, `receiptRoot`,
-`withdrawalRoot`, and `stateRoot`, and blocks finalization if the committed roots
-cannot be reproduced. Missing DA is handled separately as an availability
-challenge: no payload means no finalization.
+Challenge support is a planned L1/L2 boundary. The current off-chain observer
+prototype accepts RollupRoot-shaped commitments from an operator or future L1
+getter client, fetches canonical DA payloads by `dataHash`, replays from a trusted
+checkpoint, recomputes `txRoot`, `receiptRoot`, `withdrawalRoot`, and `stateRoot`,
+and reports the first divergence. It stores observer checkpoints for bounded
+future replays, but it does not submit on-chain challenges.
+
+Missing DA is handled separately as an availability finding: no payload means the
+batch cannot be independently replayed. Future L1 challenge logic should turn
+that finding into a finalization block until the sequencer responds with data or
+a backend-specific availability proof.
 
 Future `RollupRoot` messages are expected to include `ChallengeBatch`,
 `RespondChallenge`, `ResolveChallenge`, and `ForceInclude`. They are not active in

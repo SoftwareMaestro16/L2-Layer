@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod batch_decode;
 pub mod consensus;
 pub mod crypto;
 pub mod executor;
@@ -14,6 +15,7 @@ pub use batch::{
     canonical_batch_data_bytes, canonical_batch_data_hash, BatchBuildError, BatchBuildInput,
     BatchBuilder, BatchDataPayload,
 };
+pub use batch_decode::{decode_batch_data, BatchDataDecodeError, DecodedBatchData};
 pub use crypto::{derive_account_id, verify_signature, Hash32};
 pub use executor::{DeterministicExecutor, ExecutionConfig, ExecutionOutcome};
 pub use gas::{
