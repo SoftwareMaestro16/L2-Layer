@@ -274,6 +274,58 @@ export const RetryRelease = {
 }
 
 /**
+ > struct (0x4c32450b) RegisterJettonAsset {
+ >     assetId: uint32
+ >     master: address
+ >     wallet: address
+ >     decimals: uint8
+ > }
+ */
+export interface RegisterJettonAsset {
+    readonly $: 'RegisterJettonAsset'
+    assetId: uint32
+    master: c.Address
+    wallet: c.Address
+    decimals: uint8
+}
+
+export const RegisterJettonAsset = {
+    PREFIX: 0x4c32450b,
+
+    create(args: {
+        assetId: uint32
+        master: c.Address
+        wallet: c.Address
+        decimals: uint8
+    }): RegisterJettonAsset {
+        return {
+            $: 'RegisterJettonAsset',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): RegisterJettonAsset {
+        loadAndCheckPrefix32(s, 0x4c32450b, 'RegisterJettonAsset');
+        return {
+            $: 'RegisterJettonAsset',
+            assetId: s.loadUintBig(32),
+            master: s.loadAddress(),
+            wallet: s.loadAddress(),
+            decimals: s.loadUintBig(8),
+        }
+    },
+    store(self: RegisterJettonAsset, b: c.Builder): void {
+        b.storeUint(0x4c32450b, 32);
+        b.storeUint(self.assetId, 32);
+        b.storeAddress(self.master);
+        b.storeAddress(self.wallet);
+        b.storeUint(self.decimals, 8);
+    },
+    toCell(self: RegisterJettonAsset): c.Cell {
+        return makeCellFrom<RegisterJettonAsset>(self, RegisterJettonAsset.store);
+    }
+}
+
+/**
  > struct ReleaseFailure {
  >     withdrawalId: uint256
  >     assetId: uint32
@@ -484,12 +536,102 @@ export const JettonTransferNotification = {
 }
 
 /**
+ > struct (0xd53276db) JettonExcesses {
+ >     queryId: uint64
+ > }
+ */
+export interface JettonExcesses {
+    readonly $: 'JettonExcesses'
+    queryId: uint64
+}
+
+export const JettonExcesses = {
+    PREFIX: 0xd53276db,
+
+    create(args: {
+        queryId: uint64
+    }): JettonExcesses {
+        return {
+            $: 'JettonExcesses',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): JettonExcesses {
+        loadAndCheckPrefix32(s, 0xd53276db, 'JettonExcesses');
+        return {
+            $: 'JettonExcesses',
+            queryId: s.loadUintBig(64),
+        }
+    },
+    store(self: JettonExcesses, b: c.Builder): void {
+        b.storeUint(0xd53276db, 32);
+        b.storeUint(self.queryId, 64);
+    },
+    toCell(self: JettonExcesses): c.Cell {
+        return makeCellFrom<JettonExcesses>(self, JettonExcesses.store);
+    }
+}
+
+/**
+ > struct JettonAssetConfig {
+ >     assetId: uint32
+ >     master: address
+ >     wallet: address
+ >     decimals: uint8
+ > }
+ */
+export interface JettonAssetConfig {
+    readonly $: 'JettonAssetConfig'
+    assetId: uint32
+    master: c.Address
+    wallet: c.Address
+    decimals: uint8
+}
+
+export const JettonAssetConfig = {
+    create(args: {
+        assetId: uint32
+        master: c.Address
+        wallet: c.Address
+        decimals: uint8
+    }): JettonAssetConfig {
+        return {
+            $: 'JettonAssetConfig',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): JettonAssetConfig {
+        return {
+            $: 'JettonAssetConfig',
+            assetId: s.loadUintBig(32),
+            master: s.loadAddress(),
+            wallet: s.loadAddress(),
+            decimals: s.loadUintBig(8),
+        }
+    },
+    store(self: JettonAssetConfig, b: c.Builder): void {
+        b.storeUint(self.assetId, 32);
+        b.storeAddress(self.master);
+        b.storeAddress(self.wallet);
+        b.storeUint(self.decimals, 8);
+    },
+    toCell(self: JettonAssetConfig): c.Cell {
+        return makeCellFrom<JettonAssetConfig>(self, JettonAssetConfig.store);
+    }
+}
+
+/**
  > struct AssetVaultStorage {
  >     admin: address
  >     rollupRoot: address
  >     wrappedGasMinter: address
  >     paused: bool
  >     lockedTon: coins
+ >     tonAssetId: uint32
+ >     tonDecimals: uint8
+ >     jettonAssets: map<uint32, Cell<JettonAssetConfig>>
+ >     jettonWalletToAsset: map<uint256, uint32>
+ >     pendingJettonReleases: map<uint64, Cell<ReleaseAuthorized>>
  >     releaseFailures: map<uint256, Cell<ReleaseFailure>>
  > }
  */
@@ -500,6 +642,11 @@ export interface AssetVaultStorage {
     wrappedGasMinter: c.Address
     paused: boolean
     lockedTon: coins
+    tonAssetId: uint32
+    tonDecimals: uint8
+    jettonAssets: c.Dictionary<uint32, CellRef<JettonAssetConfig>>
+    jettonWalletToAsset: c.Dictionary<uint256, uint32>
+    pendingJettonReleases: c.Dictionary<uint64, CellRef<ReleaseAuthorized>>
     releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailure>>
 }
 
@@ -510,6 +657,11 @@ export const AssetVaultStorage = {
         wrappedGasMinter: c.Address
         paused: boolean
         lockedTon: coins
+        tonAssetId: uint32
+        tonDecimals: uint8
+        jettonAssets: c.Dictionary<uint32, CellRef<JettonAssetConfig>>
+        jettonWalletToAsset: c.Dictionary<uint256, uint32>
+        pendingJettonReleases: c.Dictionary<uint64, CellRef<ReleaseAuthorized>>
         releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailure>>
     }): AssetVaultStorage {
         return {
@@ -525,6 +677,17 @@ export const AssetVaultStorage = {
             wrappedGasMinter: s.loadAddress(),
             paused: s.loadBoolean(),
             lockedTon: s.loadCoins(),
+            tonAssetId: s.loadUintBig(32),
+            tonDecimals: s.loadUintBig(8),
+            jettonAssets: c.Dictionary.load<uint32, CellRef<JettonAssetConfig>>(c.Dictionary.Keys.BigUint(32), createDictionaryValue<CellRef<JettonAssetConfig>>(
+                (s) => loadCellRef<JettonAssetConfig>(s, JettonAssetConfig.fromSlice),
+                (v,b) => storeCellRef<JettonAssetConfig>(v, b, JettonAssetConfig.store)
+            ), s),
+            jettonWalletToAsset: c.Dictionary.load<uint256, uint32>(c.Dictionary.Keys.BigUint(256), c.Dictionary.Values.BigUint(32), s),
+            pendingJettonReleases: c.Dictionary.load<uint64, CellRef<ReleaseAuthorized>>(c.Dictionary.Keys.BigUint(64), createDictionaryValue<CellRef<ReleaseAuthorized>>(
+                (s) => loadCellRef<ReleaseAuthorized>(s, ReleaseAuthorized.fromSlice),
+                (v,b) => storeCellRef<ReleaseAuthorized>(v, b, ReleaseAuthorized.store)
+            ), s),
             releaseFailures: c.Dictionary.load<uint256, CellRef<ReleaseFailure>>(c.Dictionary.Keys.BigUint(256), createDictionaryValue<CellRef<ReleaseFailure>>(
                 (s) => loadCellRef<ReleaseFailure>(s, ReleaseFailure.fromSlice),
                 (v,b) => storeCellRef<ReleaseFailure>(v, b, ReleaseFailure.store)
@@ -537,6 +700,17 @@ export const AssetVaultStorage = {
         b.storeAddress(self.wrappedGasMinter);
         b.storeBit(self.paused);
         b.storeCoins(self.lockedTon);
+        b.storeUint(self.tonAssetId, 32);
+        b.storeUint(self.tonDecimals, 8);
+        b.storeDict<uint32, CellRef<JettonAssetConfig>>(self.jettonAssets, c.Dictionary.Keys.BigUint(32), createDictionaryValue<CellRef<JettonAssetConfig>>(
+            (s) => loadCellRef<JettonAssetConfig>(s, JettonAssetConfig.fromSlice),
+            (v,b) => storeCellRef<JettonAssetConfig>(v, b, JettonAssetConfig.store)
+        ));
+        b.storeDict<uint256, uint32>(self.jettonWalletToAsset, c.Dictionary.Keys.BigUint(256), c.Dictionary.Values.BigUint(32));
+        b.storeDict<uint64, CellRef<ReleaseAuthorized>>(self.pendingJettonReleases, c.Dictionary.Keys.BigUint(64), createDictionaryValue<CellRef<ReleaseAuthorized>>(
+            (s) => loadCellRef<ReleaseAuthorized>(s, ReleaseAuthorized.fromSlice),
+            (v,b) => storeCellRef<ReleaseAuthorized>(v, b, ReleaseAuthorized.store)
+        ));
         b.storeDict<uint256, CellRef<ReleaseFailure>>(self.releaseFailures, c.Dictionary.Keys.BigUint(256), createDictionaryValue<CellRef<ReleaseFailure>>(
             (s) => loadCellRef<ReleaseFailure>(s, ReleaseFailure.fromSlice),
             (v,b) => storeCellRef<ReleaseFailure>(v, b, ReleaseFailure.store)
@@ -590,6 +764,8 @@ export const ReleaseFailureReply = {
  >     rollupRoot: address
  >     wrappedGasMinter: address
  >     lockedTon: coins
+ >     tonAssetId: uint32
+ >     tonDecimals: uint8
  >     paused: bool
  > }
  */
@@ -598,6 +774,8 @@ export interface VaultStatusReply {
     rollupRoot: c.Address
     wrappedGasMinter: c.Address
     lockedTon: coins
+    tonAssetId: uint32
+    tonDecimals: uint8
     paused: boolean
 }
 
@@ -606,6 +784,8 @@ export const VaultStatusReply = {
         rollupRoot: c.Address
         wrappedGasMinter: c.Address
         lockedTon: coins
+        tonAssetId: uint32
+        tonDecimals: uint8
         paused: boolean
     }): VaultStatusReply {
         return {
@@ -619,6 +799,8 @@ export const VaultStatusReply = {
             rollupRoot: s.loadAddress(),
             wrappedGasMinter: s.loadAddress(),
             lockedTon: s.loadCoins(),
+            tonAssetId: s.loadUintBig(32),
+            tonDecimals: s.loadUintBig(8),
             paused: s.loadBoolean(),
         }
     },
@@ -626,10 +808,50 @@ export const VaultStatusReply = {
         b.storeAddress(self.rollupRoot);
         b.storeAddress(self.wrappedGasMinter);
         b.storeCoins(self.lockedTon);
+        b.storeUint(self.tonAssetId, 32);
+        b.storeUint(self.tonDecimals, 8);
         b.storeBit(self.paused);
     },
     toCell(self: VaultStatusReply): c.Cell {
         return makeCellFrom<VaultStatusReply>(self, VaultStatusReply.store);
+    }
+}
+
+/**
+ > struct JettonAssetReply {
+ >     exists: bool
+ >     asset: Cell<JettonAssetConfig>
+ > }
+ */
+export interface JettonAssetReply {
+    readonly $: 'JettonAssetReply'
+    exists: boolean
+    asset: CellRef<JettonAssetConfig>
+}
+
+export const JettonAssetReply = {
+    create(args: {
+        exists: boolean
+        asset: CellRef<JettonAssetConfig>
+    }): JettonAssetReply {
+        return {
+            $: 'JettonAssetReply',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): JettonAssetReply {
+        return {
+            $: 'JettonAssetReply',
+            exists: s.loadBoolean(),
+            asset: loadCellRef<JettonAssetConfig>(s, JettonAssetConfig.fromSlice),
+        }
+    },
+    store(self: JettonAssetReply, b: c.Builder): void {
+        b.storeBit(self.exists);
+        storeCellRef<JettonAssetConfig>(self.asset, b, JettonAssetConfig.store);
+    },
+    toCell(self: JettonAssetReply): c.Cell {
+        return makeCellFrom<JettonAssetReply>(self, JettonAssetReply.store);
     }
 }
 
@@ -672,15 +894,19 @@ function calculateDeployedAddress(code: c.Cell, data: c.Cell, options: DeployedA
 }
 
 export class AssetVault implements c.Contract {
-    static CodeCell = c.Cell.fromBase64('te6ccgECEQEAAv4AART/APSkE/S88sgLAQIBYgIDAgLOBAUCASAODwIBIAYHAFFFBWXwWDB/QOb6GOGdTR0NP/MdMfMfpIMfoAMdMHMdMfMdMf0aTgMHCAP1PiRjmrXLCf////08r/XTNDXLCJhkpA0jlPT/9Mf+kj6ADD4ku1E0IEQAVEkxwU0A/L0AfpI+kj6SNIA+gAg9AUowAE5CJVRFqA2BZE24lR0MlR0OS3wAjA2NgLI+lL6UvpSE8oAAfoCzsntVOAw4CDXLCJhkiAs4wKJgCAkKAWk7UTQIPpI+kj6SNIA+gD0BYEQAiOz8vSBEAFRxccFHPL0KMAB4wJsNlN28AITXwPIzsntVIA0A/jHTP/oA1wv/+JL4l+1E0PpI+kj6SNIA+gCBEAIjs/L0gRALUXq+F/L0KKAEyPpSE/pS+lLKAAH6As7J7VQgyPpSJM8LPyP6AiLPC//5FosCAsj6UsnIz5EwyRAeFss/y//PkAAAAAZQA/oCy/8SzMnIz4cgEs5xzwthzMlw+wAACEwyUgYBatcnjhAx0//TH/pI+gAw+JJVMPAB4NcsImGSkDzjAtcsI5sWhOQxljCBEAzy8OCEDwHHAPL0CwH+MdcL/+1E0PpI+kj6SNIA+gD0BYEQAiOz8vRRZoMH9A5voYEQDQHy9NTR0NP/0x/6SPoA0wcx0x8x0x8x0YEQDiPAAfL0gRALU1G+8vRRRKFSOoMH9GZvoVsIyPpSF/pSFfpSE8oAUAb6AhT0AMntVMjPkTDJSBoTy/8Syx9SEAwAPPpSIvoCycjPhYgS+lJY+gLPgXP6AnHPC2XMyXD7AACuNYEQC1NWvvL0UUWhUoqDB/Rmb6FbA8j6UhL6UvpSEsoAUAb6AhX0AMntVMjPkTDJSBoTy//LH1IQ+lIi+gLJyM+FiBL6Ulj6As+Bc/oCcc8LZczJcPsAAUu+iSdqJofSQY/SQY/SQY6YAY/QAY+gLBg/oHN9DKP4DqaPAYOERBAAJb6cT2omh9JBj9JH0kaQB9ABgAwAAA==');
+    static CodeCell = c.Cell.fromBase64('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');
 
     static Errors = {
         'Errors.Unauthorized': 4097,
         'Errors.Paused': 4098,
         'Errors.BadDepositValue': 4107,
-        'Errors.UnsupportedJettonDeposit': 4108,
         'Errors.NoFailedWithdrawal': 4109,
         'Errors.UnsupportedReleaseAsset': 4110,
+        'Errors.BadJettonWallet': 4111,
+        'Errors.BadForwardPayload': 4112,
+        'Errors.BadJettonAmount': 4113,
+        'Errors.BadAssetDecimals': 4114,
+        'Errors.BadAssetConfig': 4115,
         'Errors.UnknownOpcode': 65535,
     }
 
@@ -702,6 +928,11 @@ export class AssetVault implements c.Contract {
         wrappedGasMinter: c.Address
         paused: boolean
         lockedTon: coins
+        tonAssetId: uint32
+        tonDecimals: uint8
+        jettonAssets: c.Dictionary<uint32, CellRef<JettonAssetConfig>>
+        jettonWalletToAsset: c.Dictionary<uint256, uint32>
+        pendingJettonReleases: c.Dictionary<uint64, CellRef<ReleaseAuthorized>>
         releaseFailures: c.Dictionary<uint256, CellRef<ReleaseFailure>>
     }, deployedOptions?: DeployedAddrOptions) {
         const initialState = {
@@ -735,6 +966,15 @@ export class AssetVault implements c.Contract {
         return RetryRelease.toCell(RetryRelease.create(body));
     }
 
+    static createCellOfRegisterJettonAsset(body: {
+        assetId: uint32
+        master: c.Address
+        wallet: c.Address
+        decimals: uint8
+    }) {
+        return RegisterJettonAsset.toCell(RegisterJettonAsset.create(body));
+    }
+
     static createCellOfJettonTransferNotification(body: {
         queryId: uint64
         amount: coins
@@ -742,6 +982,12 @@ export class AssetVault implements c.Contract {
         forwardPayload: c.Cell
     }) {
         return JettonTransferNotification.toCell(JettonTransferNotification.create(body));
+    }
+
+    static createCellOfJettonExcesses(body: {
+        queryId: uint64
+    }) {
+        return JettonExcesses.toCell(JettonExcesses.create(body));
     }
 
     async sendDeploy(provider: ContractProvider, via: Sender, msgValue: coins, extraOptions?: ExtraSendOptions) {
@@ -787,6 +1033,19 @@ export class AssetVault implements c.Contract {
         });
     }
 
+    async sendRegisterJettonAsset(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        assetId: uint32
+        master: c.Address
+        wallet: c.Address
+        decimals: uint8
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: RegisterJettonAsset.toCell(RegisterJettonAsset.create(body)),
+            ...extraOptions
+        });
+    }
+
     async sendJettonTransferNotification(provider: ContractProvider, via: Sender, msgValue: coins, body: {
         queryId: uint64
         amount: coins
@@ -800,13 +1059,25 @@ export class AssetVault implements c.Contract {
         });
     }
 
+    async sendJettonExcesses(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        queryId: uint64
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: JettonExcesses.toCell(JettonExcesses.create(body)),
+            ...extraOptions
+        });
+    }
+
     async getVaultStatus(provider: ContractProvider): Promise<VaultStatusReply> {
-        const r = StackReader.fromGetMethod(4, await provider.get('vaultStatus', []));
+        const r = StackReader.fromGetMethod(6, await provider.get('vaultStatus', []));
         return ({
             $: 'VaultStatusReply',
             rollupRoot: r.readSlice().loadAddress(),
             wrappedGasMinter: r.readSlice().loadAddress(),
             lockedTon: r.readBigInt(),
+            tonAssetId: r.readBigInt(),
+            tonDecimals: r.readBigInt(),
             paused: r.readBoolean(),
         });
     }
@@ -819,6 +1090,17 @@ export class AssetVault implements c.Contract {
             $: 'ReleaseFailureReply',
             exists: r.readBoolean(),
             failure: r.readCellRef<ReleaseFailure>(ReleaseFailure.fromSlice),
+        });
+    }
+
+    async getJettonAsset(provider: ContractProvider, assetId: uint32): Promise<JettonAssetReply> {
+        const r = StackReader.fromGetMethod(2, await provider.get('jettonAsset', [
+            { type: 'int', value: assetId },
+        ]));
+        return ({
+            $: 'JettonAssetReply',
+            exists: r.readBoolean(),
+            asset: r.readCellRef<JettonAssetConfig>(JettonAssetConfig.fromSlice),
         });
     }
 }

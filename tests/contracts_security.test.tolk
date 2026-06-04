@@ -149,6 +149,24 @@ get fun `test security vault rejects underfunded deposit and preserves accountin
     expect(vault.vaultStatus().lockedTon).toEqual(0);
 }
 
+get fun `test security vault rejects zero amount deposit`() {
+    val (vault, _, _, _, user) = securityDeployVault();
+
+    val result = vault.sendDepositTon(
+        user.address,
+        105,
+        0,
+        123456,
+        { value: ton("0.1") },
+    );
+    expect(result).toHaveFailedTx({
+        from: user.address,
+        to: vault.address,
+        exitCode: Errors.BadDepositValue,
+    });
+    expect(vault.vaultStatus().lockedTon).toEqual(0);
+}
+
 get fun `test security vault rejects unauthorized release and preserves locked ton`() {
     val (vault, _, rollupRoot, attacker, user) = securityDeployVault();
 
@@ -319,6 +337,38 @@ get fun `test security vault ignores empty topup and rejects unknown non empty m
     });
 }
 
+get fun `test security vault rejects unauthorized jetton asset registration`() {
+    val (vault, deployer, _, attacker, user) = securityDeployVault();
+    val jettonMaster = testing.treasury("security-jetton-master");
+
+    val register = vault.sendRegisterJettonAsset(
+        attacker.address,
+        2,
+        jettonMaster.address,
+        user.address,
+        9,
+        { value: ton("0.05") },
+    );
+    expect(register).toHaveFailedTx({
+        from: attacker.address,
+        to: vault.address,
+        exitCode: Errors.Unauthorized,
+    });
+
+    val authorized = vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        user.address,
+        9,
+        { value: ton("0.05") },
+    );
+    expect(authorized).toHaveSuccessfulTx<RegisterJettonAsset>({
+        from: deployer.address,
+        to: vault.address,
+    });
+}
+
 fun securityDeployRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, Treasury, address) {
     val sequencer = testing.treasury("security-root-sequencer");
     val attacker = testing.treasury("security-root-attacker");
@@ -357,6 +407,11 @@ fun securityDeployVault(): (AssetVault, Treasury, Treasury, Treasury, Treasury) 
         wrappedGasMinter: wrappedGasMinter.address,
         paused: false,
         lockedTon: 0,
+        tonAssetId: 1,
+        tonDecimals: 9,
+        jettonAssets: [],
+        jettonWalletToAsset: [],
+        pendingJettonReleases: [],
         releaseFailures: [],
     });
     val deploy = vault.deploy(deployer.address, { value: ton("0.1") });

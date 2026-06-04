@@ -20,6 +20,27 @@ async fn parses_valid_deposit_recorded_event() {
 }
 
 #[tokio::test]
+async fn parses_valid_jetton_deposit_recorded_event() {
+    let mut config = config();
+    config.allowed_asset_ids = vec![1, 2];
+    let mut message = deposit_message(8, 123, hash(0x45));
+    message
+        .message_content
+        .as_mut()
+        .unwrap()
+        .decoded
+        .as_mut()
+        .unwrap()["assetId"] = json!(2);
+
+    let deposit = parse_deposit_message(&message, &config).expect("jetton deposit");
+
+    assert_eq!(deposit.asset_id, 2);
+    assert_eq!(deposit.amount, 123);
+    assert_eq!(deposit.l1_lt, 8);
+    assert_eq!(deposit.l1_tx_hash, hash(0x45));
+}
+
+#[tokio::test]
 async fn rejects_forged_or_malformed_events() {
     let mut forged = deposit_message(7, 10, hash(0x44));
     forged.source = Some("EQattacker".to_owned());
@@ -106,6 +127,39 @@ async fn duplicate_deposit_is_not_ingested_twice() {
     let message = deposit_message(7, 10, hash(0x44));
     let client = MockTonClient::new(vec![Ok(vec![message.clone()]), Ok(vec![message])]);
     let indexer = TonDepositIndexer::new(config(), client);
+
+    let first = indexer
+        .poll_once(&storage, &sequencer)
+        .await
+        .expect("first");
+    assert_eq!(first.accepted, 1);
+    sequencer.write().await.produce_block(100);
+
+    let second = indexer
+        .poll_once(&storage, &sequencer)
+        .await
+        .expect("second");
+    assert_eq!(second.accepted, 0);
+    assert_eq!(second.duplicates, 1);
+    assert!(sequencer.write().await.produce_block(101).is_none());
+}
+
+#[tokio::test]
+async fn duplicate_jetton_deposit_is_not_ingested_twice() {
+    let storage: DynStorage = Arc::new(InMemoryStorage::default());
+    let sequencer = Arc::new(RwLock::new(Sequencer::new(Default::default())));
+    let mut config = config();
+    config.allowed_asset_ids = vec![1, 2];
+    let mut message = deposit_message(7, 10, hash(0x44));
+    message
+        .message_content
+        .as_mut()
+        .unwrap()
+        .decoded
+        .as_mut()
+        .unwrap()["assetId"] = json!(2);
+    let client = MockTonClient::new(vec![Ok(vec![message.clone()]), Ok(vec![message])]);
+    let indexer = TonDepositIndexer::new(config, client);
 
     let first = indexer
         .poll_once(&storage, &sequencer)
@@ -264,7 +318,7 @@ impl TonMessageClient for MockTonClient {
 fn config() -> DepositIndexerConfig {
     DepositIndexerConfig {
         vault_address: VAULT.to_owned(),
-        expected_asset_id: 1,
+        allowed_asset_ids: vec![1],
         batch_limit: 100,
         confirmation_lag_lt: 0,
     }

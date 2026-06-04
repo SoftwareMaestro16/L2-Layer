@@ -101,6 +101,10 @@ export function tonDepositForwardPayload(l2Recipient: Hash32) {
   return beginCell().storeUint(recipient, 256).endCell();
 }
 
+export function jettonDepositForwardPayload(l2Recipient: Hash32) {
+  return tonDepositForwardPayload(l2Recipient);
+}
+
 export function encodeDepositTonBody(queryId: bigint, amount: bigint, l2Recipient: Hash32) {
   return beginCell()
     .storeUint(0x4c324405, 32)

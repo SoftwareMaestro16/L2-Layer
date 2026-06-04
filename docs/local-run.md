@@ -71,12 +71,15 @@ L1_DEPOSIT_POLL_INTERVAL_MS=5000
 L1_DEPOSIT_BATCH_LIMIT=100
 L1_DEPOSIT_CONFIRMATION_LAG_LT=0
 L1_TON_ASSET_ID=1
+L1_DEPOSIT_ASSET_IDS=1,2
 ```
 
 It polls Toncenter v3 `/messages` for `DepositRecorded` external logs emitted by
 the configured vault, stores progress in `l1_cursors`, saves deposits idempotently,
-and feeds new deposits into the sequencer. Malformed expected logs fail closed and
-do not advance the cursor.
+and feeds new deposits into the sequencer. `L1_DEPOSIT_ASSET_IDS` is the whitelist
+of vault-registered L1 assets accepted by the indexer; keep `1` for bridged TON and
+add registered Jetton asset ids after `RegisterJettonAsset`. Malformed expected logs
+fail closed and do not advance the cursor.
 
 ## TON batch relayer
 

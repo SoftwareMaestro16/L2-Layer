@@ -55,9 +55,17 @@ struct (0x4c325207) RetryRelease {
     withdrawalId: uint256
 }
 
+struct (0x4c32450b) RegisterJettonAsset {
+    assetId: uint32
+    master: address
+    wallet: address
+    decimals: uint8
+}
+
 const RELEASE_FAILURE_VAULT_BOUNCE = 1
 const RELEASE_FAILURE_RECIPIENT_BOUNCE = 2
 const RELEASE_FAILURE_UNSUPPORTED_ASSET = 3
+const RELEASE_FAILURE_JETTON_WALLET_BOUNCE = 4
 
 struct ReleaseFailure {
     withdrawalId: uint256
@@ -97,10 +105,27 @@ struct (0x7362d09c) JettonTransferNotification {
     forwardPayload: cell
 }
 
+struct (0xd53276db) JettonExcesses {
+    queryId: uint64
+}
+
+struct JettonAssetConfig {
+    assetId: uint32
+    master: address
+    wallet: address
+    decimals: uint8
+}
+
 type RootMessage = CommitBatch | FinalizeBatch | ClaimWithdrawal | RetryWithdrawal
 
 type BounceableRootMessage = ReleaseAuthorized
 
-type VaultMessage = DepositTon | ReleaseAuthorized | RetryRelease | JettonTransferNotification
+type VaultMessage =
+    | DepositTon
+    | ReleaseAuthorized
+    | RetryRelease
+    | RegisterJettonAsset
+    | JettonTransferNotification
+    | JettonExcesses
 
 type BounceableVaultMessage = ReleaseAuthorized

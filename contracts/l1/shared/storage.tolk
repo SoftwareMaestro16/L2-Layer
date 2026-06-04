@@ -27,6 +27,11 @@ struct AssetVaultStorage {
     wrappedGasMinter: address
     paused: bool
     lockedTon: coins
+    tonAssetId: uint32
+    tonDecimals: uint8
+    jettonAssets: map<uint32, Cell<JettonAssetConfig>>
+    jettonWalletToAsset: map<uint256, uint32>
+    pendingJettonReleases: map<uint64, Cell<ReleaseAuthorized>>
     releaseFailures: map<uint256, Cell<ReleaseFailure>>
 }
 
@@ -61,5 +66,12 @@ struct VaultStatusReply {
     rollupRoot: address
     wrappedGasMinter: address
     lockedTon: coins
+    tonAssetId: uint32
+    tonDecimals: uint8
     paused: bool
+}
+
+struct JettonAssetReply {
+    exists: bool
+    asset: Cell<JettonAssetConfig>
 }

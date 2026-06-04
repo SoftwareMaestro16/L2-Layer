@@ -78,6 +78,20 @@ pub(super) fn parse_u32(value: &str, key: &str) -> anyhow::Result<u32> {
         .with_context(|| format!("{key} must be an unsigned 32-bit integer"))
 }
 
+pub(super) fn parse_u32_list(value: &str, key: &str) -> anyhow::Result<Vec<u32>> {
+    let mut values = vec![];
+    for part in value.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            return Err(anyhow!("{key} must not contain empty values"));
+        }
+        values.push(parse_u32(part, key)?);
+    }
+    values.sort_unstable();
+    values.dedup();
+    Ok(values)
+}
+
 pub(super) fn parse_u16(value: &str, key: &str) -> anyhow::Result<u16> {
     value
         .parse::<u16>()

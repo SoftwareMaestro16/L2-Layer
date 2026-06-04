@@ -9,8 +9,8 @@ mod helpers;
 pub use helpers::SecretString;
 use helpers::{
     bool_literal, optional, optional_secret, optional_string, parse_bool, parse_network,
-    parse_u128, parse_u16, parse_u32, parse_u64, parse_u8, path_exists_in_cwd_or_ancestors,
-    required,
+    parse_u128, parse_u16, parse_u32, parse_u32_list, parse_u64, parse_u8,
+    path_exists_in_cwd_or_ancestors, required,
 };
 
 const DEFAULT_NODE_ADDR: &str = "127.0.0.1:8080";
@@ -68,6 +68,7 @@ pub struct NodeConfig {
     pub l1_deposit_batch_limit: u16,
     pub l1_deposit_confirmation_lag_lt: u64,
     pub l1_ton_asset_id: u32,
+    pub l1_deposit_asset_ids: Vec<u32>,
     pub dev_admin_deposits_enabled: bool,
     pub l1_batch_relayer_enabled: bool,
     pub l1_rollup_root_address: Option<String>,
@@ -184,6 +185,19 @@ impl NodeConfig {
             ),
             "L1_TON_ASSET_ID",
         )?;
+        let mut l1_deposit_asset_ids = parse_u32_list(
+            &optional(
+                &mut lookup,
+                "L1_DEPOSIT_ASSET_IDS",
+                &l1_ton_asset_id.to_string(),
+            ),
+            "L1_DEPOSIT_ASSET_IDS",
+        )?;
+        if !l1_deposit_asset_ids.contains(&l1_ton_asset_id) {
+            l1_deposit_asset_ids.push(l1_ton_asset_id);
+            l1_deposit_asset_ids.sort_unstable();
+            l1_deposit_asset_ids.dedup();
+        }
         let dev_admin_deposits_enabled = parse_bool(
             &optional(
                 &mut lookup,
@@ -263,6 +277,7 @@ impl NodeConfig {
             l1_deposit_batch_limit,
             l1_deposit_confirmation_lag_lt,
             l1_ton_asset_id,
+            l1_deposit_asset_ids,
             dev_admin_deposits_enabled,
             l1_batch_relayer_enabled,
             l1_rollup_root_address,
@@ -331,6 +346,15 @@ impl NodeConfig {
         if self.l1_ton_asset_id == self.ent_gas_asset_id() {
             return Err(anyhow!(
                 "L1_TON_ASSET_ID must not equal the ENT gas asset id"
+            ));
+        }
+        if self
+            .l1_deposit_asset_ids
+            .iter()
+            .any(|asset_id| *asset_id == self.ent_gas_asset_id())
+        {
+            return Err(anyhow!(
+                "L1_DEPOSIT_ASSET_IDS must not include the ENT gas asset id"
             ));
         }
         if self.l1_batch_relayer_enabled {
@@ -423,6 +447,7 @@ impl fmt::Debug for NodeConfig {
                 &self.l1_deposit_confirmation_lag_lt,
             )
             .field("l1_ton_asset_id", &self.l1_ton_asset_id)
+            .field("l1_deposit_asset_ids", &self.l1_deposit_asset_ids)
             .field(
                 "dev_admin_deposits_enabled",
                 &self.dev_admin_deposits_enabled,

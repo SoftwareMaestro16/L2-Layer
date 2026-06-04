@@ -49,7 +49,9 @@ TON_L2_SKILLS = {
     "Jettons are TON fungible tokens standardized by TEP-74.",
     "The Jetton architecture is distributed: a master/minter contract stores supply and metadata; per-owner wallet contracts hold balances and execute transfers.",
     "Bridge deposits must verify the sending jetton wallet and decode transfer_notification payloads instead of treating Jettons like account balances on one contract.",
-    "Important opcodes include transfer_notification 0x7362d09c, burn 0x595f07bc, and excesses 0xd53276db.",
+    "Important opcodes include transfer 0x0f8a7ea5, transfer_notification 0x7362d09c, burn 0x595f07bc, and excesses 0xd53276db.",
+    "TEP-74 transfer_notification contains query_id, amount, sender, and forward_payload as Either Cell ^Cell; Entropis accepts a ref cell payload containing exactly one uint256 L2 recipient.",
+    "AssetVault stores an admin-managed asset registry: asset id, Jetton master, vault-owned Jetton wallet, decimals, and wallet-hash reverse index.",
     "Always respect token decimals and wallet discovery; do not assume 9 decimals or a globally shared balance contract."
   ],
   message_model: [
@@ -86,15 +88,16 @@ TON_L2_SKILLS = {
   ],
   bridge_design: [
     "TON deposits: user sends TON to AssetVault with DepositTon body; vault records locked amount and emits DepositRecorded external log.",
-    "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles transfer_notification.",
-    "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection.",
+    "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles transfer_notification only from registered vault-owned Jetton wallets.",
+    "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
+    "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
     "The node should not hold raw TON wallet credentials for relaying; use a signer boundary and verify the returned signer address matches RollupRoot.sequencer before broadcasting.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
     "The committed withdrawalRoot is the Merkle root of ReleaseAuthorized cell representation hashes; withdrawal tree node hashes are representation hashes of a compact cell containing left uint256 then right uint256.",
     "Root-to-vault release bounces are stored in RollupRoot.failedWithdrawals without deleting claimedWithdrawals; RetryWithdrawal is permissionless and resends only stored release fields.",
     "Vault-to-recipient TON release bounces are stored in AssetVault.releaseFailures, re-credit lockedTon, and can be retried permissionlessly through RetryRelease.",
-    "Unsupported release assets remain visible as failures and are not retryable until Jetton/wrapped-gas release support is implemented."
+    "Unsupported release assets remain visible as failures and are not retryable until the asset is registered or a future wrapped-gas flow is implemented."
   ],
   infrastructure: [
     "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",

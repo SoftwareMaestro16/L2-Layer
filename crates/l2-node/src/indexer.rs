@@ -15,7 +15,7 @@ const CURSOR_SOURCE: &str = "toncenter:vault-deposits";
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DepositIndexerConfig {
     pub vault_address: String,
-    pub expected_asset_id: u32,
+    pub allowed_asset_ids: Vec<u32>,
     pub batch_limit: u16,
     pub confirmation_lag_lt: u64,
 }
@@ -27,7 +27,7 @@ impl DepositIndexerConfig {
                 .l1_vault_address
                 .clone()
                 .expect("validated indexer config has vault address"),
-            expected_asset_id: config.l1_ton_asset_id,
+            allowed_asset_ids: config.l1_deposit_asset_ids.clone(),
             batch_limit: config.l1_deposit_batch_limit,
             confirmation_lag_lt: config.l1_deposit_confirmation_lag_lt,
         })
@@ -239,7 +239,7 @@ pub fn parse_deposit_message(
     if deposit_id == Hash32::ZERO {
         return Err(IndexerError::Validation("deposit id must be non-zero"));
     }
-    if asset_id != config.expected_asset_id {
+    if !config.allowed_asset_ids.contains(&asset_id) {
         return Err(IndexerError::Validation("unexpected deposit asset id"));
     }
     if amount == 0 {

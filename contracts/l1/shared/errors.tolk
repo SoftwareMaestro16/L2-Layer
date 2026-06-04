@@ -11,7 +11,11 @@ enum Errors {
     AlreadyClaimed = 0x1009
     BadWithdrawalProof = 0x100a
     BadDepositValue = 0x100b
-    UnsupportedJettonDeposit = 0x100c
     NoFailedWithdrawal = 0x100d
     UnsupportedReleaseAsset = 0x100e
+    BadJettonWallet = 0x100f
+    BadForwardPayload = 0x1010
+    BadJettonAmount = 0x1011
+    BadAssetDecimals = 0x1012
+    BadAssetConfig = 0x1013
 }

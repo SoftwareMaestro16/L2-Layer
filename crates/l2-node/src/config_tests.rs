@@ -58,6 +58,7 @@ fn valid_entropis_testnet_config_loads() {
     assert!(config.dev_admin_deposits_enabled);
     assert!(!config.l1_deposit_indexer_enabled);
     assert!(!config.l1_batch_relayer_enabled);
+    assert_eq!(config.l1_deposit_asset_ids, vec![1]);
 }
 
 #[test]
@@ -121,9 +122,20 @@ fn config_validates_l1_indexer_settings() {
     assert!(load_from(&env).is_err());
 
     env.insert("L1_TON_ASSET_ID".to_owned(), "1".to_owned());
+    env.insert("L1_DEPOSIT_ASSET_IDS".to_owned(), "1,2,2".to_owned());
     let config = load_from(&env).expect("indexer config");
     assert!(config.l1_deposit_indexer_enabled);
     assert_eq!(config.l1_deposit_batch_limit, 100);
+    assert_eq!(config.l1_deposit_asset_ids, vec![1, 2]);
+
+    let mut env = valid_env();
+    env.insert("L1_DEPOSIT_ASSET_IDS".to_owned(), "2".to_owned());
+    let config = load_from(&env).expect("auto includes ton asset");
+    assert_eq!(config.l1_deposit_asset_ids, vec![1, 2]);
+
+    let mut env = valid_env();
+    env.insert("L1_DEPOSIT_ASSET_IDS".to_owned(), "0,1".to_owned());
+    assert!(load_from(&env).is_err());
 }
 
 #[test]

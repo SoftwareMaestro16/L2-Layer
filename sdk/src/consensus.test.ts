@@ -6,8 +6,10 @@ import {
   canonicalBatchDataHash,
   encodeSignedTransaction,
   encodeUnsignedTransaction,
+  jettonDepositForwardPayload,
   L2_NATIVE_GAS_ASSET,
   receiptLeafHash,
+  tonDepositForwardPayload,
   txHash,
   withdrawalId,
   withdrawalLeafHash,
@@ -123,6 +125,18 @@ test("non canonical account and hash inputs are rejected", () => {
 
   assert.throws(() => accountLeafHash(hash(0xaa), account), /duplicate account balance/);
   assert.throws(() => txHash(invalidHashTx), /expected 32-byte hex string/);
+});
+
+test("jetton deposit payload encodes canonical l2 recipient", () => {
+  const recipient = hash(0x77);
+  const jettonPayload = jettonDepositForwardPayload(recipient);
+  const tonPayload = tonDepositForwardPayload(recipient);
+
+  assert.equal(jettonPayload.toBoc().toString("hex"), tonPayload.toBoc().toString("hex"));
+  const slice = jettonPayload.beginParse();
+  assert.equal(slice.loadUintBig(256).toString(16).padStart(64, "0"), recipient);
+  assert.equal(slice.remainingBits, 0);
+  assert.equal(slice.remainingRefs, 0);
 });
 
 function vectorTransaction(): SignedL2Transaction {
