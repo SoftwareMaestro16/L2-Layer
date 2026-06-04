@@ -82,12 +82,15 @@ snapshot of the target contract account state. It returns gas used, applied or
 rejected status, optional target-contract state delta, and emitted internal
 messages.
 
-The default adapter is noop and returns `tvm_adapter_not_implemented`, so real
-contract calls remain fail-closed until the TON TVM emulator is integrated. The
-executor validates adapter output before applying it: malformed BoCs are rejected
-before adapter entry, gas used must be in `1..=gas_limit`, internal messages are
-capped by `max_internal_messages`, internal message bodies are size-limited, and
-state deltas may only target the called contract.
+The default adapter is a bounded prototype. It recognizes only the sample L2
+counter code hash, decodes a Tolk-compatible `CounterIncrement` body, updates a
+deterministic sample storage root, and returns `tvm_adapter_not_implemented` for
+all other code hashes. The full TON TVM emulator remains future work because the
+current account model stores code/data hashes, not code/data cells. The executor
+validates adapter output before applying it: malformed BoCs are rejected before
+adapter entry, gas used must be in `1..=gas_limit`, internal messages are capped
+by `max_internal_messages`, internal message bodies are size-limited, and state
+deltas may only target the called contract.
 
 ## Deposit Indexing
 

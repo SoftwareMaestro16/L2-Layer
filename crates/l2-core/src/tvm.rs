@@ -5,6 +5,16 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tonlib_core::cell::BagOfCells;
 
+#[path = "tvm/sample_counter.rs"]
+mod sample_counter;
+
+pub use sample_counter::{
+    read_sample_counter_value, sample_counter_code_hash, sample_counter_data_hash,
+    sample_counter_initial_state, sample_counter_storage_root, PrototypeTvmAdapter,
+    SampleCounterContractState, SampleCounterReadError, SAMPLE_COUNTER_INCREMENT_GAS,
+    SAMPLE_COUNTER_INCREMENT_OPCODE,
+};
+
 pub const DEFAULT_MAX_TVM_BOC_BYTES: usize = 16 * 1024;
 const MAX_TVM_REASON_BYTES: usize = 64;
 

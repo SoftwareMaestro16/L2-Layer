@@ -17,6 +17,11 @@ display-name = "Asset Vault"
 src = "contracts/l1/asset-vault/asset_vault.tolk"
 depends = []
 
+[contracts.SampleL2Counter]
+display-name = "Sample L2 Counter"
+src = "examples/l2-counter/counter.tolk"
+depends = []
+
 [fmt]
 width = 100
 ignore = []
@@ -42,3 +47,4 @@ gen = "gen"
 tests = "tests"
 scripts = "scripts"
 wrappers = "wrappers"
+examples = "examples"

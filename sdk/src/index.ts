@@ -1,6 +1,18 @@
 import { Address, beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
-import { deriveAccountId as deriveAccountIdFromBytes, signingPayload } from "./consensus.js";
+import {
+  deriveAccountId as deriveAccountIdFromBytes,
+  signingPayload,
+} from "./consensus.js";
+import { EntropisApiError } from "./api_error.js";
+import type { TonConnectMessage } from "./deposit.js";
+import {
+  signCallContractTransaction,
+  signDeployContractTransaction,
+  type CallContractTransactionParams,
+  type DeployContractTransactionParams,
+  type SampleCounterReadResponse,
+} from "./contracts.js";
 import * as RollupRootGenerated from "./generated/RollupRoot.gen.js";
 
 export {
@@ -9,6 +21,35 @@ export {
   JETTON_TRANSFER_OPCODE,
 } from "./jetton.js";
 export type { DepositJettonMessageParams } from "./jetton.js";
+export {
+  depositTonTonConnectMessage,
+  encodeDepositTonBody,
+  jettonDepositForwardPayload,
+  tonDepositForwardPayload,
+} from "./deposit.js";
+export type { DepositTonMessageParams, TonConnectMessage } from "./deposit.js";
+export { EntropisApiError } from "./api_error.js";
+export {
+  buildCallContractTransaction,
+  buildDeployContractTransaction,
+  readSampleCounterFromAccount,
+  sampleCounterCodeHash,
+  sampleCounterDataHash,
+  sampleCounterIncrementBody,
+  sampleCounterIncrementBodyBase64,
+  sampleCounterInitialState,
+  sampleCounterStorageRoot,
+  signCallContractTransaction,
+  signDeployContractTransaction,
+  SAMPLE_COUNTER_INCREMENT_GAS,
+  SAMPLE_COUNTER_INCREMENT_OPCODE,
+} from "./contracts.js";
+export type {
+  CallContractTransactionParams,
+  DeployContractTransactionParams,
+  SampleCounterReadResponse,
+  SampleCounterState,
+} from "./contracts.js";
 export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
 export * as RollupRootL1 from "./generated/RollupRoot.gen.js";
 export {
@@ -52,6 +93,14 @@ export type L2TransactionKind =
     }
   | { Transfer: { to: Hash32; asset_id: number; amount: string } }
   | { Withdraw: { asset_id: number; amount: string; l1_recipient: string } }
+  | {
+      DeployContract: {
+        contract: Hash32;
+        code_hash: Hash32;
+        data_hash: Hash32;
+        storage_root: Hash32;
+      };
+    }
   | { CallContract: { contract: Hash32; body_boc_base64: string } };
 
 export interface SignedL2Transaction {
@@ -141,39 +190,14 @@ export interface WithdrawalProofResponse {
   proof: WithdrawalMerkleProof;
 }
 
-export interface TonConnectMessage {
-  address: string;
-  amount: string;
-  payload: string;
-}
-
 export interface ClaimWithdrawalTonConnectMessageParams {
   rollupRootAddress: string;
   proof: WithdrawalProofResponse;
   amount: UIntLike;
 }
 
-export interface DepositTonMessageParams {
-  vaultAddress: string;
-  queryId: UIntLike;
-  amount: UIntLike;
-  l2Recipient: Hash32;
-}
-
 export interface TonL2ClientOptions {
   adminToken?: string;
-}
-
-export class EntropisApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly statusText: string,
-    public readonly responseText: string,
-    public readonly publicMessage: string,
-  ) {
-    super(`Entropis API error ${status}: ${publicMessage}`);
-    this.name = "EntropisApiError";
-  }
 }
 
 export function normalizeHash32(value: string): Hash32 {
@@ -258,35 +282,6 @@ export function signWithdrawTransaction(
   params: WithdrawTransactionParams & SigningParams,
 ): SignedL2Transaction {
   return signTransaction(buildWithdrawTransaction(params), params.keyPair);
-}
-
-export function tonDepositForwardPayload(l2Recipient: Hash32) {
-  const recipient = BigInt(`0x${normalizeHash32(l2Recipient)}`);
-  return beginCell().storeUint(recipient, 256).endCell();
-}
-
-export function jettonDepositForwardPayload(l2Recipient: Hash32) {
-  return tonDepositForwardPayload(l2Recipient);
-}
-
-export function encodeDepositTonBody(queryId: UIntLike, amount: UIntLike, l2Recipient: Hash32) {
-  return beginCell()
-    .storeUint(0x4c324405, 32)
-    .storeUint(toUint(queryId, "queryId", 64), 64)
-    .storeCoins(toPositiveUint(amount, "amount", 120))
-    .storeUint(BigInt(`0x${normalizeHash32(l2Recipient)}`), 256)
-    .endCell();
-}
-
-export function depositTonTonConnectMessage(params: DepositTonMessageParams): TonConnectMessage {
-  parseTonAddress(params.vaultAddress);
-  const amount = toPositiveUint(params.amount, "amount", 120);
-  const body = encodeDepositTonBody(params.queryId, amount, params.l2Recipient);
-  return {
-    address: params.vaultAddress,
-    amount: toDecimalString(amount),
-    payload: body.toBoc().toString("base64"),
-  };
 }
 
 export function releaseAuthorizedCell(leaf: WithdrawalProofLeaf): Cell {
@@ -376,6 +371,10 @@ export class TonL2Client {
     return this.getJson(`/v1/account/${normalizeHash32(accountId)}`);
   }
 
+  async getSampleCounter(contractId: Hash32): Promise<SampleCounterReadResponse> {
+    return this.getJson(`/v1/sample-counter/${normalizeHash32(contractId)}`);
+  }
+
   async getBlock(height: number): Promise<unknown> {
     return this.getJson(`/v1/block/${height}`);
   }
@@ -394,6 +393,10 @@ export class TonL2Client {
     });
   }
 
+  async adminProduceBlock(): Promise<unknown | undefined> {
+    return this.postJson("/v1/admin/produce-block", {}, { admin: true });
+  }
+
   async submitSignedTransfer(
     params: TransferTransactionParams & SigningParams,
   ): Promise<SubmitTxResponse> {
@@ -404,6 +407,18 @@ export class TonL2Client {
     params: WithdrawTransactionParams & SigningParams,
   ): Promise<SubmitTxResponse> {
     return this.submitTx(signWithdrawTransaction(params));
+  }
+
+  async submitSignedDeployContract(
+    params: DeployContractTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signDeployContractTransaction(params));
+  }
+
+  async submitSignedCallContract(
+    params: CallContractTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signCallContractTransaction(params));
   }
 
   private async getJson<T>(path: string): Promise<T> {

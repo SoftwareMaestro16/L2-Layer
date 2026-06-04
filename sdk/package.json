@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test:vectors": "npm run build && node --test dist/consensus.test.js",
+    "test:vectors": "npm run build && node --test dist/consensus.test.js dist/contracts.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

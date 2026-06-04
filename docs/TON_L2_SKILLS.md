@@ -99,7 +99,9 @@ TON_L2_SKILLS = {
     "Observer/challenger nodes replay canonical DA bytes from a trusted state checkpoint, compare tx/receipt/withdrawal/state roots, and locate the first invalid transition before L1 challenge submission; they must not trust local sequencer block JSON as the commitment source.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Executor gas is versioned config: applied fees are gas_used * max_gas_price in ENT asset id 0; authenticated rejected execution advances nonce and charges only rejected_execution_gas when possible.",
-    "CallContract uses a TvmExecutionAdapter boundary: single-root BoC input, explicit deterministic context, contract-local state delta, bounded internal messages/body sizes, gas_used validation, and noop fail-closed behavior until the real TON TVM emulator is wired.",
+    "CallContract uses a TvmExecutionAdapter boundary: single-root BoC input, explicit deterministic context, contract-local state delta, bounded internal messages/body sizes, and gas_used validation.",
+    "The prototype adapter recognizes only the sample L2 counter code hash and fails closed with tvm_adapter_not_implemented for unsupported code hashes until code/data cell storage and a full TON TVM emulator are wired.",
+    "DeployContract installs code_hash, data_hash, and storage_root for new empty L2 contract accounts; it rejects zero hashes and overwrites, and uses the CallContract gas schedule.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."
   ],
   bridge_design: [

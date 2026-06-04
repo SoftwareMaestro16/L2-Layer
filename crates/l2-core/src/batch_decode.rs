@@ -13,6 +13,7 @@ const KIND_DEPOSIT: u8 = 0x01;
 const KIND_TRANSFER: u8 = 0x02;
 const KIND_WITHDRAW: u8 = 0x03;
 const KIND_CALL_CONTRACT: u8 = 0x04;
+const KIND_DEPLOY_CONTRACT: u8 = 0x05;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
@@ -90,6 +91,12 @@ fn decode_transaction_kind(
         KIND_CALL_CONTRACT => L2TransactionKind::CallContract {
             contract: reader.read_hash()?,
             body_boc_base64: reader.read_string()?,
+        },
+        KIND_DEPLOY_CONTRACT => L2TransactionKind::DeployContract {
+            contract: reader.read_hash()?,
+            code_hash: reader.read_hash()?,
+            data_hash: reader.read_hash()?,
+            storage_root: reader.read_hash()?,
         },
         _ => return Err(BatchDataDecodeError::InvalidTag),
     })
