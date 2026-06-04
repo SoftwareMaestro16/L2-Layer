@@ -66,6 +66,9 @@ pub struct NodeConfig {
     pub l1_batch_finalizer_retry_backoff_ms: u64,
     pub l1_batch_finalizer_max_attempts: u32,
     pub da_max_payload_bytes: usize,
+    pub da_public_backend: String,
+    pub da_public_fs_dir: PathBuf,
+    pub da_public_base_url: Option<String>,
     pub mempool_replay_ttl_secs: u64,
     pub mempool_nonce_lock_ttl_secs: u64,
     pub mempool_leader_ttl_secs: u64,
@@ -304,6 +307,16 @@ impl NodeConfig {
             ),
             "DA_MAX_PAYLOAD_BYTES",
         )?;
+        let da_public_backend =
+            optional(&mut lookup, "DA_PUBLIC_BACKEND", DEFAULT_DA_PUBLIC_BACKEND)
+                .trim()
+                .to_ascii_lowercase();
+        let da_public_fs_dir = PathBuf::from(optional(
+            &mut lookup,
+            "DA_PUBLIC_FS_DIR",
+            DEFAULT_DA_PUBLIC_FS_DIR,
+        ));
+        let da_public_base_url = optional_string(&mut lookup, "DA_PUBLIC_BASE_URL");
         let mempool_replay_ttl_secs = parse_u64(
             &optional(
                 &mut lookup,
@@ -511,6 +524,9 @@ impl NodeConfig {
             l1_batch_finalizer_retry_backoff_ms,
             l1_batch_finalizer_max_attempts,
             da_max_payload_bytes,
+            da_public_backend,
+            da_public_fs_dir,
+            da_public_base_url,
             mempool_replay_ttl_secs,
             mempool_nonce_lock_ttl_secs,
             mempool_leader_ttl_secs,

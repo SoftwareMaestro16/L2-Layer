@@ -65,6 +65,12 @@ fn valid_entropis_testnet_config_loads() {
     assert_eq!(config.mempool_max_global_queue, 10_000);
     assert_eq!(config.mempool_max_account_queue, 64);
     assert_eq!(config.da_max_payload_bytes, DEFAULT_DA_MAX_PAYLOAD_BYTES);
+    assert_eq!(config.da_public_backend, DEFAULT_DA_PUBLIC_BACKEND);
+    assert_eq!(
+        config.da_public_fs_dir,
+        PathBuf::from(DEFAULT_DA_PUBLIC_FS_DIR)
+    );
+    assert_eq!(config.da_public_base_url, None);
     assert_eq!(
         config.executor_gas_schedule,
         l2_core::GasSchedule::default()
@@ -227,8 +233,20 @@ fn config_validates_l1_batch_finalizer_settings() {
 fn config_validates_da_limits() {
     let mut env = valid_env();
     env.insert("DA_MAX_PAYLOAD_BYTES".to_owned(), "4096".to_owned());
+    env.insert("DA_PUBLIC_BACKEND".to_owned(), "filesystem".to_owned());
+    env.insert("DA_PUBLIC_FS_DIR".to_owned(), "build/da-public".to_owned());
+    env.insert(
+        "DA_PUBLIC_BASE_URL".to_owned(),
+        "https://da.example.test/entropis".to_owned(),
+    );
     let config = load_from(&env).expect("da config");
     assert_eq!(config.da_max_payload_bytes, 4096);
+    assert_eq!(config.da_public_backend, "filesystem");
+    assert_eq!(config.da_public_fs_dir, PathBuf::from("build/da-public"));
+    assert_eq!(
+        config.da_public_base_url.as_deref(),
+        Some("https://da.example.test/entropis")
+    );
 
     let mut env = valid_env();
     env.insert("DA_MAX_PAYLOAD_BYTES".to_owned(), "0".to_owned());
@@ -239,6 +257,15 @@ fn config_validates_da_limits() {
         "DA_MAX_PAYLOAD_BYTES".to_owned(),
         (129 * 1024 * 1024).to_string(),
     );
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("DA_PUBLIC_BACKEND".to_owned(), "s3".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("DA_PUBLIC_BACKEND".to_owned(), "filesystem".to_owned());
+    env.insert("DA_PUBLIC_BASE_URL".to_owned(), "file:///tmp/da".to_owned());
     assert!(load_from(&env).is_err());
 }
 

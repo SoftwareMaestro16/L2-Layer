@@ -25,6 +25,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod auth;
+mod da;
 mod error;
 mod explorer;
 mod operator;
@@ -32,6 +33,7 @@ mod operator;
 mod test_support;
 
 use auth::AdminAuth;
+use da::{get_batch_da_payload, get_batch_da_payload_by_hash};
 use error::ApiError;
 use explorer::{
     explorer_blocks, explorer_deposit, explorer_deposits, explorer_summary, explorer_withdrawal,
@@ -144,6 +146,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
+        .route("/v1/da/batch/:height", get(get_batch_da_payload))
+        .route(
+            "/v1/da/batch/:height/:data_hash",
+            get(get_batch_da_payload_by_hash),
+        )
         .route("/v1/mempool/metrics", get(get_mempool_metrics))
         .route("/v1/operator/metrics", get(operator_metrics))
         .route("/v1/operator/failures", get(operator_failures))

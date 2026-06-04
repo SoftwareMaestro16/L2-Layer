@@ -1,9 +1,15 @@
 use super::*;
+use axum::body::to_bytes;
 use axum::http::header::AUTHORIZATION;
+use axum::http::header::CONTENT_TYPE;
 use axum::http::HeaderValue;
+use axum::response::IntoResponse;
 use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::derive_account_id;
-use l2_core::{canonical_batch_data_hash, L2Block, L2TransactionKind, WithdrawalLeaf};
+use l2_core::{
+    canonical_batch_data_bytes, canonical_batch_data_hash, L2Block, L2TransactionKind,
+    WithdrawalLeaf,
+};
 use rand_core::OsRng;
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -271,6 +277,90 @@ async fn admin_deposit_is_idempotent_through_storage() {
         .expect("deposit block");
     let sequencer = state.sequencer.read().await;
     assert_eq!(sequencer.state.account(recipient).unwrap().balance(0), 100);
+}
+
+#[tokio::test]
+async fn batch_da_payload_is_served_by_height_and_data_hash() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    admin_deposit(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(deposit_event()),
+    )
+    .await
+    .expect("deposit");
+    let block = produce_block_once(&state)
+        .await
+        .expect("produce")
+        .expect("block");
+    let expected_payload = canonical_batch_data_bytes(&block.transactions, &block.receipts);
+
+    let by_height = get_batch_da_payload(State(state.clone()), Path(block.header.height))
+        .await
+        .expect("batch da by height")
+        .into_response();
+    assert_eq!(by_height.status(), StatusCode::OK);
+    assert_eq!(
+        by_height
+            .headers()
+            .get(CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/octet-stream"
+    );
+    assert_eq!(
+        by_height
+            .headers()
+            .get("x-entropis-data-hash")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        block.header.data_hash.to_hex()
+    );
+    let by_height_body = to_bytes(by_height.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_eq!(by_height_body.as_ref(), expected_payload.as_slice());
+
+    let by_hash = get_batch_da_payload_by_hash(
+        State(state),
+        Path((block.header.height, block.header.data_hash.to_hex())),
+    )
+    .await
+    .expect("batch da by hash")
+    .into_response();
+    let by_hash_body = to_bytes(by_hash.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_eq!(by_hash_body.as_ref(), expected_payload.as_slice());
+}
+
+#[tokio::test]
+async fn batch_da_payload_hash_lookup_rejects_invalid_or_missing_hash() {
+    let state = test_state(Some(ADMIN_TOKEN));
+
+    let invalid = match get_batch_da_payload_by_hash(
+        State(state.clone()),
+        Path((0, "not-a-hash".to_owned())),
+    )
+    .await
+    {
+        Ok(_) => panic!("invalid hash unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+
+    let missing = match get_batch_da_payload_by_hash(
+        State(state),
+        Path((0, sha256_bytes(b"missing-data").to_hex())),
+    )
+    .await
+    {
+        Ok(_) => panic!("missing hash unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

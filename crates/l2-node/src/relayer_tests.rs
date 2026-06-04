@@ -234,6 +234,8 @@ async fn corrupted_da_payload_fails_before_l1_commit() {
             block_hash: block.header.block_hash(),
             data_hash: block.header.data_hash,
             payload_bytes: vec![0],
+            public_ref: None,
+            public_uri: None,
         })
         .await
         .unwrap();
@@ -377,6 +379,7 @@ fn da_for_storage(storage: DynStorage) -> DynDa {
         storage,
         DataAvailabilityConfig {
             max_payload_bytes: crate::da::DEFAULT_DA_MAX_PAYLOAD_BYTES,
+            public_backend: crate::da::PublicDaBackend::PostgresOnly,
         },
     ))
 }

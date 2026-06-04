@@ -41,6 +41,8 @@ Useful endpoints:
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
 - `GET /v1/tx/{tx_hash_hex}`
+- `GET /v1/da/batch/{height}`
+- `GET /v1/da/batch/{height}/{data_hash_hex}`
 - `GET /readyz`
 - `GET /v1/mempool/metrics`
 - `GET /v1/operator/metrics`
@@ -163,13 +165,50 @@ pending for L1 relay:
 
 ```text
 DA_MAX_PAYLOAD_BYTES=8388608
+DA_PUBLIC_BACKEND=postgres
+DA_PUBLIC_FS_DIR=build/da-public
+DA_PUBLIC_BASE_URL=
 ```
 
 The payload is the consensus `BatchData` bytes, not JSON. `data_hash` in the L2
 block header is derived from those bytes. Before a batch is submitted to
 `RollupRoot`, the relayer reads the payload back and rejects missing, corrupted,
 partial, oversized, or wrong-block payloads without calling the signer or TON
-provider. Future TON Storage support should implement the same `DaWriter`,
+provider.
+
+For public retrievability in testnet prototype mode, use the filesystem gateway:
+
+```text
+DA_PUBLIC_BACKEND=filesystem
+DA_PUBLIC_FS_DIR=build/da-public
+DA_PUBLIC_BASE_URL=https://da.example.test/entropis
+```
+
+The node writes canonical payload files under:
+
+```text
+{DA_PUBLIC_FS_DIR}/blocks/{height}/{block_hash}-{data_hash}.el2batch
+```
+
+`DA_PUBLIC_BASE_URL` is optional. When set, the node stores a public URI alongside
+the relative DA reference; it must point at an independently served mirror of
+`DA_PUBLIC_FS_DIR`, not at private Postgres. Only filesystem payload files and the
+Postgres mirror are written; bucket credentials, gateway tokens, and wallet files
+must stay in `.env.local` or process environment and must not be mounted into the
+public directory.
+
+Operators and challengers can retrieve payload bytes through:
+
+```text
+GET /v1/da/batch/{height}
+GET /v1/da/batch/{height}/{data_hash_hex}
+```
+
+The response body is `application/octet-stream` and includes
+`x-entropis-block-height`, `x-entropis-block-hash`, `x-entropis-data-hash`, and
+when configured `x-entropis-da-ref` / `x-entropis-da-uri`. The hash-specific route
+is the safer replay path because it binds the payload request to the L1
+`dataHash`. Future TON Storage support should implement the same `DaWriter`,
 `DaReader`, and `DaVerifier` boundaries.
 
 ## TON deposit indexer
