@@ -159,6 +159,79 @@ Acton validation must not run with `--net mainnet`. Testnet deployment uses the
 explicit `l1-deploy-testnet` alias from `Acton.toml`; readback uses
 `l1-verify-testnet` with `--fork-net testnet`.
 
+## Launch Acceptance Matrix
+
+Use this matrix as the go/no-go checklist. A public demo is not ready until every
+`required` row is green and recorded in the local sign-off log.
+
+| Area | Required evidence | Source |
+| --- | --- | --- |
+| L1 code | `acton build`, `acton test`, `acton check`, `acton fmt --check` pass | local command output |
+| L1 deployment | Root and vault getter readback matches registry addresses, sequencer, challenge window, TON asset id, decimals, and unpaused state | `docs/testnet-l1-deployment.md` verify command |
+| Runtime config | Node starts with `TON_NETWORK=testnet`; mainnet endpoints rejected; secrets only in `.env.local` | `/readyz`, config validation tests |
+| Signer | Commit and finalize dry-runs return expected signer address and reject wrong-route actions | `docs/testnet-signer-service.md`, signer tests |
+| Public API | `/healthz`, `/readyz`, explorer endpoints, account/tx/block reads, DA reads respond safely | curl/dashboard |
+| Admin API | Operator endpoints require bearer auth; admin token is not in dashboard bundle, registry, or logs | curl negative test |
+| Demo flow | Faucet, TON deposit, L2 transfer, commit, finalization, withdrawal proof, and claim/release complete once | SDK example plus Tonviewer/Toncenter hashes |
+| DA | Payload is retrievable by height and by `height + dataHash`; corrupted/missing DA is reported before signing | `/v1/da/batch/*`, relayer status |
+| Observer | Replay of supplied commitments from DA succeeds or reports first divergence without local block JSON trust | `/v1/operator/observer/replay` |
+| Security | Latest audit says no known open Critical/High issue for testnet prototype | `docs/security-audit-testnet-prototype-2026-06-04.md` |
+| Evidence hygiene | Sign-off log contains only public addresses, hashes, heights, timestamps, and safe static reason codes | manual review |
+
+## Clean Operator Rehearsal
+
+Run this once from a fresh clone or clean worktree before public announcement.
+The operator should not need private instructions outside `.env.local`, local
+wallet tooling, and the ignored deployment output.
+
+```powershell
+git clone git@github.com:SoftwareMaestro16/L2-Layer.git L2-launch-rehearsal
+Set-Location L2-launch-rehearsal
+git status --short
+Copy-Item .env.example .env.local
+```
+
+Fill `.env.local` from the non-secret checklist and local secret store. Do not
+paste values into the runbook. Then run:
+
+```powershell
+cargo fmt --all -- --check
+cargo test --workspace
+Set-Location sdk
+npm ci
+npm run typecheck
+npm run test:vectors
+Set-Location ..
+wsl bash scripts/ci/acton_contract_checks.sh
+```
+
+Deploy or verify L1 using the linked deployment runbook:
+
+```bash
+acton run l1-verify-testnet -- \
+  <rollup-root-address> \
+  <asset-vault-address> \
+  <admin-address> \
+  <sequencer-address> \
+  <wrapped-gas-minter-address> \
+  300 \
+  1 \
+  9
+```
+
+Start services in separate terminals and keep logs local:
+
+```powershell
+cargo run -p l2-node --bin l2-signer
+cargo run -p l2-node
+```
+
+If Postgres, Redis, signer, node, and dashboard are run by a process manager
+instead of terminals, preserve the same start order and health checks. The clean
+operator rehearsal is blocked, not failed, when funded testnet wallets,
+`build/testnet-l1-deployment.json`, registry metadata, or provider API keys are
+not available in the clean environment.
+
 ## Start Order
 
 1. Confirm CI is green on the launch branch and the staged guards pass locally.
@@ -268,6 +341,22 @@ Use SDK helpers from `sdk/README.md` and `sdk/examples/testnet-happy-path.ts`.
 10. Build the TON claim message with `claimWithdrawalTonConnectMessage`, submit
     it from a TON testnet wallet, and confirm the `AssetVault` release reaches
     the recipient.
+
+Record this public-safe evidence for the demo flow:
+
+| Step | Public-safe evidence |
+| --- | --- |
+| Registry | registry URL or local public path, root address, vault address, code hashes |
+| Faucet | L2 account id, faucet deposit id, resulting ENT balance |
+| TON deposit | Tonviewer testnet transaction URL, deposit id, L2 account credited amount |
+| L2 transfer | tx hash, block height, receipt status |
+| DA | block height, data hash, public DA URI or API response headers |
+| Commit | batch number, RollupRoot commitment getter output, Tonviewer URL |
+| Finalize | finalized batch number, finalizer status, Tonviewer URL |
+| Withdraw | withdrawal id, proof API status, claim Tonviewer URL, vault locked TON delta |
+
+Never include mnemonic phrases, private keys, bearer tokens, raw signed BoCs,
+database URLs, Redis URLs, provider API keys, or full provider JSON responses.
 
 ## Endpoint Separation
 
@@ -399,5 +488,8 @@ Before announcing a public demo, record locally:
 - L1 deployment readback output with public addresses and code hashes.
 - Manual testnet rehearsal notes for deposit, transfer, commit, finalization, and
   withdrawal.
+- Explicit status for any blocked step. A blocked live rehearsal due to missing
+  secrets, missing funded testnet wallets, or missing public registry is not a
+  green launch result.
 
 Keep this sign-off log free of secrets and raw signed BoCs.
