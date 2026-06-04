@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::{DynStorage, InMemoryStorage};
-use l2_core::ReceiptStatus;
+use l2_core::{L2TransactionKind, ReceiptStatus};
 use serde_json::json;
 use std::collections::VecDeque;
 use tokio::sync::Mutex;
@@ -175,6 +175,41 @@ async fn duplicate_deposit_is_not_ingested_twice() {
     assert_eq!(second.accepted, 0);
     assert_eq!(second.duplicates, 1);
     assert!(sequencer.write().await.produce_block(101).is_none());
+}
+
+#[tokio::test]
+async fn repeated_contract_deposit_id_with_new_l1_identity_is_credited() {
+    let storage: DynStorage = Arc::new(InMemoryStorage::default());
+    let sequencer = Arc::new(RwLock::new(Sequencer::new(Default::default())));
+    let first = deposit_message(7, 10, hash(0x44));
+    let second = deposit_message(8, 10, hash(0x45));
+    let client = MockTonClient::new(vec![Ok(vec![first, second])]);
+    let indexer = TonDepositIndexer::new(config(), client);
+
+    let stats = indexer.poll_once(&storage, &sequencer).await.expect("poll");
+    assert_eq!(stats.accepted, 2);
+
+    let block = sequencer.write().await.produce_block(100).expect("block");
+    let first_id = match &block.transactions[0].kind {
+        L2TransactionKind::Deposit { deposit_id, .. } => *deposit_id,
+        _ => panic!("expected deposit tx"),
+    };
+    let second_id = match &block.transactions[1].kind {
+        L2TransactionKind::Deposit { deposit_id, .. } => *deposit_id,
+        _ => panic!("expected deposit tx"),
+    };
+
+    assert_ne!(first_id, second_id);
+    assert_eq!(
+        sequencer
+            .read()
+            .await
+            .state
+            .account(hash(0x22))
+            .unwrap()
+            .balance(1),
+        20
+    );
 }
 
 #[tokio::test]
