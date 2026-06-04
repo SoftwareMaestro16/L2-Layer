@@ -23,6 +23,10 @@ struct (0x4c324301) CommitBatch {
     rootsB: Cell<BatchRootsB>
 }
 
+struct (0x4c324c09) SetAssetVault {
+    assetVault: address
+}
+
 struct (0x4c324602) FinalizeBatch {
     batchNo: uint64
 }
@@ -116,7 +120,7 @@ struct JettonAssetConfig {
     decimals: uint8
 }
 
-type RootMessage = CommitBatch | FinalizeBatch | ClaimWithdrawal | RetryWithdrawal
+type RootMessage = CommitBatch | SetAssetVault | FinalizeBatch | ClaimWithdrawal | RetryWithdrawal
 
 type BounceableRootMessage = ReleaseAuthorized
 

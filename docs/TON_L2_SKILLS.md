@@ -44,6 +44,8 @@ TON_L2_SKILLS = {
     "Entropis runs contract checks through scripts/ci/acton_contract_checks.sh locally and in CI; CI pins ton-blockchain/setup-acton v1.0.0 by commit SHA and Acton 1.1.0.",
     "Docker fallback uses ghcr.io/ton-blockchain/acton:1.1.0 with isolated HOME/XDG_CACHE_HOME and no wallet or deployment secret mounts.",
     "Acton contract test getters must use names beginning with `test`; otherwise a `.test.tolk` file may compile while reporting zero executed tests.",
+    "Acton deployment scripts can run in local emulation without `--net`; only explicit `--net testnet` aliases should broadcast for Entropis testnet deployment.",
+    "Deployment output JSON belongs under ignored `build/` or `deployments/`; wallet overlays (`wallets.toml`, `global.wallets.toml`) must remain local-only.",
     "Do not broadcast mainnet scripts before build, test, local emulation, and testnet validation.",
     "Regenerate wrappers when ABI changes; do not hand-edit generated wrappers unless unavoidable."
   ],
@@ -76,6 +78,7 @@ TON_L2_SKILLS = {
     "Optimistic rollups move execution and state storage off-chain, batch transactions, and commit roots/data commitments to L1.",
     "Security requires data availability sufficient for independent re-execution and future fraud proofs.",
     "For TON, L1 stores compact batch commitments: prevStateRoot, stateRoot, txRoot, receiptRoot, withdrawalRoot, dataHash, timestamp, finalized flag.",
+    "RollupRoot and AssetVault cannot mutually include each other's final address in both StateInit cells. Entropis deploys RollupRoot with a zero-address vault sentinel, deploys AssetVault with the computed root address, then links the root once through admin-only SetAssetVault.",
     "Entropis DA stores canonical BatchData bytes, not JSON; relayer must verify retrievability and hash/block binding before asking a signer to submit CommitBatch.",
     "DA can start as external/Ton Storage-backed data referenced by dataHash, but production fraud proofs require reliable retrievability and challenge rules.",
     "Challenge design separates DA retrieval, deterministic replay, witness/proof generation, and L1 challenge submission; missing DA is an availability challenge, not a state-transition proof.",
@@ -118,6 +121,7 @@ TON_L2_SKILLS = {
   ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
+    "Root-to-vault deployment linking must be admin-only, reject the zero sentinel, reject replay after first link, and happen before any batch commitment.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",
     "Bind ClaimWithdrawal.withdrawalId to the decoded ReleaseAuthorized.withdrawalId before marking claims or sending vault release messages.",
     "Do not clear claimedWithdrawals on root-to-vault bounce; store a failed release and retry from stored fields to avoid reopening proof claims.",

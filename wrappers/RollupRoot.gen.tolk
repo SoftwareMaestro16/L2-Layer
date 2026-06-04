@@ -67,6 +67,21 @@ fun RollupRoot.sendCommitBatch(
     return net.send(from, genericMsg);
 }
 
+fun RollupRoot.sendSetAssetVault(
+    self,
+    from: address,
+    assetVault: address,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: SetAssetVault { assetVault },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun RollupRoot.sendFinalizeBatch(
     self,
     from: address,
