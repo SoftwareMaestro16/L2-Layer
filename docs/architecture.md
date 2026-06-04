@@ -31,6 +31,11 @@ are claimable only after the challenge window. Fraud proofs are not implemented 
 so production deployment must treat the sequencer as trusted until the fraud-proof
 path or a ZK validity proof is added.
 
+The fraud/challenge roadmap is documented in `docs/challenge-roadmap.md`. The
+target model introduces observer/challenger nodes, DA challenges, invalid
+transition challenges, challenge bonds, and forced inclusion without changing the
+current bridge behavior until the L1 verifier is implemented.
+
 ## Hashing
 
 The MVP uses SHA-256 over domain-separated v1 consensus bytes. JSON is allowed for
@@ -97,6 +102,19 @@ signer service for a signed external message BoC, and sends that BoC to Toncente
 v3 `/message`. The node stores `pending`, `submitted`, `confirmed`, or `failed`
 status per batch and uses bounded retries to avoid a retry storm during TON API,
 signer, or DA backend failures.
+
+## Fraud and Challenge Roadmap
+
+Challenge support is a planned L1/L2 boundary. A challenger replays canonical DA
+payloads from a trusted previous state root, recomputes `txRoot`, `receiptRoot`,
+`withdrawalRoot`, and `stateRoot`, and blocks finalization if the committed roots
+cannot be reproduced. Missing DA is handled separately as an availability
+challenge: no payload means no finalization.
+
+Future `RollupRoot` messages are expected to include `ChallengeBatch`,
+`RespondChallenge`, `ResolveChallenge`, and `ForceInclude`. They are not active in
+the MVP, and withdrawals remain trusted-sequencer optimistic until those messages
+and their Tolk verifier are implemented.
 
 ## Withdrawal Bounce Recovery
 
