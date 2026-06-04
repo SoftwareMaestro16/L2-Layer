@@ -13,7 +13,10 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use l2_core::{DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig, SignedL2Transaction, SubmitTxResponse};
+use l2_core::{
+    DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig, SignedL2Transaction,
+    SubmitTxResponse,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration, Instant};

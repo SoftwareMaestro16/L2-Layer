@@ -211,7 +211,10 @@ fn prototype_adapter_applies_sample_counter_increment() {
 
     assert_eq!(outcome.receipt.status, ReceiptStatus::Applied);
     assert_eq!(outcome.receipt.gas_charged, 50);
-    assert_eq!(read_sample_counter_value(state.account(contract).unwrap()), Ok(7));
+    assert_eq!(
+        read_sample_counter_value(state.account(contract).unwrap()),
+        Ok(7)
+    );
     assert_eq!(state.account(sender).unwrap().balance(0), 950);
     assert_eq!(state.account(sender).unwrap().nonce, 1);
 }
@@ -234,7 +237,10 @@ fn prototype_adapter_replays_sample_counter_deterministically() {
 
     assert_eq!(first_outcome.receipt, second_outcome.receipt);
     assert_eq!(first.root_hash(), second.root_hash());
-    assert_eq!(read_sample_counter_value(first.account(contract).unwrap()), Ok(12));
+    assert_eq!(
+        read_sample_counter_value(first.account(contract).unwrap()),
+        Ok(12)
+    );
 }
 
 #[test]
@@ -267,7 +273,10 @@ fn prototype_adapter_rejects_sample_counter_gas_exhaustion() {
     assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
     assert_eq!(outcome.receipt.reason.as_deref(), Some("gas_exhausted"));
     assert_eq!(outcome.receipt.gas_charged, 20);
-    assert_eq!(read_sample_counter_value(state.account(contract).unwrap()), Ok(4));
+    assert_eq!(
+        read_sample_counter_value(state.account(contract).unwrap()),
+        Ok(4)
+    );
 }
 
 #[test]
@@ -290,7 +299,10 @@ fn prototype_adapter_rejects_corrupted_sample_counter_storage() {
         outcome.receipt.reason.as_deref(),
         Some("sample_counter_bad_storage")
     );
-    assert_eq!(state.account(contract).unwrap().storage_root, sample_counter_storage_root(5));
+    assert_eq!(
+        state.account(contract).unwrap().storage_root,
+        sample_counter_storage_root(5)
+    );
 }
 
 #[test]

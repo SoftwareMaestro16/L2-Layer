@@ -110,7 +110,10 @@ fn deploy_contract_rejects_overwrite_without_corrupting_existing_contract() {
         outcome.receipt.reason.as_deref(),
         Some("contract_already_exists")
     );
-    assert_eq!(state.account(contract).unwrap().storage_root, initial.storage_root);
+    assert_eq!(
+        state.account(contract).unwrap().storage_root,
+        initial.storage_root
+    );
 }
 
 #[test]

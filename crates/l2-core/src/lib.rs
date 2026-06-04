@@ -27,13 +27,13 @@ pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};
 pub use state::{Account, State};
 pub use tvm::{
-    decode_call_body_boc_base64, validate_call_body_boc, validate_tvm_output, NoopTvmAdapter,
-    PrototypeTvmAdapter, SampleCounterContractState, SampleCounterReadError, TvmAccountState,
-    TvmAdapterError, TvmBoundaryError, TvmExecutionAdapter, TvmExecutionContext, TvmExecutionInput,
+    decode_call_body_boc_base64, read_sample_counter_value, sample_counter_code_hash,
+    sample_counter_data_hash, sample_counter_initial_state, sample_counter_storage_root,
+    validate_call_body_boc, validate_tvm_output, NoopTvmAdapter, PrototypeTvmAdapter,
+    SampleCounterContractState, SampleCounterReadError, TvmAccountState, TvmAdapterError,
+    TvmBoundaryError, TvmExecutionAdapter, TvmExecutionContext, TvmExecutionInput,
     TvmExecutionOutput, TvmExecutionStatus, TvmInternalMessage, TvmStateDelta,
     DEFAULT_MAX_TVM_BOC_BYTES, SAMPLE_COUNTER_INCREMENT_GAS, SAMPLE_COUNTER_INCREMENT_OPCODE,
-    read_sample_counter_value, sample_counter_code_hash, sample_counter_data_hash,
-    sample_counter_initial_state, sample_counter_storage_root,
 };
 pub use types::*;
 pub use withdrawal::{
