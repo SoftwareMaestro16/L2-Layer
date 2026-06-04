@@ -123,6 +123,10 @@ impl MempoolService {
         })
     }
 
+    pub async fn health_check(&self) -> Result<(), MempoolError> {
+        self.store.stats().await.map(|_| ())
+    }
+
     fn prevalidate_public_tx(
         &self,
         tx: SignedL2Transaction,

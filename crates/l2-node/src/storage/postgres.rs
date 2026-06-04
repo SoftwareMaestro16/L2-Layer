@@ -31,6 +31,11 @@ impl PostgresStorage {
 
 #[async_trait]
 impl Storage for PostgresStorage {
+    async fn health_check(&self) -> Result<(), StorageError> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn save_block(&self, block: L2Block) -> Result<(), StorageError> {
         let block_height = checked_i64(block.header.height, "block_height")?;
         let block_hash = block.header.block_hash().to_hex();

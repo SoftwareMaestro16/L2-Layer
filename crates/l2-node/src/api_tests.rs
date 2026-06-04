@@ -3,7 +3,7 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderValue;
 use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::derive_account_id;
-use l2_core::L2TransactionKind;
+use l2_core::{canonical_batch_data_hash, L2Block, L2TransactionKind};
 use rand_core::OsRng;
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -30,6 +30,20 @@ fn deposit_event() -> DepositEvent {
         l1_tx_hash: sha256_bytes(b"l1-tx"),
         l1_lt: 1,
     }
+}
+
+fn empty_block(height: u64) -> L2Block {
+    L2Block::new(
+        height,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"state"),
+        vec![],
+        vec![],
+        vec![],
+        canonical_batch_data_hash(&[], &[]),
+        100,
+    )
 }
 
 fn signed_tx(
@@ -100,6 +114,46 @@ fn deposit_event_validation_rejects_invalid_payload() {
     deposit.l1_tx_hash = Hash32::ZERO;
     let error = validate_deposit_event(&deposit).unwrap_err();
     assert_eq!(error.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn healthz_reports_process_alive() {
+    let response = healthz().await;
+
+    assert_eq!(response.0.status, "alive");
+    assert_eq!(response.0.service, "entropis-l2-node");
+}
+
+#[tokio::test]
+async fn readyz_reports_safe_component_statuses() {
+    let state = test_state(Some(ADMIN_TOKEN));
+
+    let (status, Json(report)) = readyz(State(state)).await;
+    let rendered = serde_json::to_string(&report).expect("readiness json");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(report.status, "ready");
+    assert_eq!(report.components["db"].code, "ok");
+    assert_eq!(report.components["redis"].code, "ok");
+    assert_eq!(report.components["ton"].code, "ok");
+    assert!(!rendered.contains(ADMIN_TOKEN));
+    assert!(!rendered.contains("redis://"));
+    assert!(!rendered.contains("postgresql://"));
+    assert!(!rendered.contains("TONCENTER"));
+}
+
+#[test]
+fn internal_errors_map_to_safe_public_messages() {
+    let storage: ApiError = crate::storage::StorageError::Conflict {
+        resource: "secret\ninjection",
+    }
+    .into();
+    assert_eq!(storage.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(storage.message, "storage error");
+
+    let da: ApiError = crate::da::DaError::Unavailable.into();
+    assert_eq!(da.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(da.message, "data availability error");
 }
 
 #[tokio::test]
@@ -266,6 +320,61 @@ async fn mempool_metrics_reports_rejections_and_queue_depth() {
     assert_eq!(metrics.accepted, 1);
     assert_eq!(metrics.rejected.get("duplicate_tx"), Some(&1));
     assert_eq!(metrics.store.queued_global, 1);
+}
+
+#[tokio::test]
+async fn operator_metrics_requires_admin_and_reports_node_metrics() {
+    let unauthorized = operator_metrics(State(test_state(None)), auth_headers(ADMIN_TOKEN))
+        .await
+        .unwrap_err();
+    assert_eq!(unauthorized.status, StatusCode::FORBIDDEN);
+
+    let state = test_state(Some(ADMIN_TOKEN));
+    admin_deposit(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(deposit_event()),
+    )
+    .await
+    .expect("deposit");
+    produce_block_once(&state)
+        .await
+        .expect("produce")
+        .expect("block");
+
+    let metrics = operator_metrics(State(state), auth_headers(ADMIN_TOKEN))
+        .await
+        .expect("operator metrics");
+
+    assert_eq!(metrics.0.node.block_production.produced, 1);
+    assert_eq!(metrics.0.node.block_production.last_height, Some(0));
+    assert_eq!(metrics.0.node.latency.storage_save_block.operations, 1);
+}
+
+#[tokio::test]
+async fn operator_failures_reports_relayer_and_withdrawal_visibility() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    state.storage.save_block(empty_block(0)).await.unwrap();
+    let mut record = state.storage.get_batch_commit(1).await.unwrap().unwrap();
+    record.status = crate::storage::BatchCommitStatus::Failed;
+    record.attempts = 1;
+    record.last_error = Some("batch data unavailable".to_owned());
+    state.storage.save_batch_commit(record).await.unwrap();
+
+    let failures = operator_failures(State(state), auth_headers(ADMIN_TOKEN))
+        .await
+        .expect("operator failures");
+
+    assert_eq!(failures.0.relayer_failed_batches.len(), 1);
+    assert_eq!(
+        failures.0.relayer_failed_batches[0].last_error.as_deref(),
+        Some("batch data unavailable")
+    );
+    assert!(!failures.0.failed_withdrawals.indexed);
+    assert_eq!(
+        failures.0.failed_withdrawals.runbook,
+        "docs/operator-runbooks.md#withdrawal-release-failures"
+    );
 }
 
 #[tokio::test]

@@ -110,6 +110,7 @@ pub enum StorageError {
 
 #[async_trait]
 pub trait Storage: Send + Sync {
+    async fn health_check(&self) -> Result<(), StorageError>;
     async fn save_block(&self, block: L2Block) -> Result<(), StorageError>;
     async fn get_block(&self, height: u64) -> Result<Option<L2Block>, StorageError>;
     async fn get_transaction(
@@ -166,6 +167,10 @@ pub struct InMemoryStorage {
 
 #[async_trait]
 impl Storage for InMemoryStorage {
+    async fn health_check(&self) -> Result<(), StorageError> {
+        Ok(())
+    }
+
     async fn save_block(&self, block: L2Block) -> Result<(), StorageError> {
         let pending_record = BatchCommitRecord::pending(&block);
         let mut blocks = self.blocks.write().await;

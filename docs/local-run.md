@@ -41,7 +41,10 @@ Useful endpoints:
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
 - `GET /v1/tx/{tx_hash_hex}`
+- `GET /readyz`
 - `GET /v1/mempool/metrics`
+- `GET /v1/operator/metrics`
+- `GET /v1/operator/failures`
 - `GET /v1/proof/withdrawal/{withdrawal_id_hex}`
 - `WS /v1/stream`
 
@@ -60,6 +63,17 @@ grants.
 The ENT faucet is L2-native only in this phase. It grants `ENT_FAUCET_AMOUNT`
 whole ENT per account, converted with `ENT_DECIMALS=9`, and requires the admin
 bearer token until public rate limiting is implemented.
+
+## Operator observability
+
+`/healthz` is process-alive only. `/readyz` checks Postgres, Redis, and Toncenter
+testnet reachability with safe component codes and no secret-bearing config
+values. Operator endpoints under `/v1/operator/*` require the admin bearer token
+and expose node counters, mempool metrics, relayer failures, and current failed
+withdrawal visibility.
+
+Use `docs/operator-runbooks.md` for common failure handling, alert thresholds, and
+log safety rules.
 
 ## Mempool admission limits
 

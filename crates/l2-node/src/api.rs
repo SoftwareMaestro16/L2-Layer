@@ -1,8 +1,9 @@
 use crate::config::NodeConfig;
 use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
-use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
+use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
+use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
 use crate::relayer::{
     BatchRelayer, BatchRelayerConfig, RemoteCommitBatchSigner, ToncenterCommitProvider,
 };
@@ -19,17 +20,19 @@ use l2_core::{
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod auth;
 mod error;
+mod operator;
 #[cfg(test)]
 mod test_support;
 
 use auth::AdminAuth;
 use error::ApiError;
+use operator::{healthz, operator_failures, operator_metrics, readyz};
 #[cfg(test)]
 use test_support::test_config;
 
@@ -39,6 +42,8 @@ pub struct AppState {
     storage: DynStorage,
     da: DynDa,
     mempool: MempoolService,
+    metrics: Arc<NodeMetrics>,
+    ton_readiness: DynTonReadinessProbe,
     ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
     dev_admin_deposits_enabled: bool,
@@ -50,11 +55,12 @@ impl AppState {
         config: &NodeConfig,
         storage: DynStorage,
         mempool: MempoolService,
-    ) -> Result<Self, FaucetError> {
+    ) -> anyhow::Result<Self> {
         let da = Arc::new(StorageDaStore::new(
             storage.clone(),
             DataAvailabilityConfig::from_node_config(config),
         ));
+        let ton_readiness = Arc::new(ToncenterReadinessClient::from_config(config)?);
         Ok(Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
                 chain_id: config.chain_id.clone(),
@@ -64,6 +70,8 @@ impl AppState {
             storage,
             da,
             mempool,
+            metrics: Arc::new(NodeMetrics::default()),
+            ton_readiness,
             ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
             dev_admin_deposits_enabled: config.dev_admin_deposits_enabled,
@@ -86,6 +94,8 @@ impl AppState {
                 "entropis-testnet",
                 Arc::new(crate::mempool::MemoryMempoolStore::default()),
             ),
+            metrics: Arc::new(NodeMetrics::default()),
+            ton_readiness: Arc::new(crate::observability::ReadyTonReadinessProbe),
             ent_faucet: EntFaucetService::from_config(&test_config()).expect("faucet config"),
             admin_auth: AdminAuth::new(admin_token.map(str::to_owned)),
             dev_admin_deposits_enabled: true,
@@ -102,7 +112,12 @@ pub async fn serve(
     let state = AppState::new(&config, storage, mempool)?;
     spawn_block_producer(state.clone());
     spawn_deposit_indexer(&config, state.clone());
-    spawn_batch_relayer(&config, state.storage.clone(), state.da.clone());
+    spawn_batch_relayer(
+        &config,
+        state.storage.clone(),
+        state.da.clone(),
+        state.metrics.clone(),
+    );
 
     let app = build_router(state);
 
@@ -115,11 +130,14 @@ pub async fn serve(
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/v1/tx", post(submit_tx))
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
         .route("/v1/mempool/metrics", get(get_mempool_metrics))
+        .route("/v1/operator/metrics", get(operator_metrics))
+        .route("/v1/operator/failures", get(operator_failures))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
@@ -128,10 +146,6 @@ pub fn build_router(state: AppState) -> Router {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
-}
-
-async fn healthz() -> &'static str {
-    "ok"
 }
 
 async fn submit_tx(
@@ -278,19 +292,34 @@ fn spawn_deposit_indexer(config: &NodeConfig, state: AppState) {
         loop {
             sleep(poll_interval).await;
             match indexer.poll_once(&state.storage, &state.sequencer).await {
-                Ok(stats) => tracing::info!(
-                    fetched = stats.fetched,
-                    accepted = stats.accepted,
-                    duplicates = stats.duplicates,
-                    "ton deposit indexer poll completed"
-                ),
-                Err(error) => tracing::warn!(?error, "ton deposit indexer poll failed"),
+                Ok(stats) => {
+                    state.metrics.record_indexer_poll(
+                        stats.fetched,
+                        stats.accepted,
+                        stats.duplicates,
+                    );
+                    tracing::info!(
+                        fetched = stats.fetched,
+                        accepted = stats.accepted,
+                        duplicates = stats.duplicates,
+                        "ton deposit indexer poll completed"
+                    );
+                }
+                Err(error) => {
+                    state.metrics.record_indexer_error();
+                    tracing::warn!(?error, "ton deposit indexer poll failed");
+                }
             }
         }
     });
 }
 
-fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage, da: DynDa) {
+fn spawn_batch_relayer(
+    config: &NodeConfig,
+    storage: DynStorage,
+    da: DynDa,
+    metrics: Arc<NodeMetrics>,
+) {
     let Some(relayer_config) = BatchRelayerConfig::from_node_config(config) else {
         return;
     };
@@ -311,15 +340,25 @@ fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage, da: DynDa) {
         loop {
             sleep(poll_interval).await;
             match relayer.relay_once().await {
-                Ok(stats) => tracing::info!(
-                    considered = stats.considered,
-                    submitted = stats.submitted,
-                    confirmed = stats.confirmed,
-                    failed = stats.failed,
-                    skipped = stats.skipped,
-                    "batch relayer poll completed"
-                ),
+                Ok(stats) => {
+                    metrics.record_relayer_poll(
+                        stats.considered,
+                        stats.submitted,
+                        stats.confirmed,
+                        stats.failed,
+                        stats.skipped,
+                    );
+                    tracing::info!(
+                        considered = stats.considered,
+                        submitted = stats.submitted,
+                        confirmed = stats.confirmed,
+                        failed = stats.failed,
+                        skipped = stats.skipped,
+                        "batch relayer poll completed"
+                    );
+                }
                 Err(error) => {
+                    metrics.record_relayer_error();
                     tracing::warn!(?error, "batch relayer poll failed");
                     sleep(retry_backoff).await;
                 }
@@ -330,7 +369,9 @@ fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage, da: DynDa) {
 
 async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiError> {
     const LEADER_OWNER: &str = "entropis-local-sequencer";
+    state.metrics.record_block_attempt();
     if !state.mempool.acquire_leader_lock(LEADER_OWNER).await? {
+        state.metrics.record_empty_block();
         return Ok(None);
     }
 
@@ -349,7 +390,14 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
     .await;
     let _ = state.mempool.release_leader_lock(LEADER_OWNER).await;
 
-    let Some(block) = result? else {
+    let Some(block) = (match result {
+        Ok(block) => block,
+        Err(error) => {
+            state.metrics.record_block_error();
+            return Err(error);
+        }
+    }) else {
+        state.metrics.record_empty_block();
         return Ok(None);
     };
 
@@ -358,14 +406,21 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
         state_root = %block.header.state_root,
         "produced l2 block"
     );
+    let da_started = Instant::now();
     let da_ref = state.da.write_batch_payload(&block).await?;
+    state.metrics.record_da_write_latency(da_started.elapsed());
     tracing::info!(
         height = da_ref.block_height,
         data_hash = %da_ref.data_hash,
         payload_bytes = da_ref.payload_size,
         "published l2 batch data"
     );
+    let storage_started = Instant::now();
     state.storage.save_block(block.clone()).await?;
+    state
+        .metrics
+        .record_storage_save_block_latency(storage_started.elapsed());
+    state.metrics.record_block_produced(block.header.height);
     Ok(Some(block))
 }
 

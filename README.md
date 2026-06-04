@@ -41,6 +41,7 @@ flowchart TB
 - Postgres storage persists blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants.
 - Redis backs public mempool replay checks, nonce locks, and sequencer leader locks.
 - Batch DA payloads are canonical consensus bytes stored through a Postgres-backed DA abstraction and verified before any L1 batch commit.
+- Operators get split `/healthz` and `/readyz` checks plus admin-only metrics and failure visibility endpoints.
 - ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
 - `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter is noop/fail-closed and returns `tvm_adapter_not_implemented` until the real TON TVM emulator is wired.
 - Fraud proofs are documented as a roadmap only; the current MVP remains trusted-sequencer optimistic until L1 challenge verification is implemented.
