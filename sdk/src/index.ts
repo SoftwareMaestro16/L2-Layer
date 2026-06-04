@@ -1,6 +1,6 @@
 import { Address, beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
-import { signingPayload } from "./consensus.js";
+import { deriveAccountId as deriveAccountIdFromBytes, signingPayload } from "./consensus.js";
 import * as RollupRootGenerated from "./generated/RollupRoot.gen.js";
 
 export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
@@ -72,6 +72,34 @@ export interface SubmitTxResponse {
   tx_hash: Hash32;
 }
 
+export interface L2Account {
+  nonce: number;
+  balances: Record<string, string | number>;
+  code_hash: Hash32;
+  data_hash: Hash32;
+  storage_root: Hash32;
+  last_lt: number;
+}
+
+export interface EntFaucetResponse {
+  account_id: Hash32;
+  amount_ent: string;
+  amount_base_units: string;
+  deposit_id: Hash32;
+  granted: boolean;
+}
+
+export interface TransferTransactionParams {
+  chainId: string;
+  from: Hash32;
+  nonce: UIntLike;
+  to: Hash32;
+  assetId: UIntLike;
+  amount: UIntLike;
+  gasLimit: UIntLike;
+  maxGasPrice: UIntLike;
+}
+
 export interface WithdrawTransactionParams {
   chainId: string;
   from: Hash32;
@@ -81,6 +109,10 @@ export interface WithdrawTransactionParams {
   l1Recipient: string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
+}
+
+export interface SigningParams {
+  keyPair: nacl.SignKeyPair;
 }
 
 export interface WithdrawalProofLeaf {
@@ -115,8 +147,27 @@ export interface ClaimWithdrawalTonConnectMessageParams {
   amount: UIntLike;
 }
 
+export interface DepositTonMessageParams {
+  vaultAddress: string;
+  queryId: UIntLike;
+  amount: UIntLike;
+  l2Recipient: Hash32;
+}
+
 export interface TonL2ClientOptions {
   adminToken?: string;
+}
+
+export class EntropisApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly statusText: string,
+    public readonly responseText: string,
+    public readonly publicMessage: string,
+  ) {
+    super(`Entropis API error ${status}: ${publicMessage}`);
+    this.name = "EntropisApiError";
+  }
 }
 
 export function normalizeHash32(value: string): Hash32 {
@@ -143,6 +194,40 @@ export function signTransaction(
   };
 }
 
+export function accountIdFromPublicKey(publicKey: Uint8Array | string): Hash32 {
+  const bytes = typeof publicKey === "string" ? hexToBytes(publicKey, "publicKey") : publicKey;
+  return deriveAccountIdFromBytes(bytes);
+}
+
+export function accountIdFromKeyPair(keyPair: nacl.SignKeyPair): Hash32 {
+  return accountIdFromPublicKey(keyPair.publicKey);
+}
+
+export function buildTransferTransaction(
+  params: TransferTransactionParams,
+): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  return {
+    chain_id: params.chainId,
+    from: normalizeHash32(params.from),
+    nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
+    gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
+    max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
+    kind: {
+      Transfer: {
+        to: normalizeHash32(params.to),
+        asset_id: toSafeNumber(toUint(params.assetId, "assetId", 32), "assetId"),
+        amount: toDecimalString(toPositiveUint(params.amount, "amount", 128)),
+      },
+    },
+  };
+}
+
+export function signTransferTransaction(
+  params: TransferTransactionParams & SigningParams,
+): SignedL2Transaction {
+  return signTransaction(buildTransferTransaction(params), params.keyPair);
+}
+
 export function buildWithdrawTransaction(
   params: WithdrawTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
@@ -163,6 +248,12 @@ export function buildWithdrawTransaction(
   };
 }
 
+export function signWithdrawTransaction(
+  params: WithdrawTransactionParams & SigningParams,
+): SignedL2Transaction {
+  return signTransaction(buildWithdrawTransaction(params), params.keyPair);
+}
+
 export function tonDepositForwardPayload(l2Recipient: Hash32) {
   const recipient = BigInt(`0x${normalizeHash32(l2Recipient)}`);
   return beginCell().storeUint(recipient, 256).endCell();
@@ -172,13 +263,24 @@ export function jettonDepositForwardPayload(l2Recipient: Hash32) {
   return tonDepositForwardPayload(l2Recipient);
 }
 
-export function encodeDepositTonBody(queryId: bigint, amount: bigint, l2Recipient: Hash32) {
+export function encodeDepositTonBody(queryId: UIntLike, amount: UIntLike, l2Recipient: Hash32) {
   return beginCell()
     .storeUint(0x4c324405, 32)
-    .storeUint(queryId, 64)
-    .storeCoins(amount)
+    .storeUint(toUint(queryId, "queryId", 64), 64)
+    .storeCoins(toPositiveUint(amount, "amount", 120))
     .storeUint(BigInt(`0x${normalizeHash32(l2Recipient)}`), 256)
     .endCell();
+}
+
+export function depositTonTonConnectMessage(params: DepositTonMessageParams): TonConnectMessage {
+  parseTonAddress(params.vaultAddress);
+  const amount = toPositiveUint(params.amount, "amount", 120);
+  const body = encodeDepositTonBody(params.queryId, amount, params.l2Recipient);
+  return {
+    address: params.vaultAddress,
+    amount: toDecimalString(amount),
+    payload: body.toBoc().toString("base64"),
+  };
 }
 
 export function releaseAuthorizedCell(leaf: WithdrawalProofLeaf): Cell {
@@ -251,16 +353,20 @@ export function claimWithdrawalTonConnectMessage(
 }
 
 export class TonL2Client {
+  public readonly baseUrl: string;
+
   constructor(
-    public readonly baseUrl: string,
+    baseUrl: string,
     private readonly options: TonL2ClientOptions = {},
-  ) {}
+  ) {
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
 
   async submitTx(tx: SignedL2Transaction): Promise<SubmitTxResponse> {
     return this.postJson("/v1/tx", tx);
   }
 
-  async getAccount(accountId: Hash32): Promise<unknown> {
+  async getAccount(accountId: Hash32): Promise<L2Account> {
     return this.getJson(`/v1/account/${normalizeHash32(accountId)}`);
   }
 
@@ -276,10 +382,28 @@ export class TonL2Client {
     await this.postJson<void>("/v1/admin/deposit", deposit, { admin: true });
   }
 
+  async requestEntFaucet(accountId: Hash32): Promise<EntFaucetResponse> {
+    return this.postJson("/v1/admin/faucet/ent", { account_id: normalizeHash32(accountId) }, {
+      admin: true,
+    });
+  }
+
+  async submitSignedTransfer(
+    params: TransferTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signTransferTransaction(params));
+  }
+
+  async submitSignedWithdraw(
+    params: WithdrawTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signWithdrawTransaction(params));
+  }
+
   private async getJson<T>(path: string): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`);
     if (!response.ok) {
-      throw new Error(`L2 API error ${response.status}: ${await response.text()}`);
+      throw await apiError(response);
     }
     return response.json() as Promise<T>;
   }
@@ -304,7 +428,7 @@ export class TonL2Client {
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(`L2 API error ${response.status}: ${text}`);
+      throw apiErrorFromText(response, text);
     }
     if (!text) {
       return undefined as T;
@@ -312,6 +436,8 @@ export class TonL2Client {
     return JSON.parse(text) as T;
   }
 }
+
+export class EntropisClient extends TonL2Client {}
 
 export function parseTonAddress(value: string): Address {
   return Address.parse(value);
@@ -388,4 +514,29 @@ function toSafeNumber(value: bigint, field: string): number {
 
 function toDecimalString(value: bigint): string {
   return value.toString(10);
+}
+
+function hexToBytes(value: string, field: string): Uint8Array {
+  const cleaned = value.startsWith("0x") ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]+$/.test(cleaned) || cleaned.length % 2 !== 0) {
+    throw new Error(`${field} must be hex`);
+  }
+  return Buffer.from(cleaned, "hex");
+}
+
+async function apiError(response: Response): Promise<EntropisApiError> {
+  return apiErrorFromText(response, await response.text());
+}
+
+function apiErrorFromText(response: Response, text: string): EntropisApiError {
+  let publicMessage = text || response.statusText || "request failed";
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    if (typeof parsed.error === "string" && parsed.error.length > 0) {
+      publicMessage = parsed.error;
+    }
+  } catch {
+    // Keep non-JSON provider or proxy text as the public message.
+  }
+  return new EntropisApiError(response.status, response.statusText, text, publicMessage);
 }

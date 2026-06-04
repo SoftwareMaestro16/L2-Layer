@@ -119,6 +119,7 @@ TON_L2_SKILLS = {
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
+    "SDK browser examples must not include admin bearer tokens; admin-only faucet helpers are for operator scripts or demo backends.",
     "Acton wallet metadata such as wallets.toml/global.wallets.toml and signer commands are local-only; prefer keyring or mnemonic-env and never commit mnemonic material.",
     "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit relay state, L1 batch finalization state, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],

@@ -1,20 +1,30 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { Cell } from "@ton/core";
+import nacl from "tweetnacl";
 import {
+  accountIdFromKeyPair,
+  accountIdFromPublicKey,
   accountLeafHash,
   blockHeaderHash,
   buildClaimWithdrawalBody,
+  buildTransferTransaction,
   buildWithdrawTransaction,
   canonicalBatchDataHash,
   claimWithdrawalTonConnectMessage,
+  depositTonTonConnectMessage,
+  deriveAccountId,
   encodeSignedTransaction,
   encodeUnsignedTransaction,
+  EntropisApiError,
+  EntropisClient,
   jettonDepositForwardPayload,
   L2_NATIVE_GAS_ASSET,
   receiptLeafHash,
   releaseAuthorizedCell,
   RollupRootL1,
+  signTransferTransaction,
   tonDepositForwardPayload,
   txHash,
   withdrawalMerkleProofCell,
@@ -116,6 +126,15 @@ test("signed auth fields are canonical but excluded from tx hash", () => {
   assert.notDeepEqual(encodeSignedTransaction(first), encodeSignedTransaction(second));
 });
 
+test("account helpers derive the same account id from key pair and public key", () => {
+  const keyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(32).fill(7));
+  const expected = deriveAccountId(keyPair.publicKey);
+
+  assert.equal(accountIdFromKeyPair(keyPair), expected);
+  assert.equal(accountIdFromPublicKey(Buffer.from(keyPair.publicKey).toString("hex")), expected);
+  assert.throws(() => accountIdFromPublicKey("aa"), /ed25519 public key must be 32 bytes/);
+});
+
 test("non canonical account and hash inputs are rejected", () => {
   const account: AccountLeaf = {
     nonce: 0,
@@ -147,6 +166,67 @@ test("jetton deposit payload encodes canonical l2 recipient", () => {
   assert.equal(slice.loadUintBig(256).toString(16).padStart(64, "0"), recipient);
   assert.equal(slice.remainingBits, 0);
   assert.equal(slice.remainingRefs, 0);
+});
+
+test("DepositTon TON Connect message encodes AssetVault body", () => {
+  const recipient = hash(0x77);
+  const message = depositTonTonConnectMessage({
+    vaultAddress: TON_RECIPIENT,
+    queryId: 7,
+    amount: "100000000",
+    l2Recipient: recipient,
+  });
+
+  assert.equal(message.address, TON_RECIPIENT);
+  assert.equal(message.amount, "100000000");
+
+  const body = cellFromBase64(message.payload);
+  const slice = body.beginParse();
+  assert.equal(slice.loadUint(32), 0x4c324405);
+  assert.equal(slice.loadUintBig(64), 7n);
+  assert.equal(slice.loadCoins(), 100000000n);
+  assert.equal(slice.loadUintBig(256).toString(16).padStart(64, "0"), recipient);
+  slice.endParse();
+});
+
+test("transfer helper signs chain-id-bound L2 transactions", () => {
+  const keyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(32).fill(1));
+  const base = {
+    from: accountIdFromKeyPair(keyPair),
+    nonce: 3,
+    to: hash(0xbb),
+    assetId: L2_NATIVE_GAS_ASSET,
+    amount: "1000",
+    gasLimit: 500,
+    maxGasPrice: "42",
+    keyPair,
+  };
+  const unsigned = buildTransferTransaction({
+    ...base,
+    chainId: "entropis-testnet",
+  });
+  const first = signTransferTransaction({ ...base, chainId: "entropis-testnet" });
+  const second = signTransferTransaction({ ...base, chainId: "entropis-other" });
+
+  assert.deepEqual(unsigned.kind, {
+    Transfer: {
+      to: hash(0xbb),
+      asset_id: L2_NATIVE_GAS_ASSET,
+      amount: "1000",
+    },
+  });
+  assert.equal(first.from, accountIdFromKeyPair(keyPair));
+  assert.notEqual(first.signature, second.signature);
+  assert.notEqual(txHash(first), txHash(second));
+  assert.throws(
+    () =>
+      buildTransferTransaction({
+        ...base,
+        chainId: "entropis-testnet",
+        nonce: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    /nonce must be a non-negative safe integer/,
+  );
 });
 
 test("withdraw helper builds canonical unsigned L2 transaction", () => {
@@ -269,6 +349,48 @@ test("claim helper builds TON Connect raw message payload", () => {
   assert.equal(message.payload, buildClaimWithdrawalBody(proof).toBoc().toString("base64"));
 });
 
+test("Entropis client maps faucet requests and API errors safely", async () => {
+  const previousFetch = globalThis.fetch;
+  const accountId = hash(0xaa);
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: input.toString(), init });
+    if (input.toString().endsWith("/v1/admin/faucet/ent")) {
+      assert.equal((init?.headers as Record<string, string>).authorization, "Bearer operator");
+      assert.deepEqual(JSON.parse(init?.body as string), { account_id: accountId });
+      return new Response(
+        JSON.stringify({
+          account_id: accountId,
+          amount_ent: "1000",
+          amount_base_units: "1000000000000",
+          deposit_id: hash(0xdd),
+          granted: true,
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response(JSON.stringify({ error: "nonce_locked" }), { status: 409 });
+  }) as typeof fetch;
+
+  try {
+    const client = new EntropisClient("http://127.0.0.1:8080/", { adminToken: "operator" });
+    const faucet = await client.requestEntFaucet(accountId);
+    assert.equal(client.baseUrl, "http://127.0.0.1:8080");
+    assert.equal(faucet.granted, true);
+    assert.equal(calls[0].url, "http://127.0.0.1:8080/v1/admin/faucet/ent");
+
+    await assert.rejects(
+      client.submitTx(vectorTransaction()),
+      (error) =>
+        error instanceof EntropisApiError &&
+        error.status === 409 &&
+        error.publicMessage === "nonce_locked",
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 function vectorTransaction(): SignedL2Transaction {
   return {
     chain_id: "entropis-testnet",
@@ -326,4 +448,8 @@ function vectorWithdrawalProof(): WithdrawalProofResponse {
 
 function sha256Bytes(bytes: number[]): string {
   return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+}
+
+function cellFromBase64(payload: string): Cell {
+  return Cell.fromBoc(Buffer.from(payload, "base64"))[0];
 }
