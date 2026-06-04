@@ -2,7 +2,7 @@
 
 User-facing applications and integration packages around the Entropis L2 core.
 
-- `explorer`: public read-only account and transaction explorer.
+- `explorer`: EnWatcher, a public read-only account and transaction explorer.
 - `wallet`: reserved for wallet or Telegram Mini App flows.
 - `PLAN.md`: tracked roadmap for ecosystem boundaries and migrations.
 

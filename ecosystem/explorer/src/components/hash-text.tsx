@@ -11,7 +11,7 @@ export function HashText({
 }) {
   return (
     <span
-      className={`font-mono text-xs tabular-nums text-sky-300 ${className}`}
+      className={`font-mono text-xs tabular-nums text-violet-200 ${className}`}
       title={value ?? undefined}
     >
       {full ? value || "-" : shortHash(value)}

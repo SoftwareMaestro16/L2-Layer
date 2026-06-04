@@ -1,4 +1,4 @@
-# Entropis Explorer
+# EnWatcher
 
 Standalone public account and transaction explorer for Entropis L2.
 

@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Database, Search } from "lucide-react";
+import { Activity, Database, Eye, ShieldCheck } from "lucide-react";
 import { ExplorerShell } from "@/components/explorer-shell";
+import { LookupForm } from "@/components/lookup-form";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getHealth } from "@/lib/api";
@@ -17,12 +18,30 @@ export default function Home() {
 
   return (
     <ExplorerShell>
+      <section className="flex min-h-[52vh] items-center justify-center py-10 md:py-16">
+        <div className="w-full text-center">
+          <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-[linear-gradient(135deg,#2563eb,#7c3aed)] text-white shadow-2xl shadow-violet-500/30">
+            <Eye className="h-8 w-8" />
+          </div>
+          <h1 className="text-4xl font-black text-white md:text-6xl">
+            EnWatcher
+          </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-zinc-300 md:text-lg">
+            Public Entropis L2 explorer for account balances, raw addresses,
+            paginated transaction history, receipts, gas, hashes, and roots.
+          </p>
+          <div className="mt-8">
+            <LookupForm variant="hero" />
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-5 md:grid-cols-3">
-        <Card className="border-white/10 bg-zinc-900/80 md:col-span-2">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur md:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-zinc-50">
-              <Search className="h-5 w-5 text-emerald-300" />
-              Lookup
+              <ShieldCheck className="h-5 w-5 text-violet-300" />
+              Read-only Explorer
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -34,7 +53,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-zinc-900/80">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-zinc-50">
               <Activity className="h-5 w-5 text-sky-300" />
@@ -55,7 +74,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-zinc-900/80 md:col-span-3">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur md:col-span-3">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-zinc-50">
               <Database className="h-5 w-5 text-amber-300" />

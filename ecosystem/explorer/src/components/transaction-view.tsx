@@ -51,7 +51,7 @@ export function TransactionView({ hash }: { hash: string }) {
 
   return (
     <div className="space-y-5">
-      <Card className="border-white/10 bg-zinc-900/80">
+      <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
         <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-emerald-300">
@@ -87,7 +87,7 @@ export function TransactionView({ hash }: { hash: string }) {
         </CardContent>
       </Card>
 
-      <Card className="border-white/10 bg-zinc-900/80">
+      <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
         <CardHeader>
           <CardTitle className="text-base text-zinc-50">Event Overview</CardTitle>
         </CardHeader>
@@ -116,7 +116,7 @@ export function TransactionView({ hash }: { hash: string }) {
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card className="border-white/10 bg-zinc-900/80">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
           <CardHeader>
             <CardTitle className="text-base text-zinc-50">Transaction</CardTitle>
           </CardHeader>
@@ -132,7 +132,7 @@ export function TransactionView({ hash }: { hash: string }) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-zinc-900/80">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
           <CardHeader>
             <CardTitle className="text-base text-zinc-50">Commitments</CardTitle>
           </CardHeader>
@@ -153,7 +153,7 @@ export function TransactionView({ hash }: { hash: string }) {
         </Card>
       </div>
 
-      <Card className="border-white/10 bg-zinc-900/80">
+      <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
         <CardHeader>
           <CardTitle className="text-base text-zinc-50">Raw Data</CardTitle>
         </CardHeader>

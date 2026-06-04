@@ -55,7 +55,7 @@ export function AccountView({ address }: { address: string }) {
 
   return (
     <div className="space-y-5">
-      <Card className="border-white/10 bg-zinc-900/80">
+      <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
@@ -81,7 +81,7 @@ export function AccountView({ address }: { address: string }) {
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-[22rem_1fr]">
-        <Card className="border-white/10 bg-zinc-900/80">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
           <CardHeader>
             <CardTitle className="text-base text-zinc-50">Balances</CardTitle>
           </CardHeader>
@@ -104,7 +104,7 @@ export function AccountView({ address }: { address: string }) {
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-zinc-900/80">
+        <Card className="border-white/10 bg-white/[0.06] shadow-xl shadow-black/10 backdrop-blur">
           <CardHeader>
             <CardTitle className="text-base text-zinc-50">
               Transaction History
