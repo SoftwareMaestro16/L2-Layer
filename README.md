@@ -41,9 +41,21 @@ flowchart TB
 - Postgres storage persists blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants.
 - Redis backs public mempool replay checks, nonce locks, and sequencer leader locks.
 - ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
-- `CallContract` is rejected with `tvm_adapter_not_implemented`; the trait boundary is in place for a TON TVM adapter.
+- `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter is noop/fail-closed and returns `tvm_adapter_not_implemented` until the real TON TVM emulator is wired.
 - Tolk contracts are source scaffolds following current Tolk message/storage/getter patterns.
 - Acton is required for contract build/tests, but current Windows release assets do not include a native Windows binary.
+
+## TVM Adapter Boundary
+
+`l2-core` exposes `TvmExecutionAdapter` for future isolated TON TVM execution.
+The boundary receives caller, contract hash, input BoC bytes, gas limit, explicit
+block context, and the current contract account state. It returns a contract-local
+state delta, emitted internal messages, gas used, and applied/rejected status.
+
+The executor remains a pure deterministic state transition layer: it does not read
+environment variables, does not make network calls, validates malformed BoCs before
+execution, caps emitted internal messages and message body sizes, and rejects
+adapter output that tries to mutate a contract other than the target.
 
 ## Rust Validation
 

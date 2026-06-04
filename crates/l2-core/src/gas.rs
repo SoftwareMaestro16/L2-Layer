@@ -82,6 +82,11 @@ impl GasSchedule {
         self.fee_for_gas(gas_units, max_gas_price)
     }
 
+    pub fn fee_for_units(&self, gas_units: u64, max_gas_price: u128) -> Result<GasFee, GasError> {
+        self.validate_min_gas_price(max_gas_price)?;
+        self.fee_for_gas(gas_units, max_gas_price)
+    }
+
     pub fn validate_min_gas_price(&self, max_gas_price: u128) -> Result<(), GasError> {
         if max_gas_price < self.min_gas_price {
             return Err(GasError::GasPriceTooLow {

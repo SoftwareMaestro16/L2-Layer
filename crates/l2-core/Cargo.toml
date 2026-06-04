@@ -5,6 +5,7 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+base64.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
 num-bigint.workspace = true

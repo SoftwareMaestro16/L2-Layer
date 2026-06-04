@@ -6,6 +6,7 @@ pub mod gas;
 pub mod merkle;
 pub mod sequencer;
 pub mod state;
+pub mod tvm;
 pub mod types;
 pub mod withdrawal;
 
@@ -22,6 +23,12 @@ pub use gas::{
 pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};
 pub use state::{Account, State};
+pub use tvm::{
+    decode_call_body_boc_base64, validate_call_body_boc, validate_tvm_output, NoopTvmAdapter,
+    TvmAccountState, TvmAdapterError, TvmBoundaryError, TvmExecutionAdapter, TvmExecutionContext,
+    TvmExecutionInput, TvmExecutionOutput, TvmExecutionStatus, TvmInternalMessage, TvmStateDelta,
+    DEFAULT_MAX_TVM_BOC_BYTES,
+};
 pub use types::*;
 pub use withdrawal::{
     build_withdrawal_merkle_proof, hash_withdrawal_node, release_leaf_hash,

@@ -933,6 +933,7 @@ dependencies = [
 name = "l2-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "ed25519-dalek",
  "hex",
  "num-bigint",

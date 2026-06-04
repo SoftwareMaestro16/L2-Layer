@@ -116,6 +116,12 @@ and the executor attempts to charge `EXECUTOR_REJECTED_EXECUTION_GAS *
 max_gas_price`. Sequencer-level rejections such as bad signatures, wrong chain id,
 or bad nonce are not charged because they are rejected before execution.
 
+`CallContract` requires `body_boc_base64` to decode into a valid single-root TON
+BoC. Valid calls currently reach the noop TVM adapter and are rejected with
+`tvm_adapter_not_implemented`; malformed BoCs are rejected earlier with
+`malformed_boc`. The real adapter must run locally or in an isolated deterministic
+worker boundary and must not call external networks from the sequencer path.
+
 ## TON deposit indexer
 
 The deposit indexer is disabled by default. Enable it only after `AssetVault` is

@@ -248,35 +248,3 @@ fn amount_plus_gas_overflow_rejects_without_transfer() {
     );
     assert!(state.account(recipient).is_none());
 }
-
-#[test]
-fn call_contract_charges_rejection_fee_until_tvm_adapter_exists() {
-    let executor = DeterministicExecutor;
-    let mut state = State::default();
-    let sender = account(b"sender");
-    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 100));
-
-    let outcome = executor.apply(
-        &mut state,
-        &tx(
-            sender,
-            0,
-            50,
-            5,
-            L2TransactionKind::CallContract {
-                contract: account(b"contract"),
-                body_boc_base64: String::new(),
-            },
-        ),
-        &ExecutionConfig::default(),
-    );
-
-    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
-    assert_eq!(
-        outcome.receipt.reason.as_deref(),
-        Some("tvm_adapter_not_implemented")
-    );
-    assert_eq!(outcome.receipt.gas_charged, 5);
-    assert_eq!(state.account(sender).unwrap().balance(0), 95);
-    assert_eq!(state.account(sender).unwrap().nonce, 1);
-}

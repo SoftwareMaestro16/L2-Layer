@@ -47,6 +47,22 @@ Rejected execution is no-refund for the MVP: an authenticated transaction that
 reaches the executor advances nonce and may pay the smaller configured rejection
 fee, while sequencer-level auth/nonce rejections remain uncharged.
 
+## TVM Adapter Boundary
+
+`CallContract` is routed through `TvmExecutionAdapter` in `l2-core`. The boundary
+is synchronous and deterministic by design: it receives the target contract hash,
+caller, decoded single-root input BoC, gas limit, explicit block context, and a
+snapshot of the target contract account state. It returns gas used, applied or
+rejected status, optional target-contract state delta, and emitted internal
+messages.
+
+The default adapter is noop and returns `tvm_adapter_not_implemented`, so real
+contract calls remain fail-closed until the TON TVM emulator is integrated. The
+executor validates adapter output before applying it: malformed BoCs are rejected
+before adapter entry, gas used must be in `1..=gas_limit`, internal messages are
+capped by `max_internal_messages`, internal message bodies are size-limited, and
+state deltas may only target the called contract.
+
 ## Deposit Indexing
 
 TON deposits are observed through Toncenter v3 log messages from `AssetVault`.

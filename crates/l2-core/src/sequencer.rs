@@ -181,6 +181,7 @@ impl Sequencer {
                     gas_coin_asset: self.config.gas_coin_asset,
                     gas_schedule: self.config.gas_schedule,
                     max_internal_messages: self.config.max_internal_messages,
+                    ..ExecutionConfig::default()
                 },
             );
             block_gas_used = next_block_gas_used;

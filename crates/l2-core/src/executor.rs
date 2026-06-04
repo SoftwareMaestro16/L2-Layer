@@ -1,11 +1,17 @@
 use crate::crypto::Hash32;
 use crate::gas::{GasFee, GasSchedule};
 use crate::state::State;
+use crate::tvm::{
+    NoopTvmAdapter, TvmExecutionAdapter, TvmInternalMessage, DEFAULT_MAX_TVM_BOC_BYTES,
+};
 use crate::types::{
     L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
 };
 use crate::withdrawal::validate_release_parts;
 use serde::{Deserialize, Serialize};
+
+#[path = "executor/tvm_call.rs"]
+mod tvm_call;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionConfig {
@@ -14,6 +20,7 @@ pub struct ExecutionConfig {
     pub gas_coin_asset: u32,
     pub gas_schedule: GasSchedule,
     pub max_internal_messages: u32,
+    pub max_tvm_boc_bytes: usize,
 }
 
 impl Default for ExecutionConfig {
@@ -24,6 +31,7 @@ impl Default for ExecutionConfig {
             gas_coin_asset: L2_NATIVE_GAS_ASSET,
             gas_schedule: GasSchedule::default(),
             max_internal_messages: 1024,
+            max_tvm_boc_bytes: DEFAULT_MAX_TVM_BOC_BYTES,
         }
     }
 }
@@ -32,6 +40,7 @@ impl Default for ExecutionConfig {
 pub struct ExecutionOutcome {
     pub receipt: Receipt,
     pub withdrawals: Vec<WithdrawalLeaf>,
+    pub internal_messages: Vec<TvmInternalMessage>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -43,6 +52,17 @@ impl DeterministicExecutor {
         state: &mut State,
         tx: &SignedL2Transaction,
         config: &ExecutionConfig,
+    ) -> ExecutionOutcome {
+        let tvm_adapter = NoopTvmAdapter;
+        self.apply_with_tvm_adapter(state, tx, config, &tvm_adapter)
+    }
+
+    pub fn apply_with_tvm_adapter<A: TvmExecutionAdapter + ?Sized>(
+        &self,
+        state: &mut State,
+        tx: &SignedL2Transaction,
+        config: &ExecutionConfig,
+        tvm_adapter: &A,
     ) -> ExecutionOutcome {
         let tx_hash = tx.tx_hash();
 
@@ -61,6 +81,7 @@ impl DeterministicExecutor {
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, 0, None),
                     withdrawals: vec![],
+                    internal_messages: vec![],
                 }
             }
             L2TransactionKind::Transfer {
@@ -114,6 +135,7 @@ impl DeterministicExecutor {
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, fee.amount, None),
                     withdrawals: vec![],
+                    internal_messages: vec![],
                 }
             }
             L2TransactionKind::Withdraw {
@@ -161,20 +183,26 @@ impl DeterministicExecutor {
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, fee.amount, Some(withdrawal.withdrawal_id)),
                     withdrawals: vec![withdrawal],
+                    internal_messages: vec![],
                 }
             }
-            L2TransactionKind::CallContract { .. } => {
+            L2TransactionKind::CallContract {
+                contract,
+                body_boc_base64,
+            } => {
                 let from = match authenticated_sender(state, tx) {
                     Ok(from) => from,
                     Err(reason) => return rejected(tx_hash, reason),
                 };
-                if let Err(error) = execution_fee(tx, config) {
-                    return rejected_attempt(state, tx, from, config, error.rejection_reason());
-                }
-                if !can_increment_nonce(state, from) {
-                    return rejected(tx_hash, "nonce_overflow");
-                }
-                rejected_attempt(state, tx, from, config, "tvm_adapter_not_implemented")
+                tvm_call::execute_contract_call(
+                    state,
+                    tx,
+                    from,
+                    *contract,
+                    body_boc_base64,
+                    config,
+                    tvm_adapter,
+                )
             }
         }
     }
@@ -184,6 +212,7 @@ fn rejected(tx_hash: Hash32, reason: impl Into<String>) -> ExecutionOutcome {
     ExecutionOutcome {
         receipt: Receipt::rejected(tx_hash, reason),
         withdrawals: vec![],
+        internal_messages: vec![],
     }
 }
 
@@ -199,6 +228,7 @@ fn rejected_attempt(
     ExecutionOutcome {
         receipt: Receipt::rejected_with_gas(tx_hash, reason, gas_charged),
         withdrawals: vec![],
+        internal_messages: vec![],
     }
 }
 
@@ -309,3 +339,7 @@ fn debit_total(
 #[cfg(test)]
 #[path = "executor_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "executor_tvm_tests.rs"]
+mod tvm_tests;

@@ -1,0 +1,277 @@
+use crate::crypto::Hash32;
+use crate::state::Account;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+use tonlib_core::cell::BagOfCells;
+
+pub const DEFAULT_MAX_TVM_BOC_BYTES: usize = 16 * 1024;
+const MAX_TVM_REASON_BYTES: usize = 64;
+
+/// Deterministic context passed to the TON TVM adapter.
+///
+/// The adapter must not read wall-clock time, environment variables, network
+/// state, or process-global mutable state. Every value needed for execution must
+/// be passed through this context or through `TvmExecutionInput`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmExecutionContext {
+    pub block_time: u64,
+    pub block_height: u64,
+    pub gas_coin_asset: u32,
+    pub max_internal_messages: u32,
+}
+
+/// Complete deterministic input for one L2 contract call.
+///
+/// `contract` is the L2 account id of the called contract. `input_boc` is a
+/// decoded, pre-validated, single-root TON BoC. The adapter receives an account
+/// state snapshot and must return only an explicit `TvmExecutionOutput`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmExecutionInput {
+    pub caller: Hash32,
+    pub contract: Hash32,
+    pub input_boc: Vec<u8>,
+    pub gas_limit: u64,
+    pub context: TvmExecutionContext,
+    pub contract_state: TvmAccountState,
+}
+
+/// Account snapshot visible to a TVM adapter.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmAccountState {
+    pub code_hash: Hash32,
+    pub data_hash: Hash32,
+    pub storage_root: Hash32,
+    pub last_lt: u64,
+}
+
+impl From<&Account> for TvmAccountState {
+    fn from(account: &Account) -> Self {
+        Self {
+            code_hash: account.code_hash,
+            data_hash: account.data_hash,
+            storage_root: account.storage_root,
+            last_lt: account.last_lt,
+        }
+    }
+}
+
+/// Target-contract-only mutation proposed by a TVM adapter.
+///
+/// The executor rejects deltas whose `contract` does not match the call target.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmStateDelta {
+    pub contract: Hash32,
+    pub code_hash: Option<Hash32>,
+    pub data_hash: Option<Hash32>,
+    pub storage_root: Option<Hash32>,
+}
+
+/// Bounded async message emitted by contract execution.
+///
+/// The executor caps both message count and `body_boc` size before forwarding
+/// messages to a future internal-message queue.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmInternalMessage {
+    pub from: Hash32,
+    pub to: Hash32,
+    #[serde(with = "crate::types::serde_u128_string")]
+    pub value: u128,
+    pub body_boc: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum TvmExecutionStatus {
+    Applied,
+    Rejected { reason: String },
+}
+
+/// Result of deterministic TVM execution before executor-side validation.
+///
+/// `gas_used` must be in `1..=gas_limit`; rejected reasons must be stable
+/// lowercase receipt codes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmExecutionOutput {
+    pub status: TvmExecutionStatus,
+    pub state_delta: Option<TvmStateDelta>,
+    pub emitted_internal_messages: Vec<TvmInternalMessage>,
+    pub gas_used: u64,
+}
+
+impl TvmExecutionOutput {
+    pub fn applied(gas_used: u64, state_delta: Option<TvmStateDelta>) -> Self {
+        Self {
+            status: TvmExecutionStatus::Applied,
+            state_delta,
+            emitted_internal_messages: vec![],
+            gas_used,
+        }
+    }
+
+    pub fn rejected(gas_used: u64, reason: impl Into<String>) -> Self {
+        Self {
+            status: TvmExecutionStatus::Rejected {
+                reason: reason.into(),
+            },
+            state_delta: None,
+            emitted_internal_messages: vec![],
+            gas_used,
+        }
+    }
+}
+
+/// Adapter boundary for future TON TVM execution.
+///
+/// Implementations must be deterministic and must not read environment
+/// variables, wall-clock time, network state, or persistent storage directly.
+pub trait TvmExecutionAdapter {
+    fn execute(&self, input: &TvmExecutionInput) -> Result<TvmExecutionOutput, TvmAdapterError>;
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NoopTvmAdapter;
+
+impl TvmExecutionAdapter for NoopTvmAdapter {
+    fn execute(&self, _input: &TvmExecutionInput) -> Result<TvmExecutionOutput, TvmAdapterError> {
+        Err(TvmAdapterError::Unsupported)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum TvmAdapterError {
+    #[error("tvm adapter is not implemented")]
+    Unsupported,
+    #[error("tvm adapter execution failed: {reason}")]
+    ExecutionFailed { reason: String },
+}
+
+impl TvmAdapterError {
+    pub fn rejection_reason(&self) -> &'static str {
+        match self {
+            Self::Unsupported => "tvm_adapter_not_implemented",
+            Self::ExecutionFailed { .. } => "tvm_adapter_failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum TvmBoundaryError {
+    #[error("input BoC exceeds max size")]
+    BocTooLarge,
+    #[error("input BoC is malformed")]
+    MalformedBoc,
+    #[error("contract account is missing")]
+    UnknownContract,
+    #[error("contract account has no code")]
+    ContractCodeMissing,
+    #[error("adapter used zero gas")]
+    ZeroGasUsed,
+    #[error("adapter gas used exceeds gas limit")]
+    GasUsedExceedsLimit,
+    #[error("adapter emitted too many internal messages")]
+    TooManyInternalMessages,
+    #[error("adapter emitted an oversized internal message body")]
+    InternalMessageBocTooLarge,
+    #[error("adapter emitted an invalid receipt reason")]
+    InvalidReceiptReason,
+    #[error("adapter state delta targets another contract")]
+    StateDeltaContractMismatch,
+}
+
+impl TvmBoundaryError {
+    pub fn rejection_reason(&self) -> &'static str {
+        match self {
+            Self::BocTooLarge => "boc_too_large",
+            Self::MalformedBoc => "malformed_boc",
+            Self::UnknownContract => "unknown_contract",
+            Self::ContractCodeMissing => "contract_code_missing",
+            Self::ZeroGasUsed => "tvm_zero_gas_used",
+            Self::GasUsedExceedsLimit => "tvm_gas_used_exceeds_limit",
+            Self::TooManyInternalMessages => "too_many_internal_messages",
+            Self::InternalMessageBocTooLarge => "internal_message_boc_too_large",
+            Self::InvalidReceiptReason => "invalid_tvm_receipt_reason",
+            Self::StateDeltaContractMismatch => "tvm_state_delta_contract_mismatch",
+        }
+    }
+}
+
+pub fn decode_call_body_boc_base64(
+    body_boc_base64: &str,
+    max_boc_bytes: usize,
+) -> Result<Vec<u8>, TvmBoundaryError> {
+    let max_encoded_bytes = max_boc_bytes
+        .saturating_add(2)
+        .saturating_div(3)
+        .saturating_mul(4);
+    if body_boc_base64.len() > max_encoded_bytes {
+        return Err(TvmBoundaryError::BocTooLarge);
+    }
+    let input_boc = BASE64_STANDARD
+        .decode(body_boc_base64.as_bytes())
+        .map_err(|_| TvmBoundaryError::MalformedBoc)?;
+    validate_call_body_boc(&input_boc, max_boc_bytes)?;
+    Ok(input_boc)
+}
+
+pub fn validate_call_body_boc(
+    input_boc: &[u8],
+    max_boc_bytes: usize,
+) -> Result<(), TvmBoundaryError> {
+    if input_boc.is_empty() || input_boc.len() > max_boc_bytes {
+        return Err(if input_boc.is_empty() {
+            TvmBoundaryError::MalformedBoc
+        } else {
+            TvmBoundaryError::BocTooLarge
+        });
+    }
+    BagOfCells::parse(input_boc)
+        .and_then(BagOfCells::single_root)
+        .map_err(|_| TvmBoundaryError::MalformedBoc)?;
+    Ok(())
+}
+
+pub fn validate_tvm_output(
+    output: &TvmExecutionOutput,
+    contract: Hash32,
+    gas_limit: u64,
+    max_internal_messages: u32,
+    max_message_boc_bytes: usize,
+) -> Result<(), TvmBoundaryError> {
+    if output.gas_used == 0 {
+        return Err(TvmBoundaryError::ZeroGasUsed);
+    }
+    if output.gas_used > gas_limit {
+        return Err(TvmBoundaryError::GasUsedExceedsLimit);
+    }
+    if output.emitted_internal_messages.len() > max_internal_messages as usize {
+        return Err(TvmBoundaryError::TooManyInternalMessages);
+    }
+    if output
+        .emitted_internal_messages
+        .iter()
+        .any(|message| message.body_boc.len() > max_message_boc_bytes)
+    {
+        return Err(TvmBoundaryError::InternalMessageBocTooLarge);
+    }
+    if let Some(delta) = output.state_delta.as_ref() {
+        if delta.contract != contract {
+            return Err(TvmBoundaryError::StateDeltaContractMismatch);
+        }
+    }
+    if let TvmExecutionStatus::Rejected { reason } = &output.status {
+        validate_receipt_reason(reason)?;
+    }
+    Ok(())
+}
+
+fn validate_receipt_reason(reason: &str) -> Result<(), TvmBoundaryError> {
+    if reason.is_empty()
+        || reason.len() > MAX_TVM_REASON_BYTES
+        || !reason
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_' || byte.is_ascii_digit())
+    {
+        return Err(TvmBoundaryError::InvalidReceiptReason);
+    }
+    Ok(())
+}
