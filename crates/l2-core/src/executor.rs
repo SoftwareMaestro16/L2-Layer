@@ -2,7 +2,7 @@ use crate::crypto::Hash32;
 use crate::gas::{GasFee, GasSchedule};
 use crate::state::State;
 use crate::tvm::{
-    NoopTvmAdapter, TvmExecutionAdapter, TvmInternalMessage, DEFAULT_MAX_TVM_BOC_BYTES,
+    PrototypeTvmAdapter, TvmExecutionAdapter, TvmInternalMessage, DEFAULT_MAX_TVM_BOC_BYTES,
 };
 use crate::types::{
     L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
@@ -53,7 +53,7 @@ impl DeterministicExecutor {
         tx: &SignedL2Transaction,
         config: &ExecutionConfig,
     ) -> ExecutionOutcome {
-        let tvm_adapter = NoopTvmAdapter;
+        let tvm_adapter = PrototypeTvmAdapter;
         self.apply_with_tvm_adapter(state, tx, config, &tvm_adapter)
     }
 
@@ -183,6 +183,63 @@ impl DeterministicExecutor {
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, fee.amount, Some(withdrawal.withdrawal_id)),
                     withdrawals: vec![withdrawal],
+                    internal_messages: vec![],
+                }
+            }
+            L2TransactionKind::DeployContract {
+                contract,
+                code_hash,
+                data_hash,
+                storage_root,
+            } => {
+                let from = match authenticated_sender(state, tx) {
+                    Ok(from) => from,
+                    Err(reason) => return rejected(tx_hash, reason),
+                };
+                let fee = match execution_fee(tx, config) {
+                    Ok(fee) => fee,
+                    Err(error) => {
+                        return rejected_attempt(state, tx, from, config, error.rejection_reason());
+                    }
+                };
+                if !can_increment_nonce(state, from) {
+                    return rejected(tx_hash, "nonce_overflow");
+                }
+                if *contract == Hash32::ZERO
+                    || *code_hash == Hash32::ZERO
+                    || *data_hash == Hash32::ZERO
+                    || *storage_root == Hash32::ZERO
+                {
+                    return rejected_attempt(state, tx, from, config, "invalid_contract_state");
+                }
+                if state
+                    .account(*contract)
+                    .is_some_and(|account| account != &crate::state::Account::default())
+                {
+                    return rejected_attempt(state, tx, from, config, "contract_already_exists");
+                }
+                if state
+                    .account(from)
+                    .is_none_or(|account| account.balance(config.gas_coin_asset) < fee.amount)
+                {
+                    return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
+                }
+                {
+                    let sender = state.account_mut(from);
+                    if !sender.debit(config.gas_coin_asset, fee.amount) {
+                        return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
+                    }
+                    mark_sender_attempt(sender, config.block_height);
+                }
+                let deployed = state.account_mut(*contract);
+                deployed.code_hash = *code_hash;
+                deployed.data_hash = *data_hash;
+                deployed.storage_root = *storage_root;
+                deployed.last_lt = config.block_height;
+
+                ExecutionOutcome {
+                    receipt: Receipt::applied(tx_hash, fee.amount, None),
+                    withdrawals: vec![],
                     internal_messages: vec![],
                 }
             }

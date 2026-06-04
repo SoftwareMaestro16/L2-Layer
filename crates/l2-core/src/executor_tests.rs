@@ -2,7 +2,7 @@ use super::*;
 use crate::crypto::{sha256_bytes, Hash32};
 use crate::state::State;
 use crate::types::{L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET};
-use crate::GasSchedule;
+use crate::{sample_counter_initial_state, GasSchedule};
 
 const CHAIN_ID: &str = "entropis-testnet";
 
@@ -35,6 +35,82 @@ fn config(gas_schedule: GasSchedule) -> ExecutionConfig {
         gas_schedule,
         ..ExecutionConfig::default()
     }
+}
+
+#[test]
+fn deploy_contract_sets_hashes_and_charges_call_gas() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let contract = account(b"sample-counter");
+    let sample = sample_counter_initial_state(0);
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 100));
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            GasSchedule::default().call_contract_gas,
+            2,
+            L2TransactionKind::DeployContract {
+                contract,
+                code_hash: sample.code_hash,
+                data_hash: sample.data_hash,
+                storage_root: sample.storage_root,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(outcome.receipt.gas_charged, 100);
+    assert_eq!(state.account(sender).unwrap().balance(0), 0);
+    assert_eq!(state.account(sender).unwrap().nonce, 1);
+    assert_eq!(state.account(contract).unwrap().code_hash, sample.code_hash);
+    assert_eq!(state.account(contract).unwrap().data_hash, sample.data_hash);
+    assert_eq!(
+        state.account(contract).unwrap().storage_root,
+        sample.storage_root
+    );
+}
+
+#[test]
+fn deploy_contract_rejects_overwrite_without_corrupting_existing_contract() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let contract = account(b"sample-counter");
+    let initial = sample_counter_initial_state(3);
+    let replacement = sample_counter_initial_state(9);
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+    state.account_mut(contract).code_hash = initial.code_hash;
+    state.account_mut(contract).data_hash = initial.data_hash;
+    state.account_mut(contract).storage_root = initial.storage_root;
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            GasSchedule::default().call_contract_gas,
+            1,
+            L2TransactionKind::DeployContract {
+                contract,
+                code_hash: replacement.code_hash,
+                data_hash: replacement.data_hash,
+                storage_root: replacement.storage_root,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        outcome.receipt.reason.as_deref(),
+        Some("contract_already_exists")
+    );
+    assert_eq!(state.account(contract).unwrap().storage_root, initial.storage_root);
 }
 
 #[test]

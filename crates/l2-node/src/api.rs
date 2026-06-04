@@ -13,10 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use l2_core::{
-    crypto::sha256_bytes, DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig,
-    SignedL2Transaction, SubmitTxResponse,
-};
+use l2_core::{DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig, SignedL2Transaction, SubmitTxResponse};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration, Instant};
@@ -29,6 +26,7 @@ mod da;
 mod error;
 mod explorer;
 mod operator;
+mod sample;
 mod stream;
 #[cfg(test)]
 mod test_support;
@@ -45,6 +43,7 @@ use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
+use sample::get_sample_counter;
 use stream::stream;
 #[cfg(test)]
 use test_support::test_config;
@@ -149,6 +148,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
+        .route("/v1/sample-counter/:id", get(get_sample_counter))
         .route("/v1/da/batch/:height", get(get_batch_da_payload))
         .route(
             "/v1/da/batch/:height/:data_hash",
@@ -496,11 +496,6 @@ fn current_unix_time() -> u64 {
         .unwrap_or_default()
 }
 
-#[allow(dead_code)]
-fn dev_deposit_id(seed: &str) -> Hash32 {
-    sha256_bytes(seed.as_bytes())
-}
-
 fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
     if deposit.deposit_id == Hash32::ZERO {
         return Err(ApiError::bad_request("deposit id must be non-zero"));
@@ -527,6 +522,9 @@ mod explorer_tests;
 #[cfg(test)]
 #[path = "api_operator_tests.rs"]
 mod operator_tests;
+#[cfg(test)]
+#[path = "api_sample_tests.rs"]
+mod sample_tests;
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;

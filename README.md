@@ -117,7 +117,7 @@ funded wallets are available. Do not use mainnet endpoints for this prototype.
 
 ## Current MVP Boundaries
 
-- The Rust executor applies deposits, transfers, and withdrawals deterministically.
+- The Rust executor applies deposits, transfers, withdrawals, bounded sample contract deploys, and sample contract calls deterministically.
 - `l2-node` is configured for the Entropis testnet profile (`entropis-testnet`, ENT gas token) through local environment variables.
 - Postgres storage persists blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants.
 - Redis backs public mempool replay checks, nonce locks, and sequencer leader locks.
@@ -125,17 +125,22 @@ funded wallets are available. Do not use mainnet endpoints for this prototype.
 - The off-chain observer prototype can replay supplied RollupRoot-style commitments from DA bytes and report missing DA, corrupt DA, receipt, or root divergence.
 - Operators get split `/healthz` and `/readyz` checks plus admin-only metrics and failure visibility endpoints.
 - ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
-- `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter is noop/fail-closed and returns `tvm_adapter_not_implemented` until the real TON TVM emulator is wired.
+- `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter executes only the sample L2 counter prototype and returns `tvm_adapter_not_implemented` for unsupported code hashes until full code/data-cell TVM emulation is wired.
 - Fraud proofs are documented as a roadmap only; the current MVP remains trusted-sequencer optimistic until L1 challenge verification is implemented.
 - Tolk contracts are source scaffolds following current Tolk message/storage/getter patterns.
 - Acton is required for contract build/tests, but current Windows release assets do not include a native Windows binary.
 
 ## TVM Adapter Boundary
 
-`l2-core` exposes `TvmExecutionAdapter` for future isolated TON TVM execution.
+`l2-core` exposes `TvmExecutionAdapter` for isolated TON TVM execution.
 The boundary receives caller, contract hash, input BoC bytes, gas limit, explicit
 block context, and the current contract account state. It returns a contract-local
 state delta, emitted internal messages, gas used, and applied/rejected status.
+
+The current adapter is intentionally bounded to the sample counter code hash. It
+exists to demonstrate deterministic deploy/call/read behavior before arbitrary
+Tolk code execution, while preserving the fail-closed path for unsupported
+contracts.
 
 The executor remains a pure deterministic state transition layer: it does not read
 environment variables, does not make network calls, validates malformed BoCs before

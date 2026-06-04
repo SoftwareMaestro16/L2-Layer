@@ -5,7 +5,7 @@ use axum::http::header::CONTENT_TYPE;
 use axum::http::HeaderValue;
 use axum::response::IntoResponse;
 use ed25519_dalek::{Signer, SigningKey};
-use l2_core::crypto::derive_account_id;
+use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_bytes, canonical_batch_data_hash, L2Block, L2TransactionKind,
     WithdrawalLeaf,

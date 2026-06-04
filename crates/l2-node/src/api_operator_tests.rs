@@ -1,6 +1,7 @@
 use super::*;
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderValue;
+use l2_core::crypto::sha256_bytes;
 use l2_core::{canonical_batch_data_hash, DepositEvent, L2Block};
 
 const ADMIN_TOKEN: &str = "test-admin-token";

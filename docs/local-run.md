@@ -155,11 +155,33 @@ and the executor attempts to charge `EXECUTOR_REJECTED_EXECUTION_GAS *
 max_gas_price`. Sequencer-level rejections such as bad signatures, wrong chain id,
 or bad nonce are not charged because they are rejected before execution.
 
-`CallContract` requires `body_boc_base64` to decode into a valid single-root TON
-BoC. Valid calls currently reach the noop TVM adapter and are rejected with
-`tvm_adapter_not_implemented`; malformed BoCs are rejected earlier with
-`malformed_boc`. The real adapter must run locally or in an isolated deterministic
-worker boundary and must not call external networks from the sequencer path.
+`DeployContract` installs code/data/storage hashes for a new empty L2 contract
+account and uses the same configured gas units as `CallContract`. It rejects zero
+hashes and overwrites. `CallContract` requires `body_boc_base64` to decode into a
+valid single-root TON BoC.
+
+The default TVM adapter is a bounded prototype, not a full arbitrary-code TVM
+emulator. It recognizes only the sample counter code hash, decodes the
+Tolk-compatible `CounterIncrement` body, applies deterministic gas
+`SAMPLE_COUNTER_INCREMENT_GAS=25`, and updates the sample storage root. Other code
+hashes still fail closed with `tvm_adapter_not_implemented`; malformed BoCs are
+rejected earlier with `malformed_boc`. A full emulator must add code/data cell
+storage or an isolated deterministic worker boundary and must not call external
+networks from the sequencer path.
+
+Sample counter local flow:
+
+```powershell
+npm --prefix sdk run build
+$env:ENTROPIS_API_URL="http://127.0.0.1:8080"
+$env:ENTROPIS_ADMIN_TOKEN="<local admin token>"
+node sdk/examples/l2-counter-sample.mjs
+```
+
+The script generates a throwaway key, requests the local ENT faucet when an admin
+token is present, deploys the sample counter hash state, submits an increment call,
+produces local blocks through the admin endpoint, and reads `GET
+/v1/sample-counter/{contract}`. It does not print the generated secret key.
 
 ## Data availability
 

@@ -16,6 +16,7 @@ const KIND_DEPOSIT = 0x01;
 const KIND_TRANSFER = 0x02;
 const KIND_WITHDRAW = 0x03;
 const KIND_CALL_CONTRACT = 0x04;
+const KIND_DEPLOY_CONTRACT = 0x05;
 
 const STATUS_APPLIED = 0x01;
 const STATUS_REJECTED = 0x02;
@@ -235,10 +236,16 @@ function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transact
     out.u32(tx.kind.Withdraw.asset_id);
     out.u128(tx.kind.Withdraw.amount);
     out.string(tx.kind.Withdraw.l1_recipient);
-  } else {
+  } else if ("CallContract" in tx.kind) {
     out.u8(KIND_CALL_CONTRACT);
     out.hash(tx.kind.CallContract.contract);
     out.string(tx.kind.CallContract.body_boc_base64);
+  } else {
+    out.u8(KIND_DEPLOY_CONTRACT);
+    out.hash(tx.kind.DeployContract.contract);
+    out.hash(tx.kind.DeployContract.code_hash);
+    out.hash(tx.kind.DeployContract.data_hash);
+    out.hash(tx.kind.DeployContract.storage_root);
   }
 }
 

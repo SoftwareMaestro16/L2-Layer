@@ -21,6 +21,7 @@ const KIND_DEPOSIT: u8 = 0x01;
 const KIND_TRANSFER: u8 = 0x02;
 const KIND_WITHDRAW: u8 = 0x03;
 const KIND_CALL_CONTRACT: u8 = 0x04;
+const KIND_DEPLOY_CONTRACT: u8 = 0x05;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
@@ -207,6 +208,18 @@ fn encode_transaction_kind(out: &mut Vec<u8>, kind: &L2TransactionKind) {
             out.push(KIND_CALL_CONTRACT);
             write_hash(out, *contract);
             write_string(out, body_boc_base64);
+        }
+        L2TransactionKind::DeployContract {
+            contract,
+            code_hash,
+            data_hash,
+            storage_root,
+        } => {
+            out.push(KIND_DEPLOY_CONTRACT);
+            write_hash(out, *contract);
+            write_hash(out, *code_hash);
+            write_hash(out, *data_hash);
+            write_hash(out, *storage_root);
         }
     }
 }

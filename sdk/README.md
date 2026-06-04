@@ -75,6 +75,48 @@ const claimMessage = claimWithdrawalTonConnectMessage({
 The node returns withdrawal proofs only after the related batch is finalized. A
 pre-finalization request returns HTTP `409`.
 
+## Sample L2 Counter
+
+The SDK can build the bounded sample contract flow used by the prototype TVM
+adapter:
+
+```ts
+import {
+  sampleCounterInitialState,
+  sampleCounterIncrementBodyBase64,
+  signDeployContractTransaction,
+  signCallContractTransaction,
+} from "@ton-l2-rollup/sdk";
+
+const initial = sampleCounterInitialState(0);
+const deploy = signDeployContractTransaction({
+  chainId: "entropis-testnet",
+  from: accountId,
+  nonce: account.nonce,
+  contract: "<32-byte contract id hex>",
+  codeHash: initial.code_hash,
+  dataHash: initial.data_hash,
+  storageRoot: initial.storage_root,
+  gasLimit: 50,
+  maxGasPrice: "1",
+  keyPair,
+});
+
+const call = signCallContractTransaction({
+  chainId: "entropis-testnet",
+  from: accountId,
+  nonce: account.nonce + 1,
+  contract: "<32-byte contract id hex>",
+  bodyBocBase64: sampleCounterIncrementBodyBase64(1),
+  gasLimit: 50,
+  maxGasPrice: "1",
+  keyPair,
+});
+```
+
+Run `sdk/examples/l2-counter-sample.mjs` after building the SDK for a local
+deploy/call/read demo. Unsupported contract code hashes remain fail-closed.
+
 ## Operator Faucet
 
 The ENT faucet is admin-only in the MVP. Use it from an operator script or demo
