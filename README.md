@@ -36,6 +36,86 @@ flowchart TB
 - `docs`: Architecture, local operation notes, CI quality gates, operator runbooks,
   and the public testnet launch checklist.
 
+## Quick Start For Local Testing
+
+Use these commands from the repository root. They keep the run local and
+testnet-only.
+
+1. Prepare local config:
+
+```powershell
+Copy-Item .env.example .env.local
+notepad .env.local
+```
+
+Set at least:
+
+```text
+DATABASE_URL=<local-postgres-connection-url>
+REDIS_URL=<local-redis-connection-url>
+L2_ADMIN_TOKEN=<local-random-token>
+TON_NETWORK=testnet
+L1_DEPOSIT_INDEXER_ENABLED=false
+L1_BATCH_RELAYER_ENABLED=false
+```
+
+2. Run the normal checks:
+
+```powershell
+cargo fmt --all -- --check
+cargo test --workspace
+Set-Location sdk
+npm ci
+npm run typecheck
+npm run test:vectors
+Set-Location ..
+```
+
+If WSL Acton is installed, also run contract checks:
+
+```powershell
+wsl bash scripts/ci/acton_contract_checks.sh
+```
+
+3. Start the L2 node:
+
+```powershell
+cargo run -p l2-node
+```
+
+The node listens on `http://127.0.0.1:8080` by default.
+
+4. Check the process and dependencies:
+
+```powershell
+curl.exe http://127.0.0.1:8080/healthz
+curl.exe http://127.0.0.1:8080/readyz
+curl.exe http://127.0.0.1:8080/v1/mempool/metrics
+```
+
+5. Build the SDK and use the public example against the local node:
+
+```powershell
+Set-Location sdk
+npm ci
+npm run build
+```
+
+The source example is `sdk/examples/testnet-happy-path.ts`. It generates a
+throwaway local keypair, optionally requests the admin faucet, submits a transfer,
+and prints TON Connect deposit/claim messages. Run it only after the node is live:
+
+```powershell
+$env:ENTROPIS_ADMIN_TOKEN = "<same-value-as-L2_ADMIN_TOKEN>"
+$env:ENTROPIS_API_URL = "http://127.0.0.1:8080"
+npm exec --yes tsx examples/testnet-happy-path.ts
+Set-Location ..
+```
+
+For live TON testnet deposit, commit, finalization, and withdrawal rehearsal,
+follow `docs/testnet-launch-runbook.md` after the testnet registry, signer, and
+funded wallets are available. Do not use mainnet endpoints for this prototype.
+
 ## Current MVP Boundaries
 
 - The Rust executor applies deposits, transfers, and withdrawals deterministically.

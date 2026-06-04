@@ -6,6 +6,10 @@ desktop.ini
 .vscode/*
 !.vscode/extensions.json
 
+# Local planning / agent workspace outside the L2 product
+/.codex/
+/ecosystem/
+
 # Logs and local diagnostics
 *.log
 logs/
@@ -38,9 +42,6 @@ wallets/
 wallets.toml
 global.wallets.toml
 libraries.toml
-
-# Local Codex skills
-/.codex/skills/cosmos-vulnerability-scanner/
 
 # TON / Acton local state and generated artifacts
 /.acton/
