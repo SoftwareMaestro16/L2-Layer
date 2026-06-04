@@ -1,5 +1,6 @@
 import { beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
+import { normalizeHash32, parseL2Address } from "./address.js";
 import { hashDomain, signingPayload } from "./consensus.js";
 
 export type Hash32 = string;
@@ -72,13 +73,15 @@ export interface SampleCounterState {
 
 export interface SampleCounterReadResponse extends SampleCounterState {
   contract: Hash32;
+  contract_raw_address: string;
+  contract_friendly_address: string;
   counter: number;
 }
 
 export function buildDeployContractTransaction(
   params: DeployContractTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
-  const contract = normalizeHash32(params.contract);
+  const contract = parseL2Address(params.contract);
   const codeHash = normalizeHash32(params.codeHash);
   const dataHash = normalizeHash32(params.dataHash);
   const storageRoot = normalizeHash32(params.storageRoot);
@@ -90,7 +93,7 @@ export function buildDeployContractTransaction(
   }
   return {
     chain_id: params.chainId,
-    from: normalizeHash32(params.from),
+    from: parseL2Address(params.from),
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
@@ -117,13 +120,13 @@ export function buildCallContractTransaction(
   normalizeSingleRootBocBase64(params.bodyBocBase64, "bodyBocBase64");
   return {
     chain_id: params.chainId,
-    from: normalizeHash32(params.from),
+    from: parseL2Address(params.from),
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
     kind: {
       CallContract: {
-        contract: normalizeHash32(params.contract),
+        contract: parseL2Address(params.contract),
         body_boc_base64: params.bodyBocBase64,
       },
     },
@@ -204,14 +207,6 @@ function signTransaction(
     ...unsigned,
     signature: Buffer.from(signature).toString("hex"),
   };
-}
-
-function normalizeHash32(value: string): Hash32 {
-  const cleaned = value.startsWith("0x") ? value.slice(2) : value;
-  if (!/^[0-9a-fA-F]{64}$/.test(cleaned)) {
-    throw new Error("expected 32-byte hex string");
-  }
-  return cleaned.toLowerCase();
 }
 
 function toUint(value: UIntLike, field: string, bits: number): bigint {

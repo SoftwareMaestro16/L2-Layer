@@ -35,6 +35,21 @@ flowchart TB
 - `docs`: Architecture, local operation notes, CI quality gates, operator runbooks,
   and the public testnet launch checklist.
 
+## L2 Token And Address Format
+
+ENT is the L2-native gas token. The consensus gas coin asset id is `0`
+(`L2_NATIVE_GAS_ASSET`), and execution fees are charged as
+`gas_used * max_gas_price` in ENT base units.
+
+L2 accounts and sample contracts are still 32-byte account ids internally, but
+public tooling supports two address formats:
+
+- raw technical: `8:<64 lowercase hex chars>`
+- user-friendly: `EX...` base64url, 48 chars total
+
+The SDK accepts raw, user-friendly, and legacy bare 64-hex account ids for local
+compatibility. New demos print both `8:` and `EX` forms.
+
 ## Quick Start For Local Testing
 
 Use these commands from the repository root. They keep the run local and

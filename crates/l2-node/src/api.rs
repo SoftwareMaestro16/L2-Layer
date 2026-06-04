@@ -14,8 +14,8 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use l2_core::{
-    DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig, SignedL2Transaction,
-    SubmitTxResponse,
+    parse_l2_address, DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig,
+    SignedL2Transaction, SubmitTxResponse,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -249,7 +249,7 @@ async fn get_account(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let id = Hash32::from_hex(&id).map_err(|_| ApiError::bad_request("invalid account id"))?;
+    let id = parse_l2_address(&id).map_err(|_| ApiError::bad_request("invalid account id"))?;
     let sequencer = state.sequencer.read().await;
     let account = sequencer
         .state

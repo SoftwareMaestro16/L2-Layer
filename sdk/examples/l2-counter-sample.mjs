@@ -3,6 +3,8 @@ import {
   EntropisClient,
   accountIdFromKeyPair,
   hashDomain,
+  l2RawAddress,
+  l2UserFriendlyAddress,
   sampleCounterIncrementBodyBase64,
   sampleCounterInitialState,
   signCallContractTransaction,
@@ -21,8 +23,10 @@ const contractId = hashDomain("l2.sample.counter.contract.v1", [
 ]);
 const client = new EntropisClient(apiUrl, adminToken ? { adminToken } : {});
 
-console.log("Throwaway test account:", accountId);
-console.log("Sample counter contract:", contractId);
+console.log("Throwaway test account raw:", l2RawAddress(accountId));
+console.log("Throwaway test account friendly:", l2UserFriendlyAddress(accountId));
+console.log("Sample counter contract raw:", l2RawAddress(contractId));
+console.log("Sample counter contract friendly:", l2UserFriendlyAddress(contractId));
 
 if (adminToken) {
   await client.requestEntFaucet(accountId);

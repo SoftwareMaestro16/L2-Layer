@@ -4,6 +4,8 @@ import {
   accountIdFromKeyPair,
   claimWithdrawalTonConnectMessage,
   depositTonTonConnectMessage,
+  l2RawAddress,
+  l2UserFriendlyAddress,
   signTransferTransaction,
   signWithdrawTransaction,
   txHash,
@@ -15,6 +17,8 @@ const chainId = process.env.ENTROPIS_CHAIN_ID ?? "entropis-testnet";
 const keyPair = nacl.sign.keyPair();
 const client = new EntropisClient(apiUrl);
 const accountId = accountIdFromKeyPair(keyPair);
+console.log("Throwaway account raw:", l2RawAddress(accountId));
+console.log("Throwaway account friendly:", l2UserFriendlyAddress(accountId));
 
 const operatorToken = process.env.ENTROPIS_ADMIN_TOKEN;
 if (operatorToken) {

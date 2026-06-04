@@ -1,5 +1,7 @@
 use l2_core::crypto::{hash_domain, Hash32};
-use l2_core::{DepositEvent, L2_NATIVE_GAS_ASSET};
+use l2_core::{
+    l2_raw_address, l2_user_friendly_address, parse_l2_address, DepositEvent, L2_NATIVE_GAS_ASSET,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -20,6 +22,8 @@ pub struct EntFaucetRequest {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EntFaucetResponse {
     pub account_id: Hash32,
+    pub account_raw_address: String,
+    pub account_friendly_address: String,
     #[serde(with = "l2_core::serde_u128_string")]
     pub amount_ent: u128,
     #[serde(with = "l2_core::serde_u128_string")]
@@ -83,6 +87,8 @@ impl EntFaucetService {
         Ok(EntFaucetGrant {
             response: EntFaucetResponse {
                 account_id,
+                account_raw_address: l2_raw_address(account_id),
+                account_friendly_address: l2_user_friendly_address(account_id),
                 amount_ent: self.amount_ent,
                 amount_base_units: self.amount_base_units,
                 deposit_id: deposit.deposit_id,
@@ -93,7 +99,7 @@ impl EntFaucetService {
     }
 
     pub fn parse_account_id(value: &str) -> Result<Hash32, FaucetError> {
-        Hash32::from_hex(value).map_err(|_| FaucetError::InvalidAccountId)
+        parse_l2_address(value).map_err(|_| FaucetError::InvalidAccountId)
     }
 
     fn deposit_event(&self, account_id: Hash32) -> DepositEvent {

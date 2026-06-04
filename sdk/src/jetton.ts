@@ -1,4 +1,5 @@
 import { Address, beginCell, Cell } from "@ton/core";
+import { parseL2Address } from "./address.js";
 
 export const JETTON_TRANSFER_OPCODE = 0x0f8a7ea5;
 
@@ -52,15 +53,7 @@ export function depositJettonTonConnectMessage(
 }
 
 function l2RecipientPayload(l2Recipient: string): Cell {
-  return beginCell().storeUint(BigInt(`0x${normalizeHash32(l2Recipient)}`), 256).endCell();
-}
-
-function normalizeHash32(value: string): string {
-  const cleaned = value.startsWith("0x") ? value.slice(2) : value;
-  if (!/^[0-9a-fA-F]{64}$/.test(cleaned)) {
-    throw new Error("expected 32-byte hex string");
-  }
-  return cleaned.toLowerCase();
+  return beginCell().storeUint(BigInt(`0x${parseL2Address(l2Recipient)}`), 256).endCell();
 }
 
 function parseTonAddress(value: string): Address {

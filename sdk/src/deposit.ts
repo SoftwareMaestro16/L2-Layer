@@ -1,6 +1,6 @@
 import { Address, beginCell } from "@ton/core";
+import { parseL2Address, type Hash32 } from "./address.js";
 
-export type Hash32 = string;
 type UIntLike = bigint | number | string;
 
 export interface DepositTonMessageParams {
@@ -17,7 +17,7 @@ export interface TonConnectMessage {
 }
 
 export function tonDepositForwardPayload(l2Recipient: Hash32) {
-  const recipient = BigInt(`0x${normalizeHash32(l2Recipient)}`);
+  const recipient = BigInt(`0x${parseL2Address(l2Recipient)}`);
   return beginCell().storeUint(recipient, 256).endCell();
 }
 
@@ -30,7 +30,7 @@ export function encodeDepositTonBody(queryId: UIntLike, amount: UIntLike, l2Reci
     .storeUint(0x4c324405, 32)
     .storeUint(toUint(queryId, "queryId", 64), 64)
     .storeCoins(toPositiveUint(amount, "amount", 120))
-    .storeUint(BigInt(`0x${normalizeHash32(l2Recipient)}`), 256)
+    .storeUint(BigInt(`0x${parseL2Address(l2Recipient)}`), 256)
     .endCell();
 }
 
@@ -43,14 +43,6 @@ export function depositTonTonConnectMessage(params: DepositTonMessageParams): To
     amount: amount.toString(10),
     payload: body.toBoc().toString("base64"),
   };
-}
-
-function normalizeHash32(value: string): Hash32 {
-  const cleaned = value.startsWith("0x") ? value.slice(2) : value;
-  if (!/^[0-9a-fA-F]{64}$/.test(cleaned)) {
-    throw new Error("expected 32-byte hex string");
-  }
-  return cleaned.toLowerCase();
 }
 
 function parseTonAddress(value: string): Address {

@@ -132,8 +132,10 @@ and current store queue depth for operators.
 
 ## Executor gas schedule
 
-The executor uses a versioned gas schedule for consensus-critical fee debits and
-receipt roots:
+The executor uses ENT as the L2-native gas token. The gas coin asset id is `0`
+(`L2_NATIVE_GAS_ASSET`), and fees are charged as `gas_used * max_gas_price` in
+ENT base units. The executor uses a versioned gas schedule for
+consensus-critical fee debits and receipt roots:
 
 ```text
 EXECUTOR_GAS_SCHEDULE_VERSION=1
@@ -168,6 +170,17 @@ hashes still fail closed with `tvm_adapter_not_implemented`; malformed BoCs are
 rejected earlier with `malformed_boc`. A full emulator must add code/data cell
 storage or an isolated deterministic worker boundary and must not call external
 networks from the sequencer path.
+
+## L2 addresses
+
+L2 account and sample contract ids are 32-byte ids internally. Public tooling
+supports:
+
+- raw technical addresses: `8:<64 lowercase hex chars>`
+- user-friendly addresses: `EX...` base64url, 48 chars total
+
+Public account and sample-counter routes accept both formats, and the SDK accepts
+legacy bare 64-hex values for compatibility with older tests and fixtures.
 
 Sample counter local flow:
 

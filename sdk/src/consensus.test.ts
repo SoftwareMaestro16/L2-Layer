@@ -23,7 +23,10 @@ import {
   EntropisClient,
   jettonDepositForwardPayload,
   JETTON_TRANSFER_OPCODE,
+  l2RawAddress,
+  l2UserFriendlyAddress,
   L2_NATIVE_GAS_ASSET,
+  parseL2Address,
   receiptLeafHash,
   releaseAuthorizedCell,
   RollupRootL1,
@@ -136,6 +139,21 @@ test("account helpers derive the same account id from key pair and public key", 
   assert.equal(accountIdFromKeyPair(keyPair), expected);
   assert.equal(accountIdFromPublicKey(Buffer.from(keyPair.publicKey).toString("hex")), expected);
   assert.throws(() => accountIdFromPublicKey("aa"), /ed25519 public key must be 32 bytes/);
+});
+
+test("L2 address helpers format raw and user-friendly addresses", () => {
+  const accountId = hash(0x42);
+  const raw = l2RawAddress(accountId);
+  const friendly = l2UserFriendlyAddress(accountId);
+
+  assert.equal(raw, `8:${accountId}`);
+  assert.equal(raw.length, 66);
+  assert.equal(friendly.length, 48);
+  assert.equal(friendly.slice(0, 2), "EX");
+  assert.equal(parseL2Address(raw), accountId);
+  assert.equal(parseL2Address(friendly), accountId);
+  assert.equal(parseL2Address(accountId), accountId);
+  assert.throws(() => parseL2Address(`${friendly.slice(0, 47)}A`), /checksum|invalid/i);
 });
 
 test("non canonical account and hash inputs are rejected", () => {
@@ -424,10 +442,12 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
     calls.push({ url: input.toString(), init });
     if (input.toString().endsWith("/v1/admin/faucet/ent")) {
       assert.equal((init?.headers as Record<string, string>).authorization, "Bearer operator");
-      assert.deepEqual(JSON.parse(init?.body as string), { account_id: accountId });
+      assert.deepEqual(JSON.parse(init?.body as string), { account_id: l2RawAddress(accountId) });
       return new Response(
         JSON.stringify({
           account_id: accountId,
+          account_raw_address: l2RawAddress(accountId),
+          account_friendly_address: l2UserFriendlyAddress(accountId),
           amount_ent: "1000",
           amount_base_units: "1000000000000",
           deposit_id: hash(0xdd),

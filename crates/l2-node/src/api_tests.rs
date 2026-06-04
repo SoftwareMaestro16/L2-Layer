@@ -7,8 +7,8 @@ use axum::response::IntoResponse;
 use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
-    canonical_batch_data_bytes, canonical_batch_data_hash, L2Block, L2TransactionKind,
-    WithdrawalLeaf,
+    canonical_batch_data_bytes, canonical_batch_data_hash, l2_raw_address,
+    l2_user_friendly_address, L2Block, L2TransactionKind, WithdrawalLeaf,
 };
 use rand_core::OsRng;
 
@@ -498,7 +498,7 @@ async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
     let state = test_state(Some(ADMIN_TOKEN));
     let account_id = sha256_bytes(b"faucet-account");
     let request = EntFaucetRequest {
-        account_id: account_id.to_hex(),
+        account_id: l2_raw_address(account_id),
     };
 
     let first = admin_ent_faucet(
@@ -514,7 +514,9 @@ async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
     let duplicate = admin_ent_faucet(
         State(state.clone()),
         auth_headers(ADMIN_TOKEN),
-        Json(request),
+        Json(EntFaucetRequest {
+            account_id: l2_user_friendly_address(account_id),
+        }),
     )
     .await
     .expect("duplicate faucet grant");
@@ -530,4 +532,9 @@ async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
         sequencer.state.account(account_id).unwrap().balance(0),
         1_000_000_000_000
     );
+    drop(sequencer);
+
+    get_account(State(state), Path(l2_user_friendly_address(account_id)))
+        .await
+        .expect("friendly account path");
 }

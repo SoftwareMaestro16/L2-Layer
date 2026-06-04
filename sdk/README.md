@@ -3,6 +3,17 @@
 TypeScript helpers for Entropis L2 wallets, demos, and operator scripts. The SDK
 does not bake in an API host and does not store wallet or admin secrets.
 
+## L2 Addresses And Fees
+
+ENT is the L2-native gas token. SDK transactions use asset id `0` for gas fees,
+and `maxGasPrice` is denominated in ENT base units.
+
+The SDK accepts L2 accounts/contracts as:
+
+- raw: `8:<64 lowercase hex chars>`
+- user-friendly: `EX...` base64url, 48 chars total
+- legacy bare 64-hex account ids for local compatibility
+
 ## Wallet Flow
 
 ```ts

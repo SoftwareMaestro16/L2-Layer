@@ -4,6 +4,12 @@ import {
   deriveAccountId as deriveAccountIdFromBytes,
   signingPayload,
 } from "./consensus.js";
+import {
+  l2RawAddress,
+  normalizeHash32,
+  parseL2Address,
+  type Hash32,
+} from "./address.js";
 import { EntropisApiError } from "./api_error.js";
 import type { TonConnectMessage } from "./deposit.js";
 import {
@@ -29,6 +35,16 @@ export {
 } from "./deposit.js";
 export type { DepositTonMessageParams, TonConnectMessage } from "./deposit.js";
 export { EntropisApiError } from "./api_error.js";
+export {
+  L2_RAW_ADDRESS_PREFIX,
+  L2_USER_FRIENDLY_LENGTH,
+  L2_USER_FRIENDLY_PREFIX,
+  l2RawAddress,
+  l2UserFriendlyAddress,
+  normalizeHash32,
+  parseL2Address,
+} from "./address.js";
+export type { Hash32 } from "./address.js";
 export {
   buildCallContractTransaction,
   buildDeployContractTransaction,
@@ -75,9 +91,8 @@ export {
 } from "./consensus.js";
 export type { AccountLeaf, L2BlockHeader, Receipt, WithdrawalLeaf } from "./consensus.js";
 
-export type Hash32 = string;
-
 export const L2_NATIVE_GAS_ASSET = 0;
+export const L2_NATIVE_GAS_TOKEN_SYMBOL = "ENT";
 const WITHDRAWAL_PROOF_CHUNK_MAX = 3;
 
 type UIntLike = bigint | number | string;
@@ -138,6 +153,8 @@ export interface L2Account {
 
 export interface EntFaucetResponse {
   account_id: Hash32;
+  account_raw_address: string;
+  account_friendly_address: string;
   amount_ent: string;
   amount_base_units: string;
   deposit_id: Hash32;
@@ -200,14 +217,6 @@ export interface TonL2ClientOptions {
   adminToken?: string;
 }
 
-export function normalizeHash32(value: string): Hash32 {
-  const cleaned = value.startsWith("0x") ? value.slice(2) : value;
-  if (!/^[0-9a-fA-F]{64}$/.test(cleaned)) {
-    throw new Error("expected 32-byte hex string");
-  }
-  return cleaned.toLowerCase();
-}
-
 export function signTransaction(
   tx: Omit<SignedL2Transaction, "public_key" | "signature">,
   keyPair: nacl.SignKeyPair,
@@ -238,13 +247,13 @@ export function buildTransferTransaction(
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
   return {
     chain_id: params.chainId,
-    from: normalizeHash32(params.from),
+    from: parseL2Address(params.from),
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
     kind: {
       Transfer: {
-        to: normalizeHash32(params.to),
+        to: parseL2Address(params.to),
         asset_id: toSafeNumber(toUint(params.assetId, "assetId", 32), "assetId"),
         amount: toDecimalString(toPositiveUint(params.amount, "amount", 128)),
       },
@@ -264,7 +273,7 @@ export function buildWithdrawTransaction(
   parseTonAddress(params.l1Recipient);
   return {
     chain_id: params.chainId,
-    from: normalizeHash32(params.from),
+    from: parseL2Address(params.from),
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
@@ -285,7 +294,7 @@ export function signWithdrawTransaction(
 }
 
 export function releaseAuthorizedCell(leaf: WithdrawalProofLeaf): Cell {
-  normalizeHash32(leaf.l2_sender);
+  parseL2Address(leaf.l2_sender);
   return RollupRootGenerated.ReleaseAuthorized.toCell(
     RollupRootGenerated.ReleaseAuthorized.create({
       withdrawalId: hashToUint256(leaf.withdrawal_id, "withdrawal_id"),
@@ -368,11 +377,14 @@ export class TonL2Client {
   }
 
   async getAccount(accountId: Hash32): Promise<L2Account> {
-    return this.getJson(`/v1/account/${normalizeHash32(accountId)}`);
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(accountId)));
+    return this.getJson(`/v1/account/${address}`);
   }
 
   async getSampleCounter(contractId: Hash32): Promise<SampleCounterReadResponse> {
-    return this.getJson(`/v1/sample-counter/${normalizeHash32(contractId)}`);
+    return this.getJson(
+      `/v1/sample-counter/${encodeURIComponent(l2RawAddress(parseL2Address(contractId)))}`,
+    );
   }
 
   async getBlock(height: number): Promise<unknown> {
@@ -388,9 +400,11 @@ export class TonL2Client {
   }
 
   async requestEntFaucet(accountId: Hash32): Promise<EntFaucetResponse> {
-    return this.postJson("/v1/admin/faucet/ent", { account_id: normalizeHash32(accountId) }, {
-      admin: true,
-    });
+    return this.postJson(
+      "/v1/admin/faucet/ent",
+      { account_id: l2RawAddress(parseL2Address(accountId)) },
+      { admin: true },
+    );
   }
 
   async adminProduceBlock(): Promise<unknown | undefined> {

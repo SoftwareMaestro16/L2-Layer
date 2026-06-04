@@ -1,6 +1,6 @@
 use super::*;
 use l2_core::crypto::sha256_bytes;
-use l2_core::sample_counter_initial_state;
+use l2_core::{l2_raw_address, l2_user_friendly_address, sample_counter_initial_state};
 
 #[tokio::test]
 async fn sample_counter_read_endpoint_returns_counter_state() {
@@ -15,11 +15,16 @@ async fn sample_counter_read_endpoint_returns_counter_state() {
         account.storage_root = sample.storage_root;
     }
 
-    let Json(response) = get_sample_counter(State(state), Path(contract.to_hex()))
+    let Json(response) = get_sample_counter(State(state), Path(l2_user_friendly_address(contract)))
         .await
         .expect("sample counter response");
 
     assert_eq!(response.contract, contract);
+    assert_eq!(response.contract_raw_address, l2_raw_address(contract));
+    assert_eq!(
+        response.contract_friendly_address,
+        l2_user_friendly_address(contract)
+    );
     assert_eq!(response.counter, 42);
     assert_eq!(response.code_hash, sample.code_hash);
 }

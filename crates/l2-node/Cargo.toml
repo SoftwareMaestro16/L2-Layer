@@ -3,6 +3,7 @@ name = "l2-node"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
+default-run = "l2-node"
 
 [dependencies]
 anyhow.workspace = true

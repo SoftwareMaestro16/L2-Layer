@@ -1,3 +1,4 @@
+pub mod address;
 pub mod batch;
 pub mod batch_decode;
 pub mod consensus;
@@ -11,6 +12,10 @@ pub mod tvm;
 pub mod types;
 pub mod withdrawal;
 
+pub use address::{
+    l2_raw_address, l2_user_friendly_address, parse_l2_address, L2AddressError,
+    L2_RAW_ADDRESS_PREFIX, L2_USER_FRIENDLY_LEN,
+};
 pub use batch::{
     canonical_batch_data_bytes, canonical_batch_data_hash, BatchBuildError, BatchBuildInput,
     BatchBuilder, BatchDataPayload,
