@@ -156,6 +156,22 @@ test("L2 address helpers format raw and user-friendly addresses", () => {
   assert.throws(() => parseL2Address(`${friendly.slice(0, 47)}A`), /checksum|invalid/i);
 });
 
+test("L2 user-friendly addresses can use the full base64url alphabet after EX", () => {
+  const observed = new Set<string>();
+  for (let index = 0; index < 10_000; index += 1) {
+    const accountId = createHash("sha256").update(`entropis-${index}`).digest("hex");
+    const friendly = l2UserFriendlyAddress(accountId);
+    for (const char of friendly.slice(2)) {
+      observed.add(char);
+    }
+  }
+
+  assert.deepEqual(
+    [...observed].sort().join(""),
+    "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz",
+  );
+});
+
 test("non canonical account and hash inputs are rejected", () => {
   const account: AccountLeaf = {
     nonce: 0,

@@ -83,6 +83,7 @@ fn crc16_xmodem(bytes: &[u8]) -> u16 {
 mod tests {
     use super::*;
     use crate::crypto::sha256_bytes;
+    use std::collections::BTreeSet;
 
     #[test]
     fn raw_l2_address_roundtrips_with_8_prefix() {
@@ -102,6 +103,21 @@ mod tests {
         assert_eq!(friendly.len(), L2_USER_FRIENDLY_LEN);
         assert!(friendly.starts_with("EX"));
         assert_eq!(parse_l2_address(&friendly), Ok(account_id));
+    }
+
+    #[test]
+    fn user_friendly_addresses_can_use_the_full_base64url_alphabet_after_ex() {
+        let mut observed = BTreeSet::new();
+        for index in 0..10_000 {
+            let account_id = sha256_bytes(format!("entropis-{index}").as_bytes());
+            let friendly = l2_user_friendly_address(account_id);
+            observed.extend(friendly[2..].chars());
+        }
+
+        let expected = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"
+            .chars()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(observed, expected);
     }
 
     #[test]

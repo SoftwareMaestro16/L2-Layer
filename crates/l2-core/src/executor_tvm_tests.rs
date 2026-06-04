@@ -220,6 +220,91 @@ fn prototype_adapter_applies_sample_counter_increment() {
 }
 
 #[test]
+fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let recipient = account(b"recipient");
+    let contract = account(b"sample-counter");
+    let initial = sample_counter_initial_state(0);
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+    assert!(state.account_mut(sender).credit(2, 50));
+
+    let transfer = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            10,
+            3,
+            L2TransactionKind::Transfer {
+                to: recipient,
+                asset_id: 2,
+                amount: 40,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+    assert_eq!(transfer.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(transfer.receipt.gas_charged, 30);
+    assert_eq!(
+        state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),
+        970
+    );
+    assert_eq!(state.account(sender).unwrap().balance(2), 10);
+    assert_eq!(state.account(recipient).unwrap().balance(2), 40);
+
+    let deploy = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            1,
+            50,
+            2,
+            L2TransactionKind::DeployContract {
+                contract,
+                code_hash: initial.code_hash,
+                data_hash: initial.data_hash,
+                storage_root: initial.storage_root,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+    assert_eq!(deploy.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(deploy.receipt.gas_charged, 100);
+    assert_eq!(
+        state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),
+        870
+    );
+
+    let call = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            2,
+            50,
+            4,
+            L2TransactionKind::CallContract {
+                contract,
+                body_boc_base64: sample_increment_boc_base64(1),
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+    assert_eq!(call.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(call.receipt.gas_charged, 100);
+    assert_eq!(
+        state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),
+        770
+    );
+    assert_eq!(state.account(sender).unwrap().nonce, 3);
+    assert_eq!(
+        read_sample_counter_value(state.account(contract).unwrap()),
+        Ok(1)
+    );
+}
+
+#[test]
 fn prototype_adapter_replays_sample_counter_deterministically() {
     let executor = DeterministicExecutor;
     let sender = account(b"sender");

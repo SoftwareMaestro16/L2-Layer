@@ -11,7 +11,8 @@ and `maxGasPrice` is denominated in ENT base units.
 The SDK accepts L2 accounts/contracts as:
 
 - raw: `8:<64 lowercase hex chars>`
-- user-friendly: `EX...` base64url, 48 chars total
+- user-friendly: `EX...` deterministic base64url, 48 chars total; after `EX`,
+  valid characters are `A-Z`, `a-z`, `0-9`, `-`, and `_`
 - legacy bare 64-hex account ids for local compatibility
 
 ## Wallet Flow

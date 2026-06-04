@@ -177,7 +177,8 @@ L2 account and sample contract ids are 32-byte ids internally. Public tooling
 supports:
 
 - raw technical addresses: `8:<64 lowercase hex chars>`
-- user-friendly addresses: `EX...` base64url, 48 chars total
+- user-friendly addresses: `EX...` deterministic base64url, 48 chars total;
+  after `EX`, valid characters are `A-Z`, `a-z`, `0-9`, `-`, and `_`
 
 Public account and sample-counter routes accept both formats, and the SDK accepts
 legacy bare 64-hex values for compatibility with older tests and fixtures.

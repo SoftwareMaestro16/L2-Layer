@@ -45,7 +45,8 @@ L2 accounts and sample contracts are still 32-byte account ids internally, but
 public tooling supports two address formats:
 
 - raw technical: `8:<64 lowercase hex chars>`
-- user-friendly: `EX...` base64url, 48 chars total
+- user-friendly: `EX...` deterministic base64url, 48 chars total; after `EX`,
+  valid characters are `A-Z`, `a-z`, `0-9`, `-`, and `_`
 
 The SDK accepts raw, user-friendly, and legacy bare 64-hex account ids for local
 compatibility. New demos print both `8:` and `EX` forms.
