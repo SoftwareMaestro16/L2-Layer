@@ -1,4 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import { Gem, Layers3 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatEnt, formatUsd } from "@/lib/format";
 import type { Collectible, TokenHolding } from "@/lib/types";
@@ -10,15 +14,40 @@ export function AssetSections({
   tokens: TokenHolding[];
   collectibles: Collectible[];
 }) {
+  const [activeSection, setActiveSection] = useState<"tokens" | "collectibles">("tokens");
+
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
+    <Card>
+      <CardHeader className="gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2">
-            <Layers3 className="h-5 w-5 text-primary" />
-            Tokens
+            {activeSection === "tokens" ? (
+              <Layers3 className="h-5 w-5 text-primary" />
+            ) : (
+              <Gem className="h-5 w-5 text-primary" />
+            )}
+            Assets
           </CardTitle>
-        </CardHeader>
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
+            <Button
+              size="sm"
+              variant={activeSection === "tokens" ? "default" : "ghost"}
+              onClick={() => setActiveSection("tokens")}
+            >
+              Tokens
+            </Button>
+            <Button
+              size="sm"
+              variant={activeSection === "collectibles" ? "default" : "ghost"}
+              onClick={() => setActiveSection("collectibles")}
+            >
+              Collectibles
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      {activeSection === "tokens" ? (
         <CardContent className="space-y-3">
           {tokens.map((token) => (
             <div key={token.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/35 p-3">
@@ -42,19 +71,11 @@ export function AssetSections({
             </div>
           ))}
         </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Gem className="h-5 w-5 text-primary" />
-            Collectibles
-          </CardTitle>
-        </CardHeader>
+      ) : (
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
           {collectibles.map((collectible) => (
             <div key={collectible.id} className="overflow-hidden rounded-lg border bg-card">
-              <div className={`h-24 bg-gradient-to-br ${collectible.accent}`} />
+              <div className={`aspect-square bg-gradient-to-br ${collectible.accent}`} />
               <div className="p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -69,7 +90,7 @@ export function AssetSections({
             </div>
           ))}
         </CardContent>
-      </Card>
-    </div>
+      )}
+    </Card>
   );
 }
