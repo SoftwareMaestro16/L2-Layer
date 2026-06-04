@@ -167,6 +167,24 @@ get fun `test security vault rejects zero amount deposit`() {
     expect(vault.vaultStatus().lockedTon).toEqual(0);
 }
 
+get fun `test security vault rejects zero l2 recipient deposit`() {
+    val (vault, _, _, _, user) = securityDeployVault();
+
+    val result = vault.sendDepositTon(
+        user.address,
+        106,
+        ton("0.5"),
+        0,
+        { value: ton("0.5") },
+    );
+    expect(result).toHaveFailedTx({
+        from: user.address,
+        to: vault.address,
+        exitCode: Errors.BadDepositValue,
+    });
+    expect(vault.vaultStatus().lockedTon).toEqual(0);
+}
+
 get fun `test security vault rejects unauthorized release and preserves locked ton`() {
     val (vault, _, rollupRoot, attacker, user) = securityDeployVault();
 

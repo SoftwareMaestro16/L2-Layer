@@ -63,6 +63,37 @@ get fun `test deployment rejects empty and replayed root vault links`() {
     });
 }
 
+get fun `test deployment rejects batch commit before root vault link`() {
+    val (root, vault, admin, sequencer) = deployLinkablePair();
+
+    val unlinkedCommit = root.sendCommitBatch(
+        sequencer.address,
+        1,
+        BatchRootsA {
+            prevStateRoot: 0,
+            stateRoot: 11,
+            txRoot: 12,
+        },
+        BatchRootsB {
+            receiptRoot: 13,
+            withdrawalRoot: 14,
+            dataHash: 15,
+        },
+        { value: ton("0.1") },
+    );
+    expect(unlinkedCommit).toHaveFailedTx({
+        from: sequencer.address,
+        to: root.address,
+        exitCode: Errors.BadAssetConfig,
+    });
+
+    val link = root.sendSetAssetVault(admin.address, vault.address, { value: ton("0.05") });
+    expect(link).toHaveSuccessfulTx<SetAssetVault>({
+        from: admin.address,
+        to: root.address,
+    });
+}
+
 fun deployLinkablePair(): (RollupRoot, AssetVault, Treasury, Treasury) {
     val admin = testing.treasury("deployment-link-admin");
     val sequencer = testing.treasury("deployment-link-sequencer");

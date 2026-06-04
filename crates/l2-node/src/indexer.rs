@@ -2,6 +2,7 @@ use crate::config::{NodeConfig, SecretString};
 use crate::storage::{DynStorage, L1Cursor, StorageError};
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD};
+use l2_core::crypto::hash_domain;
 use l2_core::{DepositEvent, Hash32, Sequencer};
 use serde::Deserialize;
 use serde_json::Value;
@@ -230,13 +231,13 @@ pub fn parse_deposit_message(
         .as_ref()
         .and_then(|content| content.decoded.as_ref())
         .ok_or(IndexerError::Decode("message_content.decoded is missing"))?;
-    let deposit_id = parse_uint256_hash(field(decoded, &["depositId", "deposit_id"])?)?;
+    let event_deposit_id = parse_uint256_hash(field(decoded, &["depositId", "deposit_id"])?)?;
     let asset_id = parse_u32_value(field(decoded, &["assetId", "asset_id"])?, "asset_id")?;
     let amount = parse_u128_value(field(decoded, &["amount"])?, "amount")?;
     let recipient = parse_uint256_hash(field(decoded, &["l2Recipient", "l2_recipient"])?)?;
     let _query_id = parse_u64_value(Some(field(decoded, &["queryId", "query_id"])?), "query_id")?;
 
-    if deposit_id == Hash32::ZERO {
+    if event_deposit_id == Hash32::ZERO {
         return Err(IndexerError::Validation("deposit id must be non-zero"));
     }
     if !config.allowed_asset_ids.contains(&asset_id) {
@@ -252,13 +253,30 @@ pub fn parse_deposit_message(
     }
 
     Ok(DepositEvent {
-        deposit_id,
+        deposit_id: canonical_deposit_id(source, l1_tx_hash, l1_lt, event_deposit_id),
         asset_id,
         recipient,
         amount,
         l1_tx_hash,
         l1_lt,
     })
+}
+
+fn canonical_deposit_id(
+    source: &str,
+    l1_tx_hash: Hash32,
+    l1_lt: u64,
+    event_deposit_id: Hash32,
+) -> Hash32 {
+    hash_domain(
+        "entropis.l1.deposit.event.v1",
+        &[
+            source.as_bytes(),
+            l1_tx_hash.as_bytes(),
+            &l1_lt.to_be_bytes(),
+            event_deposit_id.as_bytes(),
+        ],
+    )
 }
 
 #[derive(Clone, Debug, Deserialize)]
