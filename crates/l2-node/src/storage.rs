@@ -8,10 +8,15 @@ use tokio::sync::RwLock;
 
 use crate::config::NodeConfig;
 
+mod da_payload;
+mod observer;
 mod postgres;
+mod postgres_da;
 mod postgres_finalization;
+mod postgres_observer;
 mod postgres_util;
 
+pub use observer::ObserverCheckpoint;
 pub use postgres::PostgresStorage;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -117,6 +122,8 @@ pub struct StoredBatchPayload {
     pub block_hash: Hash32,
     pub data_hash: Hash32,
     pub payload_bytes: Vec<u8>,
+    pub public_ref: Option<String>,
+    pub public_uri: Option<String>,
 }
 
 impl BatchCommitRecord {
@@ -226,6 +233,11 @@ pub trait Storage: Send + Sync {
         &self,
         block_height: u64,
     ) -> Result<Option<StoredBatchPayload>, StorageError>;
+    async fn save_observer_checkpoint(
+        &self,
+        checkpoint: ObserverCheckpoint,
+    ) -> Result<(), StorageError>;
+    async fn latest_observer_checkpoint(&self) -> Result<Option<ObserverCheckpoint>, StorageError>;
 }
 
 pub type DynStorage = Arc<dyn Storage>;
@@ -241,6 +253,7 @@ pub struct InMemoryStorage {
     batch_commits: RwLock<BTreeMap<u64, BatchCommitRecord>>,
     batch_finalizations: RwLock<BTreeMap<u64, BatchFinalizationRecord>>,
     batch_payloads: RwLock<BTreeMap<u64, StoredBatchPayload>>,
+    observer_checkpoints: RwLock<BTreeMap<u64, ObserverCheckpoint>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
     deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
     ent_faucet_grants: RwLock<BTreeMap<Hash32, u128>>,
@@ -454,8 +467,11 @@ impl Storage for InMemoryStorage {
 
     async fn save_batch_payload(&self, payload: StoredBatchPayload) -> Result<bool, StorageError> {
         let mut payloads = self.batch_payloads.write().await;
-        if let Some(existing) = payloads.get(&payload.block_height) {
-            if existing == &payload {
+        if let Some(existing) = payloads.get_mut(&payload.block_height) {
+            if existing.has_same_canonical_payload(&payload)
+                && !existing.has_public_ref_conflict(&payload)
+            {
+                existing.merge_public_metadata_from(&payload);
                 return Ok(false);
             }
             return Err(StorageError::Conflict {
@@ -471,6 +487,27 @@ impl Storage for InMemoryStorage {
         block_height: u64,
     ) -> Result<Option<StoredBatchPayload>, StorageError> {
         Ok(self.batch_payloads.read().await.get(&block_height).cloned())
+    }
+
+    async fn save_observer_checkpoint(
+        &self,
+        checkpoint: ObserverCheckpoint,
+    ) -> Result<(), StorageError> {
+        self.observer_checkpoints
+            .write()
+            .await
+            .insert(checkpoint.next_batch_no, checkpoint);
+        Ok(())
+    }
+
+    async fn latest_observer_checkpoint(&self) -> Result<Option<ObserverCheckpoint>, StorageError> {
+        Ok(self
+            .observer_checkpoints
+            .read()
+            .await
+            .values()
+            .max_by_key(|checkpoint| checkpoint.next_batch_no)
+            .cloned())
     }
 }
 

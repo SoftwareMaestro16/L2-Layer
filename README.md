@@ -41,7 +41,8 @@ flowchart TB
 - `l2-node` is configured for the Entropis testnet profile (`entropis-testnet`, ENT gas token) through local environment variables.
 - Postgres storage persists blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants.
 - Redis backs public mempool replay checks, nonce locks, and sequencer leader locks.
-- Batch DA payloads are canonical consensus bytes stored through a Postgres-backed DA abstraction and verified before any L1 batch commit.
+- Batch DA payloads are canonical consensus bytes stored in Postgres and optionally published to a filesystem public gateway, then hash-verified before any L1 batch commit.
+- The off-chain observer prototype can replay supplied RollupRoot-style commitments from DA bytes and report missing DA, corrupt DA, receipt, or root divergence.
 - Operators get split `/healthz` and `/readyz` checks plus admin-only metrics and failure visibility endpoints.
 - ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
 - `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter is noop/fail-closed and returns `tvm_adapter_not_implemented` until the real TON TVM emulator is wired.

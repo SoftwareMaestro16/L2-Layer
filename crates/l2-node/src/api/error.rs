@@ -1,6 +1,7 @@
 use crate::da::DaError;
 use crate::faucet::FaucetError;
 use crate::mempool::MempoolError;
+use crate::observer::ObserverError;
 use crate::storage::StorageError;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -54,7 +55,7 @@ impl ApiError {
         }
     }
 
-    fn internal(message: impl Into<String>) -> Self {
+    pub(crate) fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: message.into(),
@@ -87,6 +88,21 @@ impl From<MempoolError> for ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             message: error.to_string(),
+        }
+    }
+}
+
+impl From<ObserverError> for ApiError {
+    fn from(error: ObserverError) -> Self {
+        match error {
+            ObserverError::InvalidRequest(message) => Self::bad_request(message),
+            ObserverError::CheckpointIntegrity => {
+                Self::conflict("observer checkpoint failed integrity check")
+            }
+            other => {
+                tracing::error!(?other, "observer replay error");
+                Self::internal("observer replay error")
+            }
         }
     }
 }

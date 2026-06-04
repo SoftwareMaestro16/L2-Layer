@@ -144,7 +144,10 @@ Symptoms:
 Actions:
 
 - Check `last_error` for the failed batch.
-- If `batch data unavailable`, inspect DA payload storage before retry.
+- If `batch data unavailable`, inspect Postgres mirror storage and, when
+  `DA_PUBLIC_BACKEND=filesystem`, the public payload at
+  `DA_PUBLIC_FS_DIR/blocks/{height}/{block_hash}-{data_hash}.el2batch` before
+  retry.
 - If `commit signer failed`, check signer service health and sender address.
 - If `commit signer response expired`, check signer clock sync and valid-until
   policy before retry.
@@ -157,6 +160,29 @@ responses with secrets in `last_error`.
 
 Signer setup and dry-run signing are documented in
 `docs/testnet-signer-service.md`.
+
+### Observer Replay Findings
+
+Symptoms:
+
+- `POST /v1/operator/observer/replay` returns `missing_da`, `corrupt_da`, or
+  `invalid`.
+- `first_divergence` identifies a batch number, block height, field, or
+  transaction index.
+
+Actions:
+
+- For `missing_da`, inspect the public DA reference and Postgres mirror. Do not
+  treat this as a state-transition proof; it is an availability finding.
+- For `corrupt_da`, compare the payload hash with the commitment `data_hash` and
+  restore a known-good public payload before retrying replay.
+- For `invalid` with `field=state_root`, `tx_root`, `receipt_root`, or
+  `withdrawal_root`, preserve the replay request, DA payload, and checkpoint
+  metadata for challenge evidence.
+- Do not derive replay commitments from local L2 block JSON for incident review.
+  Use RollupRoot readback or an exported commitment list.
+- Observer checkpoints are local audit state. They contain replayed L2 state and
+  roots, but no wallet secrets or provider API keys.
 
 ### Batch Finalizer Failures
 

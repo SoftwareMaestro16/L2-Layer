@@ -8,7 +8,6 @@ use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadiness
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
 use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
 use crate::storage::DynStorage;
-use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -25,13 +24,18 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod auth;
+mod challenge;
+mod da;
 mod error;
 mod explorer;
 mod operator;
+mod stream;
 #[cfg(test)]
 mod test_support;
 
 use auth::AdminAuth;
+use challenge::{operator_observer_checkpoint, operator_observer_replay};
+use da::{get_batch_da_payload, get_batch_da_payload_by_hash};
 use error::ApiError;
 use explorer::{
     explorer_blocks, explorer_deposit, explorer_deposits, explorer_summary, explorer_withdrawal,
@@ -41,6 +45,7 @@ use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
+use stream::stream;
 #[cfg(test)]
 use test_support::test_config;
 
@@ -144,6 +149,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
+        .route("/v1/da/batch/:height", get(get_batch_da_payload))
+        .route(
+            "/v1/da/batch/:height/:data_hash",
+            get(get_batch_da_payload_by_hash),
+        )
         .route("/v1/mempool/metrics", get(get_mempool_metrics))
         .route("/v1/operator/metrics", get(operator_metrics))
         .route("/v1/operator/failures", get(operator_failures))
@@ -151,6 +161,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/v1/operator/batch-finalizer",
             get(operator_batch_finalizer),
+        )
+        .route(
+            "/v1/operator/observer/checkpoint",
+            get(operator_observer_checkpoint),
+        )
+        .route(
+            "/v1/operator/observer/replay",
+            post(operator_observer_replay),
         )
         .route("/v1/explorer/summary", get(explorer_summary))
         .route("/v1/explorer/blocks", get(explorer_blocks))
@@ -265,16 +283,6 @@ async fn get_tx(
 
 async fn get_mempool_metrics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     Ok(Json(state.mempool.metrics().await?))
-}
-
-async fn stream(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(|mut socket| async move {
-        let _ = socket
-            .send(Message::Text(
-                "{\"type\":\"hello\",\"service\":\"ton-l2-rollup\"}".to_owned(),
-            ))
-            .await;
-    })
 }
 
 fn spawn_block_producer(state: AppState) {
@@ -516,6 +524,9 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
 #[cfg(test)]
 #[path = "api_explorer_tests.rs"]
 mod explorer_tests;
+#[cfg(test)]
+#[path = "api_operator_tests.rs"]
+mod operator_tests;
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;

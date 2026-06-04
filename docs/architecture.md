@@ -48,15 +48,21 @@ commitments. The byte layout is documented in `docs/consensus-encoding.md`.
 Batch DA is a separate `l2-node` boundary, not part of sequencer execution. The
 sequencer builds a block with `data_hash = hash(canonical_batch_data_bytes)`, then
 the node writes those canonical bytes through `DaWriter` before the block is saved
-as pending for L1 relay. The MVP backend is Postgres via `StorageDaStore`; the
-trait split (`DaWriter`, `DaReader`, `DaVerifier`) is intentionally compatible
-with future TON Storage or external DA providers.
+as pending for L1 relay. Postgres remains the local mirror/cache. The MVP public
+backend is a filesystem gateway that writes
+`blocks/{height}/{block_hash}-{data_hash}.el2batch` and stores the relative
+reference plus optional public URI with the Postgres mirror. The trait split
+(`DaWriter`, `DaReader`, `DaVerifier`) is intentionally compatible with future TON
+Storage or external DA providers.
 
 The relayer calls `DaVerifier` before asking the signer service for a `CommitBatch`
 BoC. Missing data, block-hash mismatch, data-hash mismatch, corrupted partial
-payloads, or payloads above `DA_MAX_PAYLOAD_BYTES` fail closed and do not reach
-the signer or Toncenter provider. This MVP only proves retrievability from the
-configured DA backend; it does not yet prove public availability from TON Storage.
+payloads, unavailable filesystem payloads, or payloads above `DA_MAX_PAYLOAD_BYTES`
+fail closed and do not reach the signer or Toncenter provider. Public payload
+bytes are also available through `GET /v1/da/batch/{height}` and
+`GET /v1/da/batch/{height}/{data_hash_hex}`. This MVP proves retrievability from
+the configured public gateway; it does not yet prove availability from TON
+Storage.
 
 ## Gas Coin
 
@@ -120,11 +126,17 @@ BoCs before Toncenter broadcast. See `docs/testnet-signer-service.md`.
 
 ## Fraud and Challenge Roadmap
 
-Challenge support is a planned L1/L2 boundary. A challenger replays canonical DA
-payloads from a trusted previous state root, recomputes `txRoot`, `receiptRoot`,
-`withdrawalRoot`, and `stateRoot`, and blocks finalization if the committed roots
-cannot be reproduced. Missing DA is handled separately as an availability
-challenge: no payload means no finalization.
+Challenge support is a planned L1/L2 boundary. The current off-chain observer
+prototype accepts RollupRoot-shaped commitments from an operator or future L1
+getter client, fetches canonical DA payloads by `dataHash`, replays from a trusted
+checkpoint, recomputes `txRoot`, `receiptRoot`, `withdrawalRoot`, and `stateRoot`,
+and reports the first divergence. It stores observer checkpoints for bounded
+future replays, but it does not submit on-chain challenges.
+
+Missing DA is handled separately as an availability finding: no payload means the
+batch cannot be independently replayed. Future L1 challenge logic should turn
+that finding into a finalization block until the sequencer responds with data or
+a backend-specific availability proof.
 
 Future `RollupRoot` messages are expected to include `ChallengeBatch`,
 `RespondChallenge`, `ResolveChallenge`, and `ForceInclude`. They are not active in

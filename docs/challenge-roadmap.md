@@ -15,8 +15,12 @@ Implemented today:
   pipeline before relayer submission.
 - The relayer refuses to submit a batch if DA payload retrieval or hash binding
   fails.
+- The off-chain observer replay prototype accepts RollupRoot-shaped commitments,
+  fetches DA by `dataHash`, replays canonical batch bytes from a trusted
+  checkpoint, reports the first divergence, and stores observer checkpoints.
 - Rust tests cover deterministic batch roots, consensus golden vectors,
-  sequencer replay-like flows, and DA missing/corruption failures.
+  sequencer replay-like flows, observer golden replay, tampered roots, and DA
+  missing/corruption failures.
 
 Not implemented today:
 
@@ -24,7 +28,7 @@ Not implemented today:
 - Sequencer bonds and slashing.
 - Forced inclusion for censored transactions.
 - Real TVM step proofs for `CallContract`.
-- Permissionless challenger service.
+- Permissionless L1 challenger service.
 
 ## Roles
 
@@ -61,9 +65,10 @@ A challenger node needs:
   enabled.
 - Receipt, withdrawal, and state root derivation rules.
 
-The MVP can replay transfer/deposit/withdraw blocks from stored block JSON and DA
-payloads. Production challengers must not depend on JSON presentation storage;
-they must use canonical DA bytes plus Merkle/account witnesses.
+The MVP observer can replay transfer/deposit/withdraw blocks from canonical DA
+payload bytes and externally supplied commitments. Production challengers must not
+depend on JSON presentation storage; they must use canonical DA bytes plus
+Merkle/account witnesses.
 
 ## Replay Procedure
 
@@ -77,6 +82,7 @@ they must use canonical DA bytes plus Merkle/account witnesses.
 8. Derive expected receipt and withdrawal roots.
 9. Derive the post-state Merkle root.
 10. Compare replayed roots with committed roots.
+11. Store the latest valid observer checkpoint for future bounded replay ranges.
 
 If `dataHash` cannot be retrieved, the issue is a DA challenge, not a state
 transition proof. The batch must remain unfinalized while DA is unavailable.
@@ -203,23 +209,26 @@ Existing regression tests that support this roadmap:
 - Sequencer block-flow tests.
 - DA roundtrip, missing payload, corrupted payload, and replayed payload tests.
 - Relayer tests proving missing/corrupted DA prevents L1 submission.
+- Golden replay of a multi-block fixture from canonical DA bytes.
+- Corrupted `stateRoot` fixture that identifies the first invalid block.
+- Missing DA challenge fixture.
+- Replay from trusted snapshot plus bounded block range.
 
 Next Rust tests before enabling L1 challenges:
 
-- Golden replay of a multi-block fixture from canonical DA bytes.
-- Corrupted `stateRoot` fixture that identifies the first invalid block.
 - Corrupted receipt root fixture that preserves state but fails receipts.
-- Missing DA challenge fixture.
-- Replay from trusted snapshot plus bounded block range.
 - `CallContract` replay fixture after the real TVM adapter is wired.
 
 ## MVP Limitations
 
 - Challenge messages are not deployed in Tolk.
 - Withdrawals rely on delayed finalization but not fraud proof enforcement.
-- DA retrievability is checked by the relayer backend, not by public TON Storage.
+- DA retrievability is checked by the relayer backend and can use the filesystem
+  public gateway, but it is not yet proven by TON Storage.
 - `CallContract` remains fail-closed, so fraud proofs for TVM execution are
   blocked on the real deterministic TVM adapter.
+- The observer endpoint does not yet poll RollupRoot directly; an operator or
+  future L1 getter client supplies commitments to replay.
 - No sequencer bond exists yet, so slashing is a future design item.
 
 ## References

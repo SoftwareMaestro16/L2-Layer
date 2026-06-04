@@ -190,6 +190,22 @@ impl NodeConfig {
         if self.da_max_payload_bytes > 128 * 1024 * 1024 {
             return Err(anyhow!("DA_MAX_PAYLOAD_BYTES must not exceed 128 MiB"));
         }
+        match self.da_public_backend.as_str() {
+            "postgres" => {}
+            "filesystem" => {
+                if self.da_public_fs_dir.as_os_str().is_empty() {
+                    return Err(anyhow!("DA_PUBLIC_FS_DIR must be non-empty"));
+                }
+            }
+            _ => {
+                return Err(anyhow!("DA_PUBLIC_BACKEND must be postgres or filesystem"));
+            }
+        }
+        if let Some(base_url) = self.da_public_base_url.as_deref() {
+            if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+                return Err(anyhow!("DA_PUBLIC_BASE_URL must be an HTTP URL"));
+            }
+        }
         Ok(())
     }
 

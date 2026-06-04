@@ -49,10 +49,25 @@ async fn memory_storage_batch_payload_is_idempotent_and_rejects_conflict() {
         block_hash: sha256_bytes(b"block"),
         data_hash: sha256_bytes(b"data"),
         payload_bytes: vec![1, 2, 3],
+        public_ref: None,
+        public_uri: None,
     };
 
     assert!(storage.save_batch_payload(payload.clone()).await.unwrap());
     assert!(!storage.save_batch_payload(payload.clone()).await.unwrap());
+
+    let mut public_payload = payload.clone();
+    public_payload.public_ref = Some("blocks/1/block-data.el2batch".to_owned());
+    public_payload.public_uri =
+        Some("https://da.example.test/blocks/1/block-data.el2batch".to_owned());
+    assert!(!storage
+        .save_batch_payload(public_payload.clone())
+        .await
+        .unwrap());
+    assert_eq!(
+        storage.get_batch_payload(1).await.unwrap(),
+        Some(public_payload.clone())
+    );
 
     let mut conflicting = payload.clone();
     conflicting.payload_bytes = vec![9];
@@ -66,7 +81,10 @@ async fn memory_storage_batch_payload_is_idempotent_and_rejects_conflict() {
             resource: "batch payload"
         }
     ));
-    assert_eq!(storage.get_batch_payload(1).await.unwrap(), Some(payload));
+    assert_eq!(
+        storage.get_batch_payload(1).await.unwrap(),
+        Some(public_payload)
+    );
 }
 
 #[tokio::test]

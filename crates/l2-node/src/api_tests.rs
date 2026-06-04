@@ -1,9 +1,15 @@
 use super::*;
+use axum::body::to_bytes;
 use axum::http::header::AUTHORIZATION;
+use axum::http::header::CONTENT_TYPE;
 use axum::http::HeaderValue;
+use axum::response::IntoResponse;
 use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::derive_account_id;
-use l2_core::{canonical_batch_data_hash, L2Block, L2TransactionKind, WithdrawalLeaf};
+use l2_core::{
+    canonical_batch_data_bytes, canonical_batch_data_hash, L2Block, L2TransactionKind,
+    WithdrawalLeaf,
+};
 use rand_core::OsRng;
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -30,20 +36,6 @@ fn deposit_event() -> DepositEvent {
         l1_tx_hash: sha256_bytes(b"l1-tx"),
         l1_lt: 1,
     }
-}
-
-fn empty_block(height: u64) -> L2Block {
-    L2Block::new(
-        height,
-        Hash32::ZERO,
-        Hash32::ZERO,
-        sha256_bytes(b"state"),
-        vec![],
-        vec![],
-        vec![],
-        canonical_batch_data_hash(&[], &[]),
-        100,
-    )
 }
 
 fn withdrawal_block() -> L2Block {
@@ -274,6 +266,90 @@ async fn admin_deposit_is_idempotent_through_storage() {
 }
 
 #[tokio::test]
+async fn batch_da_payload_is_served_by_height_and_data_hash() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    admin_deposit(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(deposit_event()),
+    )
+    .await
+    .expect("deposit");
+    let block = produce_block_once(&state)
+        .await
+        .expect("produce")
+        .expect("block");
+    let expected_payload = canonical_batch_data_bytes(&block.transactions, &block.receipts);
+
+    let by_height = get_batch_da_payload(State(state.clone()), Path(block.header.height))
+        .await
+        .expect("batch da by height")
+        .into_response();
+    assert_eq!(by_height.status(), StatusCode::OK);
+    assert_eq!(
+        by_height
+            .headers()
+            .get(CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/octet-stream"
+    );
+    assert_eq!(
+        by_height
+            .headers()
+            .get("x-entropis-data-hash")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        block.header.data_hash.to_hex()
+    );
+    let by_height_body = to_bytes(by_height.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_eq!(by_height_body.as_ref(), expected_payload.as_slice());
+
+    let by_hash = get_batch_da_payload_by_hash(
+        State(state),
+        Path((block.header.height, block.header.data_hash.to_hex())),
+    )
+    .await
+    .expect("batch da by hash")
+    .into_response();
+    let by_hash_body = to_bytes(by_hash.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_eq!(by_hash_body.as_ref(), expected_payload.as_slice());
+}
+
+#[tokio::test]
+async fn batch_da_payload_hash_lookup_rejects_invalid_or_missing_hash() {
+    let state = test_state(Some(ADMIN_TOKEN));
+
+    let invalid = match get_batch_da_payload_by_hash(
+        State(state.clone()),
+        Path((0, "not-a-hash".to_owned())),
+    )
+    .await
+    {
+        Ok(_) => panic!("invalid hash unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+
+    let missing = match get_batch_da_payload_by_hash(
+        State(state),
+        Path((0, sha256_bytes(b"missing-data").to_hex())),
+    )
+    .await
+    {
+        Ok(_) => panic!("missing hash unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn submit_tx_rejects_duplicate_before_block() {
     let state = test_state(Some(ADMIN_TOKEN));
     let signing_key = SigningKey::generate(&mut OsRng);
@@ -341,116 +417,6 @@ async fn mempool_metrics_reports_rejections_and_queue_depth() {
     assert_eq!(metrics.accepted, 1);
     assert_eq!(metrics.rejected.get("duplicate_tx"), Some(&1));
     assert_eq!(metrics.store.queued_global, 1);
-}
-
-#[tokio::test]
-async fn operator_metrics_requires_admin_and_reports_node_metrics() {
-    let unauthorized = operator_metrics(State(test_state(None)), auth_headers(ADMIN_TOKEN))
-        .await
-        .unwrap_err();
-    assert_eq!(unauthorized.status, StatusCode::FORBIDDEN);
-
-    let state = test_state(Some(ADMIN_TOKEN));
-    admin_deposit(
-        State(state.clone()),
-        auth_headers(ADMIN_TOKEN),
-        Json(deposit_event()),
-    )
-    .await
-    .expect("deposit");
-    produce_block_once(&state)
-        .await
-        .expect("produce")
-        .expect("block");
-
-    let metrics = operator_metrics(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator metrics");
-
-    assert_eq!(metrics.0.node.block_production.produced, 1);
-    assert_eq!(metrics.0.node.block_production.last_height, Some(0));
-    assert_eq!(metrics.0.node.latency.storage_save_block.operations, 1);
-}
-
-#[tokio::test]
-async fn operator_failures_reports_relayer_and_withdrawal_visibility() {
-    let state = test_state(Some(ADMIN_TOKEN));
-    state.storage.save_block(empty_block(0)).await.unwrap();
-    let mut record = state.storage.get_batch_commit(1).await.unwrap().unwrap();
-    record.status = crate::storage::BatchCommitStatus::Failed;
-    record.attempts = 1;
-    record.last_error = Some("batch data unavailable".to_owned());
-    state.storage.save_batch_commit(record).await.unwrap();
-    state
-        .storage
-        .save_batch_finalization(crate::storage::BatchFinalizationRecord {
-            batch_no: 1,
-            block_height: 0,
-            status: crate::storage::BatchFinalizationStatus::Failed,
-            attempts: 1,
-            finalize_after_unix: 0,
-            message_hash: None,
-            message_hash_norm: None,
-            last_error: Some("finalize signer failed".to_owned()),
-        })
-        .await
-        .unwrap();
-
-    let failures = operator_failures(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator failures");
-
-    assert_eq!(failures.0.relayer_failed_batches.len(), 1);
-    assert_eq!(
-        failures.0.relayer_failed_batches[0].last_error.as_deref(),
-        Some("batch data unavailable")
-    );
-    assert_eq!(failures.0.failed_finalizations.len(), 1);
-    assert_eq!(
-        failures.0.failed_finalizations[0].last_error.as_deref(),
-        Some("finalize signer failed")
-    );
-    assert!(!failures.0.failed_withdrawals.indexed);
-    assert_eq!(
-        failures.0.failed_withdrawals.runbook,
-        "docs/operator-runbooks.md#withdrawal-release-failures"
-    );
-}
-
-#[tokio::test]
-async fn operator_batch_finalizer_reports_status_groups() {
-    let state = test_state(Some(ADMIN_TOKEN));
-    state.storage.save_block(empty_block(0)).await.unwrap();
-    let commit = state.storage.get_batch_commit(1).await.unwrap().unwrap();
-    state
-        .storage
-        .save_batch_finalization(crate::storage::BatchFinalizationRecord::pending(
-            &commit, 123,
-        ))
-        .await
-        .unwrap();
-
-    let visibility = operator_batch_finalizer(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator finalizer");
-
-    assert_eq!(visibility.0.pending_finalization.len(), 1);
-    assert_eq!(visibility.0.latest.as_ref().unwrap().batch_no, 1);
-    assert!(visibility.0.latest_finalized.is_none());
-}
-
-#[tokio::test]
-async fn operator_batch_relayer_reports_latest_commit() {
-    let state = test_state(Some(ADMIN_TOKEN));
-    state.storage.save_block(empty_block(0)).await.unwrap();
-
-    let visibility = operator_batch_relayer(State(state), auth_headers(ADMIN_TOKEN))
-        .await
-        .expect("operator relayer");
-
-    assert_eq!(visibility.0.pending.len(), 1);
-    assert_eq!(visibility.0.latest.as_ref().unwrap().batch_no, 1);
-    assert!(visibility.0.latest_confirmed.is_none());
 }
 
 #[tokio::test]

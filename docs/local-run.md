@@ -41,12 +41,16 @@ Useful endpoints:
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
 - `GET /v1/tx/{tx_hash_hex}`
+- `GET /v1/da/batch/{height}`
+- `GET /v1/da/batch/{height}/{data_hash_hex}`
 - `GET /readyz`
 - `GET /v1/mempool/metrics`
 - `GET /v1/operator/metrics`
 - `GET /v1/operator/failures`
 - `GET /v1/operator/batch-relayer`
 - `GET /v1/operator/batch-finalizer`
+- `GET /v1/operator/observer/checkpoint`
+- `POST /v1/operator/observer/replay`
 - `GET /v1/explorer/summary`
 - `GET /v1/explorer/blocks`
 - `GET /v1/explorer/deposits`
@@ -65,7 +69,7 @@ Authorization: Bearer <L2_ADMIN_TOKEN>
 
 Postgres migrations run on startup and create tables for blocks, transactions,
 receipts, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit
-relays, L1 batch finalizations, and ENT faucet grants.
+relays, L1 batch finalizations, observer checkpoints, and ENT faucet grants.
 
 The ENT faucet is L2-native only in this phase. It grants `ENT_FAUCET_AMOUNT`
 whole ENT per account, converted with `ENT_DECIMALS=9`, and requires the admin
@@ -163,14 +167,96 @@ pending for L1 relay:
 
 ```text
 DA_MAX_PAYLOAD_BYTES=8388608
+DA_PUBLIC_BACKEND=postgres
+DA_PUBLIC_FS_DIR=build/da-public
+DA_PUBLIC_BASE_URL=
 ```
 
 The payload is the consensus `BatchData` bytes, not JSON. `data_hash` in the L2
 block header is derived from those bytes. Before a batch is submitted to
 `RollupRoot`, the relayer reads the payload back and rejects missing, corrupted,
 partial, oversized, or wrong-block payloads without calling the signer or TON
-provider. Future TON Storage support should implement the same `DaWriter`,
+provider.
+
+For public retrievability in testnet prototype mode, use the filesystem gateway:
+
+```text
+DA_PUBLIC_BACKEND=filesystem
+DA_PUBLIC_FS_DIR=build/da-public
+DA_PUBLIC_BASE_URL=https://da.example.test/entropis
+```
+
+The node writes canonical payload files under:
+
+```text
+{DA_PUBLIC_FS_DIR}/blocks/{height}/{block_hash}-{data_hash}.el2batch
+```
+
+`DA_PUBLIC_BASE_URL` is optional. When set, the node stores a public URI alongside
+the relative DA reference; it must point at an independently served mirror of
+`DA_PUBLIC_FS_DIR`, not at private Postgres. Only filesystem payload files and the
+Postgres mirror are written; bucket credentials, gateway tokens, and wallet files
+must stay in `.env.local` or process environment and must not be mounted into the
+public directory.
+
+Operators and challengers can retrieve payload bytes through:
+
+```text
+GET /v1/da/batch/{height}
+GET /v1/da/batch/{height}/{data_hash_hex}
+```
+
+The response body is `application/octet-stream` and includes
+`x-entropis-block-height`, `x-entropis-block-hash`, `x-entropis-data-hash`, and
+when configured `x-entropis-da-ref` / `x-entropis-da-uri`. The hash-specific route
+is the safer replay path because it binds the payload request to the L1
+`dataHash`. Future TON Storage support should implement the same `DaWriter`,
 `DaReader`, and `DaVerifier` boundaries.
+
+## Observer replay
+
+The off-chain observer prototype is admin-only and does not post L1 challenges. It
+accepts RollupRoot-shaped batch commitments from the caller, fetches canonical DA
+bytes by `block_height + data_hash`, decodes transactions and receipts, replays
+the deterministic executor from a trusted checkpoint, and reports the first
+missing-DA, corrupt-DA, receipt, or root divergence.
+
+```text
+GET /v1/operator/observer/checkpoint
+POST /v1/operator/observer/replay
+Authorization: Bearer <L2_ADMIN_TOKEN>
+```
+
+Replay request shape:
+
+```json
+{
+  "trusted_checkpoint": null,
+  "commitments": [
+    {
+      "batch_no": 1,
+      "block_height": 0,
+      "block_hash": "<l2 block hash>",
+      "roots_a": {
+        "prev_state_root": "<previous state root>",
+        "state_root": "<claimed state root>",
+        "tx_root": "<claimed tx root>"
+      },
+      "roots_b": {
+        "receipt_root": "<claimed receipt root>",
+        "withdrawal_root": "<claimed withdrawal root>",
+        "data_hash": "<claimed DA hash>"
+      }
+    }
+  ],
+  "store_checkpoint": true
+}
+```
+
+For the current prototype, commitments are supplied by the operator or a future
+RollupRoot getter client; the observer must not derive them from local L2 block
+JSON. Stored checkpoints include the replayed state snapshot and root so a later
+bounded range can start from the last trusted point.
 
 ## TON deposit indexer
 
