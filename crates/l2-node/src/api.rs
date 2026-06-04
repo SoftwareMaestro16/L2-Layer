@@ -32,6 +32,7 @@ pub struct AppState {
     ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
     dev_admin_deposits_enabled: bool,
+    mempool_pop_batch_size: usize,
 }
 
 impl AppState {
@@ -50,6 +51,7 @@ impl AppState {
             ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
             dev_admin_deposits_enabled: config.dev_admin_deposits_enabled,
+            mempool_pop_batch_size: config.mempool_pop_batch_size,
         })
     }
 
@@ -65,6 +67,7 @@ impl AppState {
             ent_faucet: EntFaucetService::from_config(&test_config()).expect("faucet config"),
             admin_auth: AdminAuth::new(admin_token.map(str::to_owned)),
             dev_admin_deposits_enabled: true,
+            mempool_pop_batch_size: 1024,
         }
     }
 }
@@ -94,6 +97,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
+        .route("/v1/mempool/metrics", get(get_mempool_metrics))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
@@ -217,6 +221,10 @@ async fn get_withdrawal_proof(
     Ok(Json(proof))
 }
 
+async fn get_mempool_metrics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(state.mempool.metrics().await?))
+}
+
 async fn stream(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(|mut socket| async move {
         let _ = socket
@@ -305,7 +313,10 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
 
     let timestamp = current_unix_time();
     let result = async {
-        let queued = state.mempool.pop_batch(1024).await?;
+        let queued = state
+            .mempool
+            .pop_batch(state.mempool_pop_batch_size)
+            .await?;
         let mut sequencer = state.sequencer.write().await;
         for tx in queued {
             sequencer.submit_tx(tx);

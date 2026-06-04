@@ -59,6 +59,10 @@ fn valid_entropis_testnet_config_loads() {
     assert!(!config.l1_deposit_indexer_enabled);
     assert!(!config.l1_batch_relayer_enabled);
     assert_eq!(config.l1_deposit_asset_ids, vec![1]);
+    assert_eq!(config.mempool_replay_ttl_secs, 86_400);
+    assert_eq!(config.mempool_nonce_lock_ttl_secs, 300);
+    assert_eq!(config.mempool_max_global_queue, 10_000);
+    assert_eq!(config.mempool_max_account_queue, 64);
 }
 
 #[test]
@@ -174,6 +178,45 @@ fn config_validates_l1_batch_relayer_settings() {
         config.l1_sequencer_sender_address.as_deref(),
         Some("EQsequencer")
     );
+}
+
+#[test]
+fn config_validates_mempool_admission_limits() {
+    let mut env = valid_env();
+    env.insert("MEMPOOL_MAX_GLOBAL_QUEUE".to_owned(), "10".to_owned());
+    env.insert("MEMPOOL_MAX_ACCOUNT_QUEUE".to_owned(), "2".to_owned());
+    env.insert(
+        "MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW".to_owned(),
+        "3".to_owned(),
+    );
+    env.insert("MEMPOOL_MAX_PAYLOAD_BYTES".to_owned(), "512".to_owned());
+    env.insert(
+        "MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES".to_owned(),
+        "256".to_owned(),
+    );
+    env.insert("MEMPOOL_MIN_GAS_LIMIT".to_owned(), "10".to_owned());
+    env.insert("MEMPOOL_MAX_GAS_LIMIT".to_owned(), "1000".to_owned());
+    env.insert("MEMPOOL_MIN_GAS_PRICE".to_owned(), "2".to_owned());
+    env.insert("MEMPOOL_MAX_TX_FEE".to_owned(), "10000".to_owned());
+    env.insert("MEMPOOL_POP_BATCH_SIZE".to_owned(), "4".to_owned());
+    let config = load_from(&env).expect("mempool config");
+    assert_eq!(config.mempool_max_global_queue, 10);
+    assert_eq!(config.mempool_max_account_queue, 2);
+    assert_eq!(config.mempool_pop_batch_size, 4);
+
+    let mut env = valid_env();
+    env.insert("MEMPOOL_MAX_ACCOUNT_QUEUE".to_owned(), "11".to_owned());
+    env.insert("MEMPOOL_MAX_GLOBAL_QUEUE".to_owned(), "10".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("MEMPOOL_REPLAY_TTL_SECS".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("MEMPOOL_MIN_GAS_LIMIT".to_owned(), "100".to_owned());
+    env.insert("MEMPOOL_MAX_GAS_LIMIT".to_owned(), "10".to_owned());
+    assert!(load_from(&env).is_err());
 }
 
 #[test]

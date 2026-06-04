@@ -9,7 +9,7 @@ mod helpers;
 pub use helpers::SecretString;
 use helpers::{
     bool_literal, optional, optional_secret, optional_string, parse_bool, parse_network,
-    parse_u128, parse_u16, parse_u32, parse_u32_list, parse_u64, parse_u8,
+    parse_u128, parse_u16, parse_u32, parse_u32_list, parse_u64, parse_u8, parse_usize,
     path_exists_in_cwd_or_ancestors, required,
 };
 
@@ -36,6 +36,20 @@ const DEFAULT_L1_COMMIT_MSG_VALUE_NANOTON: u64 = 100_000_000;
 const DEFAULT_L1_BATCH_RELAYER_POLL_INTERVAL_MS: u64 = 5_000;
 const DEFAULT_L1_BATCH_RELAYER_RETRY_BACKOFF_MS: u64 = 15_000;
 const DEFAULT_L1_BATCH_RELAYER_MAX_ATTEMPTS: u32 = 8;
+const DEFAULT_MEMPOOL_REPLAY_TTL_SECS: u64 = 86_400;
+const DEFAULT_MEMPOOL_NONCE_LOCK_TTL_SECS: u64 = 300;
+const DEFAULT_MEMPOOL_LEADER_TTL_SECS: u64 = 10;
+const DEFAULT_MEMPOOL_RATE_LIMIT_WINDOW_SECS: u64 = 60;
+const DEFAULT_MEMPOOL_MAX_GLOBAL_QUEUE: usize = 10_000;
+const DEFAULT_MEMPOOL_MAX_ACCOUNT_QUEUE: usize = 64;
+const DEFAULT_MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW: u32 = 120;
+const DEFAULT_MEMPOOL_MAX_PAYLOAD_BYTES: usize = 16 * 1024;
+const DEFAULT_MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES: usize = 8 * 1024;
+const DEFAULT_MEMPOOL_MIN_GAS_LIMIT: u64 = 1;
+const DEFAULT_MEMPOOL_MAX_GAS_LIMIT: u64 = 1_000_000;
+const DEFAULT_MEMPOOL_MIN_GAS_PRICE: u128 = 1;
+const DEFAULT_MEMPOOL_MAX_TX_FEE: u128 = 1_000_000_000_000;
+const DEFAULT_MEMPOOL_POP_BATCH_SIZE: usize = 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TonNetwork {
@@ -79,6 +93,20 @@ pub struct NodeConfig {
     pub l1_batch_relayer_poll_interval_ms: u64,
     pub l1_batch_relayer_retry_backoff_ms: u64,
     pub l1_batch_relayer_max_attempts: u32,
+    pub mempool_replay_ttl_secs: u64,
+    pub mempool_nonce_lock_ttl_secs: u64,
+    pub mempool_leader_ttl_secs: u64,
+    pub mempool_rate_limit_window_secs: u64,
+    pub mempool_max_global_queue: usize,
+    pub mempool_max_account_queue: usize,
+    pub mempool_max_account_submissions_per_window: u32,
+    pub mempool_max_payload_bytes: usize,
+    pub mempool_max_call_body_boc_base64_bytes: usize,
+    pub mempool_min_gas_limit: u64,
+    pub mempool_max_gas_limit: u64,
+    pub mempool_min_gas_price: u128,
+    pub mempool_max_tx_fee: u128,
+    pub mempool_pop_batch_size: usize,
 }
 
 impl NodeConfig {
@@ -251,6 +279,118 @@ impl NodeConfig {
             ),
             "L1_BATCH_RELAYER_MAX_ATTEMPTS",
         )?;
+        let mempool_replay_ttl_secs = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_REPLAY_TTL_SECS",
+                &DEFAULT_MEMPOOL_REPLAY_TTL_SECS.to_string(),
+            ),
+            "MEMPOOL_REPLAY_TTL_SECS",
+        )?;
+        let mempool_nonce_lock_ttl_secs = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_NONCE_LOCK_TTL_SECS",
+                &DEFAULT_MEMPOOL_NONCE_LOCK_TTL_SECS.to_string(),
+            ),
+            "MEMPOOL_NONCE_LOCK_TTL_SECS",
+        )?;
+        let mempool_leader_ttl_secs = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_LEADER_TTL_SECS",
+                &DEFAULT_MEMPOOL_LEADER_TTL_SECS.to_string(),
+            ),
+            "MEMPOOL_LEADER_TTL_SECS",
+        )?;
+        let mempool_rate_limit_window_secs = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_RATE_LIMIT_WINDOW_SECS",
+                &DEFAULT_MEMPOOL_RATE_LIMIT_WINDOW_SECS.to_string(),
+            ),
+            "MEMPOOL_RATE_LIMIT_WINDOW_SECS",
+        )?;
+        let mempool_max_global_queue = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_GLOBAL_QUEUE",
+                &DEFAULT_MEMPOOL_MAX_GLOBAL_QUEUE.to_string(),
+            ),
+            "MEMPOOL_MAX_GLOBAL_QUEUE",
+        )?;
+        let mempool_max_account_queue = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_ACCOUNT_QUEUE",
+                &DEFAULT_MEMPOOL_MAX_ACCOUNT_QUEUE.to_string(),
+            ),
+            "MEMPOOL_MAX_ACCOUNT_QUEUE",
+        )?;
+        let mempool_max_account_submissions_per_window = parse_u32(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW",
+                &DEFAULT_MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW.to_string(),
+            ),
+            "MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW",
+        )?;
+        let mempool_max_payload_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_PAYLOAD_BYTES",
+                &DEFAULT_MEMPOOL_MAX_PAYLOAD_BYTES.to_string(),
+            ),
+            "MEMPOOL_MAX_PAYLOAD_BYTES",
+        )?;
+        let mempool_max_call_body_boc_base64_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES",
+                &DEFAULT_MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES.to_string(),
+            ),
+            "MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES",
+        )?;
+        let mempool_min_gas_limit = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MIN_GAS_LIMIT",
+                &DEFAULT_MEMPOOL_MIN_GAS_LIMIT.to_string(),
+            ),
+            "MEMPOOL_MIN_GAS_LIMIT",
+        )?;
+        let mempool_max_gas_limit = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_GAS_LIMIT",
+                &DEFAULT_MEMPOOL_MAX_GAS_LIMIT.to_string(),
+            ),
+            "MEMPOOL_MAX_GAS_LIMIT",
+        )?;
+        let mempool_min_gas_price = parse_u128(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MIN_GAS_PRICE",
+                &DEFAULT_MEMPOOL_MIN_GAS_PRICE.to_string(),
+            ),
+            "MEMPOOL_MIN_GAS_PRICE",
+        )?;
+        let mempool_max_tx_fee = parse_u128(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_TX_FEE",
+                &DEFAULT_MEMPOOL_MAX_TX_FEE.to_string(),
+            ),
+            "MEMPOOL_MAX_TX_FEE",
+        )?;
+        let mempool_pop_batch_size = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_POP_BATCH_SIZE",
+                &DEFAULT_MEMPOOL_POP_BATCH_SIZE.to_string(),
+            ),
+            "MEMPOOL_POP_BATCH_SIZE",
+        )?;
 
         let config = Self {
             l2_name,
@@ -288,6 +428,20 @@ impl NodeConfig {
             l1_batch_relayer_poll_interval_ms,
             l1_batch_relayer_retry_backoff_ms,
             l1_batch_relayer_max_attempts,
+            mempool_replay_ttl_secs,
+            mempool_nonce_lock_ttl_secs,
+            mempool_leader_ttl_secs,
+            mempool_rate_limit_window_secs,
+            mempool_max_global_queue,
+            mempool_max_account_queue,
+            mempool_max_account_submissions_per_window,
+            mempool_max_payload_bytes,
+            mempool_max_call_body_boc_base64_bytes,
+            mempool_min_gas_limit,
+            mempool_max_gas_limit,
+            mempool_min_gas_price,
+            mempool_max_tx_fee,
+            mempool_pop_batch_size,
         };
         config.validate()?;
         Ok(config)
@@ -402,6 +556,39 @@ impl NodeConfig {
                 "L1_BATCH_RELAYER_MAX_ATTEMPTS must be between 1 and 100"
             ));
         }
+        if self.mempool_replay_ttl_secs == 0
+            || self.mempool_nonce_lock_ttl_secs == 0
+            || self.mempool_leader_ttl_secs == 0
+            || self.mempool_rate_limit_window_secs == 0
+        {
+            return Err(anyhow!("mempool TTL/window values must be non-zero"));
+        }
+        if self.mempool_max_global_queue == 0
+            || self.mempool_max_account_queue == 0
+            || self.mempool_max_account_submissions_per_window == 0
+            || self.mempool_max_payload_bytes == 0
+            || self.mempool_max_call_body_boc_base64_bytes == 0
+            || self.mempool_pop_batch_size == 0
+        {
+            return Err(anyhow!("mempool limits must be non-zero"));
+        }
+        if self.mempool_max_account_queue > self.mempool_max_global_queue {
+            return Err(anyhow!(
+                "MEMPOOL_MAX_ACCOUNT_QUEUE must not exceed MEMPOOL_MAX_GLOBAL_QUEUE"
+            ));
+        }
+        if self.mempool_min_gas_limit == 0
+            || self.mempool_min_gas_limit > self.mempool_max_gas_limit
+        {
+            return Err(anyhow!(
+                "MEMPOOL_MIN_GAS_LIMIT must be non-zero and <= MEMPOOL_MAX_GAS_LIMIT"
+            ));
+        }
+        if self.mempool_min_gas_price == 0 || self.mempool_max_tx_fee == 0 {
+            return Err(anyhow!(
+                "MEMPOOL_MIN_GAS_PRICE and MEMPOOL_MAX_TX_FEE must be non-zero"
+            ));
+        }
         Ok(())
     }
 
@@ -476,6 +663,32 @@ impl fmt::Debug for NodeConfig {
                 "l1_batch_relayer_max_attempts",
                 &self.l1_batch_relayer_max_attempts,
             )
+            .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
+            .field(
+                "mempool_nonce_lock_ttl_secs",
+                &self.mempool_nonce_lock_ttl_secs,
+            )
+            .field("mempool_leader_ttl_secs", &self.mempool_leader_ttl_secs)
+            .field(
+                "mempool_rate_limit_window_secs",
+                &self.mempool_rate_limit_window_secs,
+            )
+            .field("mempool_max_global_queue", &self.mempool_max_global_queue)
+            .field("mempool_max_account_queue", &self.mempool_max_account_queue)
+            .field(
+                "mempool_max_account_submissions_per_window",
+                &self.mempool_max_account_submissions_per_window,
+            )
+            .field("mempool_max_payload_bytes", &self.mempool_max_payload_bytes)
+            .field(
+                "mempool_max_call_body_boc_base64_bytes",
+                &self.mempool_max_call_body_boc_base64_bytes,
+            )
+            .field("mempool_min_gas_limit", &self.mempool_min_gas_limit)
+            .field("mempool_max_gas_limit", &self.mempool_max_gas_limit)
+            .field("mempool_min_gas_price", &self.mempool_min_gas_price)
+            .field("mempool_max_tx_fee", &self.mempool_max_tx_fee)
+            .field("mempool_pop_batch_size", &self.mempool_pop_batch_size)
             .finish()
     }
 }

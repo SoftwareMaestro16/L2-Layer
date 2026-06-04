@@ -82,7 +82,7 @@ TON_L2_SKILLS = {
     "Batch building should include previous state root, new state root, tx root, receipt root, withdrawal root, DA hash, and monotonic batch number.",
     "Deterministic batch building is isolated from mempool, execution, storage, Redis, network, and wall-clock reads; it consumes ordered txs, receipts, withdrawals, previous header/root, final state root, and an explicit timestamp.",
     "RollupRoot batch numbers are one-based while L2 block heights are zero-based; block height 0 must be committed as batchNo 1.",
-    "Mempool admission must reject malformed signatures, bad nonces, insufficient balances, unsupported call types, and non-canonical encodings.",
+    "Mempool admission must reject malformed signatures, bad nonces, insufficient balances, unsupported call types, non-canonical encodings, oversized payloads, bad gas/fee policy, per-account floods, global queue floods, and rate-limit abuse.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."
   ],
@@ -105,7 +105,7 @@ TON_L2_SKILLS = {
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
-    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants; Redis owns public mempool replay, nonce locks, and sequencer leader-lock responsibilities."
+    "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",

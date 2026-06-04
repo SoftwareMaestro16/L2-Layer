@@ -41,6 +41,7 @@ Useful endpoints:
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
 - `GET /v1/tx/{tx_hash_hex}`
+- `GET /v1/mempool/metrics`
 - `GET /v1/proof/withdrawal/{withdrawal_id_hex}`
 - `WS /v1/stream`
 
@@ -58,6 +59,37 @@ receipts, deposits, withdrawals, L1 cursors, and ENT faucet grants.
 The ENT faucet is L2-native only in this phase. It grants `ENT_FAUCET_AMOUNT`
 whole ENT per account, converted with `ENT_DECIMALS=9`, and requires the admin
 bearer token until public rate limiting is implemented.
+
+## Mempool admission limits
+
+Public `POST /v1/tx` requests are admitted through a fail-closed mempool policy
+before they reach the sequencer. The defaults are conservative for testnet and
+can be tuned through environment variables:
+
+```text
+MEMPOOL_REPLAY_TTL_SECS=86400
+MEMPOOL_NONCE_LOCK_TTL_SECS=300
+MEMPOOL_LEADER_TTL_SECS=10
+MEMPOOL_RATE_LIMIT_WINDOW_SECS=60
+MEMPOOL_MAX_GLOBAL_QUEUE=10000
+MEMPOOL_MAX_ACCOUNT_QUEUE=64
+MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW=120
+MEMPOOL_MAX_PAYLOAD_BYTES=16384
+MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES=8192
+MEMPOOL_MIN_GAS_LIMIT=1
+MEMPOOL_MAX_GAS_LIMIT=1000000
+MEMPOOL_MIN_GAS_PRICE=1
+MEMPOOL_MAX_TX_FEE=1000000000000
+MEMPOOL_POP_BATCH_SIZE=1024
+```
+
+The mempool rejects duplicate transaction hashes, locked account nonces, malformed
+signatures, wrong chain ids, zero/oversized gas policies, oversized public payloads,
+oversized or malformed `CallContract.body_boc_base64`, per-account queue floods,
+global queue floods, and per-account rate-limit abuse. Bad-signature submissions
+with a valid sender/public-key pair consume the same per-account rate limit as
+valid submissions. `GET /v1/mempool/metrics` exposes accepted/rejected counters
+and current store queue depth for operators.
 
 ## TON deposit indexer
 

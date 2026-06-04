@@ -240,6 +240,34 @@ async fn submit_tx_rejects_malformed_system_deposit() {
 }
 
 #[tokio::test]
+async fn mempool_metrics_reports_rejections_and_queue_depth() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"recipient"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    let _ = submit_tx(State(state.clone()), Json(tx.clone()))
+        .await
+        .expect("first tx");
+    let duplicate = submit_tx(State(state.clone()), Json(tx)).await.unwrap_err();
+    assert_eq!(duplicate.status, StatusCode::CONFLICT);
+
+    let metrics = state.mempool.metrics().await.expect("metrics");
+    assert_eq!(metrics.accepted, 1);
+    assert_eq!(metrics.rejected.get("duplicate_tx"), Some(&1));
+    assert_eq!(metrics.store.queued_global, 1);
+}
+
+#[tokio::test]
 async fn admin_ent_faucet_requires_authorization() {
     let state = test_state(None);
     let account_id = sha256_bytes(b"account");

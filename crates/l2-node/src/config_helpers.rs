@@ -104,6 +104,12 @@ pub(super) fn parse_u64(value: &str, key: &str) -> anyhow::Result<u64> {
         .with_context(|| format!("{key} must be an unsigned 64-bit integer"))
 }
 
+pub(super) fn parse_usize(value: &str, key: &str) -> anyhow::Result<usize> {
+    value
+        .parse::<usize>()
+        .with_context(|| format!("{key} must be an unsigned integer"))
+}
+
 pub(super) fn parse_u128(value: &str, key: &str) -> anyhow::Result<u128> {
     value
         .parse::<u128>()
