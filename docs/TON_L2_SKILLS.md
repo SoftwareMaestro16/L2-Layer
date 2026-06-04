@@ -117,6 +117,8 @@ TON_L2_SKILLS = {
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
     "The L1 batch finalizer persists a separate pending/submitted/finalized/failed queue; it creates finalization work only after local commit confirmation and waits local confirmation time + challengeWindowSec before signing.",
+    "Manual Acton operator scripts may commit and finalize testnet batches from persisted L2 block headers before the external signer service is wired, but they must still use the configured sequencer wallet for CommitBatch and respect the challenge window.",
+    "After manual Acton L1 batch operations, local proof gating must be reconciled explicitly with an operator-only local helper; do not mark batches confirmed/finalized before checking RollupRoot on testnet.",
     "Relayer/operator visibility should expose failed batch records with safe static reason codes and no raw provider payloads or signer secrets.",
     "The node should not hold raw TON wallet credentials for relaying/finalization; use a separate typed signer service and verify returned signer address, expiry, and BoC shape before broadcasting.",
     "Signer service actions are allowlisted typed actions: MVP supports commit_batch on `/sign-commit` and finalize_batch on `/sign-finalize`; configure L2_SIGNER_ROLLUP_ROOT_ADDRESS so a token cannot sign for an unexpected RollupRoot.",

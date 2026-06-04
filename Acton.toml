@@ -39,6 +39,8 @@ l1-deploy-plan = "acton script scripts/l1/deploy_rollup_pair.tolk"
 l1-deploy-testnet = "acton script scripts/l1/deploy_rollup_pair.tolk --net testnet --explorer tonviewer"
 l1-verify-testnet = "acton script scripts/l1/verify_rollup_pair.tolk --fork-net testnet"
 l1-deposit-testnet = "acton script scripts/l1/deposit_ton.tolk --net testnet --explorer tonviewer"
+l1-commit-testnet = "acton script scripts/l1/commit_batch.tolk --net testnet --explorer tonviewer"
+l1-finalize-testnet = "acton script scripts/l1/finalize_batch.tolk --net testnet --explorer tonviewer"
 
 [import-mappings]
 acton = ".acton"
