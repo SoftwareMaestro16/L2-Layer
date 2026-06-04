@@ -41,6 +41,39 @@ async fn parses_valid_jetton_deposit_recorded_event() {
 }
 
 #[tokio::test]
+async fn parses_sanitized_toncenter_jetton_deposit_fixture() {
+    let mut config = config();
+    config.allowed_asset_ids = vec![1, 7];
+    let message = ToncenterMessage {
+        hash: None,
+        hash_norm: Some(hash(0x46).to_hex()),
+        source: Some(VAULT.to_owned()),
+        destination: Some("null".to_owned()),
+        opcode: Some(json!(0x4c324407)),
+        created_lt: Some(json!(9)),
+        message_content: Some(ToncenterMessageContent {
+            body: Some("sanitized-boc".to_owned()),
+            decoded: Some(json!({
+                "query_id": "7001",
+                "deposit_id": hash(0x31).to_hex(),
+                "asset_id": 7,
+                "amount": "123000000",
+                "l2_recipient": hash(0x32).to_hex(),
+            })),
+        }),
+    };
+
+    let deposit = parse_deposit_message(&message, &config).expect("jetton deposit fixture");
+
+    assert_eq!(deposit.deposit_id, hash(0x31));
+    assert_eq!(deposit.asset_id, 7);
+    assert_eq!(deposit.amount, 123000000);
+    assert_eq!(deposit.recipient, hash(0x32));
+    assert_eq!(deposit.l1_lt, 9);
+    assert_eq!(deposit.l1_tx_hash, hash(0x46));
+}
+
+#[tokio::test]
 async fn rejects_forged_or_malformed_events() {
     let mut forged = deposit_message(7, 10, hash(0x44));
     forged.source = Some("EQattacker".to_owned());

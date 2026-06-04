@@ -194,6 +194,55 @@ of vault-registered L1 assets accepted by the indexer; keep `1` for bridged TON 
 add registered Jetton asset ids after `RegisterJettonAsset`. Malformed expected logs
 fail closed and do not advance the cursor.
 
+## Jetton bridge testnet flow
+
+Use an existing public testnet Jetton when possible. Deploy a temporary test Jetton
+only when no suitable faucet/test asset is available. Do not deploy an ENT L1
+Jetton for this prototype path.
+
+Register each bridged Jetton before accepting deposits:
+
+1. Query the Jetton master `get_wallet_address(owner_address)` getter with
+   `AssetVault` as owner and verify the resulting vault-owned Jetton wallet.
+2. Send `AssetVault.RegisterJettonAsset(assetId, master, wallet, decimals)` from
+   the vault admin. Use a non-zero `assetId` that is not `L1_TON_ASSET_ID`.
+3. Verify `AssetVault.jettonAsset(assetId)` returns `exists=true`, the expected
+   master, the expected vault-owned wallet, and the token decimals.
+4. Add the registered id to `L1_DEPOSIT_ASSET_IDS`.
+
+Build user deposits as a TEP-74 Jetton `transfer` to the user's Jetton wallet.
+Set `destination` to `AssetVault`, `response_destination` to the user's TON
+wallet, `forward_ton_amount > 0`, and the `forward_payload` to the SDK helper's
+L2 recipient payload. The SDK emits the canonical ref branch of
+`Either Cell ^Cell`; the vault accepts canonical inline or ref branches only when
+the decoded payload is exactly one non-zero `uint256` L2 recipient.
+
+```ts
+import { depositJettonTonConnectMessage } from "@ton-l2-rollup/sdk";
+
+const message = depositJettonTonConnectMessage({
+  jettonWalletAddress: "<user Jetton wallet address>",
+  vaultAddress: "<AssetVault testnet address>",
+  responseAddress: "<user TON testnet address>",
+  queryId: Date.now(),
+  jettonAmount: "1000000",
+  forwardTonAmount: "50000000",
+  tonAmount: "100000000",
+  l2Recipient: "<32-byte L2 account id hex>",
+});
+```
+
+The resulting Jetton wallet notification must come from the registered
+vault-owned Jetton wallet, not the master and not the user's wallet. The vault
+emits a normal `DepositRecorded` external log, so the existing deposit indexer
+credits the configured Jetton `assetId` on L2 after Toncenter v3 polling.
+
+For Jetton withdrawals, the finalized `ReleaseAuthorized` proof path is unchanged:
+`RollupRoot` sends `ReleaseAuthorized` to `AssetVault`, and the vault sends
+TEP-74 `transfer` to the registered vault-owned Jetton wallet with the claimant
+as `destination`. The vault tracks the pending query id, clears it on
+`excesses`, and records wallet bounces as retryable `failedRelease` records.
+
 ## TON batch relayer
 
 The batch relayer is disabled by default. Enable it only after `RollupRoot` is
@@ -308,11 +357,12 @@ If a root-to-vault release bounces, operators or users can inspect
 `RollupRoot.failedWithdrawal(withdrawalId)` and retry with
 `RollupRoot.RetryWithdrawal(withdrawalId)`.
 
-If a vault-to-recipient release bounces, `AssetVault` records
+If a vault-to-recipient TON release bounces, `AssetVault` records
 `failedRelease(withdrawalId)` and re-credits TON asset custody accounting. Retry is
 permissionless through `AssetVault.RetryRelease(withdrawalId)` and uses the stored
-failure fields only. Unsupported asset ids remain failed and are not retryable
-until the Jetton/wrapped-gas release path is implemented.
+failure fields only. Registered Jetton withdrawals retry through the vault-owned
+Jetton wallet. Unsupported asset ids remain failed and are not retryable until the
+asset is registered or a future wrapped-gas flow is implemented.
 
 ## Acton
 

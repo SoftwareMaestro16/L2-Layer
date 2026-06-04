@@ -131,8 +131,11 @@ Any actor can call `RetryWithdrawal(withdrawalId)`; retry uses only the stored
 release fields, so the caller cannot change amount, recipient, or asset.
 
 `AssetVault` stores `failedRelease(withdrawalId)` when an outbound release to the
-recipient bounces or when an unsupported release asset is requested. For TON
-asset releases, recipient bounces re-credit `lockedTon` before storing failure.
-Any actor can call `RetryRelease(withdrawalId)` for stored TON failures. Unsupported
-asset failures remain visible and reject retry until Jetton/wrapped-gas release
-support is implemented.
+recipient bounces, when the vault-owned Jetton wallet bounces, or when an
+unsupported release asset is requested. For TON asset releases, recipient bounces
+re-credit `lockedTon` before storing failure. For registered Jettons, the vault
+routes TEP-74 transfers through the configured vault-owned Jetton wallet and
+tracks pending query ids until `excesses` or bounce. Any actor can call
+`RetryRelease(withdrawalId)` for stored retryable failures. Unsupported asset
+failures remain visible and reject retry until the asset is registered or a
+future wrapped-gas flow is implemented.
