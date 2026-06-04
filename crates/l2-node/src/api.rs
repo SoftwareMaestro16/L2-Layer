@@ -7,7 +7,7 @@ use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
 use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
-use crate::storage::DynStorage;
+use crate::storage::{BatchFinalizationStatus, DynStorage};
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -263,6 +263,18 @@ async fn get_withdrawal_proof(
         .get_withdrawal_proof(id)
         .await?
         .ok_or_else(|| ApiError::not_found("withdrawal proof not found"))?;
+    let batch_no = proof
+        .block_height
+        .checked_add(1)
+        .ok_or_else(|| ApiError::bad_request("invalid withdrawal block height"))?;
+    let finalized = state
+        .storage
+        .get_batch_finalization(batch_no)
+        .await?
+        .is_some_and(|record| record.status == BatchFinalizationStatus::Finalized);
+    if !finalized {
+        return Err(ApiError::conflict("withdrawal batch not finalized"));
+    }
     Ok(Json(proof))
 }
 

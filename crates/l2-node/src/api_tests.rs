@@ -3,7 +3,7 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderValue;
 use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::derive_account_id;
-use l2_core::{canonical_batch_data_hash, L2Block, L2TransactionKind};
+use l2_core::{canonical_batch_data_hash, L2Block, L2TransactionKind, WithdrawalLeaf};
 use rand_core::OsRng;
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -41,6 +41,27 @@ fn empty_block(height: u64) -> L2Block {
         vec![],
         vec![],
         vec![],
+        canonical_batch_data_hash(&[], &[]),
+        100,
+    )
+}
+
+fn withdrawal_block() -> L2Block {
+    let withdrawal = WithdrawalLeaf::new(
+        sha256_bytes(b"withdrawal-tx"),
+        0,
+        100,
+        sha256_bytes(b"withdrawal-sender"),
+        "EQDk2VTvn04SUKJrW7rXahzdF8_Qi6utb0wj43InCu9vdjrR".to_owned(),
+    );
+    L2Block::new(
+        0,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"withdrawal-state"),
+        vec![],
+        vec![],
+        vec![withdrawal],
         canonical_batch_data_hash(&[], &[]),
         100,
     )
@@ -430,6 +451,45 @@ async fn operator_batch_relayer_reports_latest_commit() {
     assert_eq!(visibility.0.pending.len(), 1);
     assert_eq!(visibility.0.latest.as_ref().unwrap().batch_no, 1);
     assert!(visibility.0.latest_confirmed.is_none());
+}
+
+#[tokio::test]
+async fn withdrawal_proof_is_hidden_until_batch_finalized() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let block = withdrawal_block();
+    let withdrawal_id = block.withdrawals[0].withdrawal_id;
+    state.storage.save_block(block).await.unwrap();
+
+    let error = get_withdrawal_proof(State(state), Path(withdrawal_id.to_hex()))
+        .await
+        .err()
+        .expect("proof is gated");
+
+    assert_eq!(error.status, StatusCode::CONFLICT);
+    assert_eq!(error.message, "withdrawal batch not finalized");
+}
+
+#[tokio::test]
+async fn withdrawal_proof_is_served_after_batch_finalization() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let block = withdrawal_block();
+    let withdrawal_id = block.withdrawals[0].withdrawal_id;
+    state.storage.save_block(block).await.unwrap();
+    let commit = state.storage.get_batch_commit(1).await.unwrap().unwrap();
+    let mut finalization = crate::storage::BatchFinalizationRecord::pending(&commit, 0);
+    finalization.status = crate::storage::BatchFinalizationStatus::Finalized;
+    finalization.attempts = 1;
+    finalization.message_hash = Some(sha256_bytes(b"finalize-message"));
+    finalization.message_hash_norm = Some(sha256_bytes(b"finalize-message-norm"));
+    state
+        .storage
+        .save_batch_finalization(finalization)
+        .await
+        .unwrap();
+
+    get_withdrawal_proof(State(state), Path(withdrawal_id.to_hex()))
+        .await
+        .expect("finalized withdrawal proof");
 }
 
 #[tokio::test]

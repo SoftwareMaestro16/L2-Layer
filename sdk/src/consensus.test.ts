@@ -1,23 +1,33 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   accountLeafHash,
   blockHeaderHash,
+  buildClaimWithdrawalBody,
+  buildWithdrawTransaction,
   canonicalBatchDataHash,
+  claimWithdrawalTonConnectMessage,
   encodeSignedTransaction,
   encodeUnsignedTransaction,
   jettonDepositForwardPayload,
   L2_NATIVE_GAS_ASSET,
   receiptLeafHash,
+  releaseAuthorizedCell,
+  RollupRootL1,
   tonDepositForwardPayload,
   txHash,
+  withdrawalMerkleProofCell,
   withdrawalId,
   withdrawalLeafHash,
   type AccountLeaf,
   type Receipt,
   type SignedL2Transaction,
   type WithdrawalLeaf,
+  type WithdrawalProofResponse,
 } from "./index.js";
+
+const TON_RECIPIENT = "EQDk2VTvn04SUKJrW7rXahzdF8_Qi6utb0wj43InCu9vdjrR";
 
 test("unsigned transaction encoding matches Rust golden vector", () => {
   assert.equal(
@@ -139,6 +149,126 @@ test("jetton deposit payload encodes canonical l2 recipient", () => {
   assert.equal(slice.remainingRefs, 0);
 });
 
+test("withdraw helper builds canonical unsigned L2 transaction", () => {
+  const tx = buildWithdrawTransaction({
+    chainId: "entropis-testnet",
+    from: hash(0xaa),
+    nonce: 7,
+    assetId: 1,
+    amount: "200",
+    l1Recipient: TON_RECIPIENT,
+    gasLimit: 500,
+    maxGasPrice: "42",
+  });
+
+  assert.deepEqual(tx, {
+    chain_id: "entropis-testnet",
+    from: hash(0xaa),
+    nonce: 7,
+    gas_limit: 500,
+    max_gas_price: "42",
+    kind: {
+      Withdraw: {
+        asset_id: 1,
+        amount: "200",
+        l1_recipient: TON_RECIPIENT,
+      },
+    },
+  });
+  assert.throws(
+    () =>
+      buildWithdrawTransaction({
+        chainId: "entropis-testnet",
+        from: hash(0xaa),
+        nonce: 0,
+        assetId: 1,
+        amount: "0",
+        l1Recipient: TON_RECIPIENT,
+        gasLimit: 500,
+        maxGasPrice: "42",
+      }),
+    /amount must be non-zero/,
+  );
+  assert.throws(
+    () =>
+      buildWithdrawTransaction({
+        chainId: "entropis-testnet",
+        from: hash(0xaa),
+        nonce: 0,
+        assetId: 1,
+        amount: "1",
+        l1Recipient: "not-a-ton-address",
+        gasLimit: 500,
+        maxGasPrice: "42",
+      }),
+    /address/i,
+  );
+});
+
+test("release leaf and claim body match Rust withdrawal proof vector", () => {
+  const stableLeaf = withdrawalLeafFromSeed(1, "300000000");
+  assert.equal(
+    releaseAuthorizedCell(stableLeaf).hash().toString("hex"),
+    "206ba4b2d3b80535c59d77a2ef1f5342ad31c8b552562a4c38af310bfd5557dc",
+  );
+
+  const proof = vectorWithdrawalProof();
+  const body = buildClaimWithdrawalBody(proof);
+  assert.equal(
+    body.toBoc().toString("base64"),
+    "te6cckEBBAEA7wACWEwyVwQAAAAAAAAACr2ZyH+oRxIRwfq1NKtWtLX01mLswDfzBZUe7zWNF/rRAQIAlUwyUga9mch/qEcSEcH6tTSrVrS19NZi7MA38wWVHu81jRf60QAAAAGAHJsqnfPpwkoUTWt3Wu1Dm6L5+hF1da3phHxuROFd7e7DkQEVAAAAAAAAAAEAAsADAMMCwPUucWMQT7w9iFkpJ91Ae/tS9ZNmu5qy6qNUmEv1NB75NBfJISFvnHGHIpYzk78U7IGDr8FFWd3wezAsq7KXrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQJY/TtE=",
+  );
+
+  const parsed = RollupRootL1.ClaimWithdrawal.fromSlice(body.beginParse());
+  assert.equal(parsed.batchNo, 10n);
+  assert.equal(
+    parsed.withdrawalId.toString(16).padStart(64, "0"),
+    proof.leaf.withdrawal_id,
+  );
+  assert.equal(
+    parsed.withdrawalLeaf.hash().toString("hex"),
+    "24c9764caf58ca140afd2114c38c10d4285ca6b1fcf008d8c5d7ba6bb9b86e93",
+  );
+});
+
+test("withdrawal merkle proof helper uses chunked nullable-ref layout", () => {
+  const proof = vectorWithdrawalProof().proof;
+  const cell = withdrawalMerkleProofCell(proof);
+  const slice = cell.beginParse();
+
+  assert.equal(slice.loadUintBig(64), 1n);
+  assert.equal(slice.loadUint(16), 2);
+  assert.equal(slice.loadBit(), true);
+
+  const chunk = slice.loadRef().beginParse();
+  assert.equal(chunk.loadUint(8), 2);
+  assert.equal(
+    chunk.loadUintBig(256).toString(16).padStart(64, "0"),
+    proof.siblings[0],
+  );
+  assert.equal(
+    chunk.loadUintBig(256).toString(16).padStart(64, "0"),
+    proof.siblings[1],
+  );
+  assert.equal(chunk.loadUintBig(256), 0n);
+  assert.equal(chunk.loadBit(), false);
+  chunk.endParse();
+  slice.endParse();
+});
+
+test("claim helper builds TON Connect raw message payload", () => {
+  const proof = vectorWithdrawalProof();
+  const message = claimWithdrawalTonConnectMessage({
+    rollupRootAddress: TON_RECIPIENT,
+    proof,
+    amount: "150000000",
+  });
+
+  assert.equal(message.address, TON_RECIPIENT);
+  assert.equal(message.amount, "150000000");
+  assert.equal(message.payload, buildClaimWithdrawalBody(proof).toBoc().toString("base64"));
+});
+
 function vectorTransaction(): SignedL2Transaction {
   return {
     chain_id: "entropis-testnet",
@@ -160,4 +290,40 @@ function vectorTransaction(): SignedL2Transaction {
 
 function hash(byte: number): string {
   return byte.toString(16).padStart(2, "0").repeat(32);
+}
+
+function withdrawalLeafFromSeed(seed: number, amount: string): WithdrawalLeaf {
+  const txHash = sha256Bytes([seed]);
+  const l2Sender = sha256Bytes([seed, 1]);
+  return {
+    withdrawal_id: withdrawalId(txHash, 1, amount, l2Sender, TON_RECIPIENT),
+    asset_id: 1,
+    amount,
+    l2_sender: l2Sender,
+    l1_recipient: TON_RECIPIENT,
+  };
+}
+
+function vectorWithdrawalProof(): WithdrawalProofResponse {
+  const leaf = withdrawalLeafFromSeed(2, "200");
+  assert.equal(
+    leaf.withdrawal_id,
+    "bd99c87fa8471211c1fab534ab56b4b5f4d662ecc037f305951eef358d17fad1",
+  );
+  return {
+    block_height: 9,
+    withdrawal_root: "d5e8e681563ae874899124c32b8bb43072a4d95e0b05b2bf9ddda9ce9d5b62cf",
+    leaf,
+    proof: {
+      leaf_index: 1,
+      siblings: [
+        "c0f52e7163104fbc3d88592927dd407bfb52f59366bb9ab2eaa354984bf5341e",
+        "f93417c921216f9c718722963393bf14ec8183afc14559ddf07b302cabb297ac",
+      ],
+    },
+  };
+}
+
+function sha256Bytes(bytes: number[]): string {
+  return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
 }

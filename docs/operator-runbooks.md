@@ -191,14 +191,24 @@ Current node visibility:
   enabled.
 - On-chain source of truth is `RollupRoot.failedWithdrawal(withdrawalId)` and
   `AssetVault.failedRelease(withdrawalId)`.
+- `GET /v1/proof/withdrawal/{withdrawalId}` returns `409` until the containing
+  batch is finalized. Treat that as expected waiting state, not a proof failure.
 
 Actions:
 
 - Query the Tolk getters through Acton/Toncenter once contracts are deployed.
-- Retry through `RetryWithdrawal(withdrawalId)` or `RetryRelease(withdrawalId)`
-  when the failed record exists.
+- If `RollupRoot.failedWithdrawal(withdrawalId)` exists, call
+  `RetryWithdrawal(withdrawalId)` on `RollupRoot`. This retries root-to-vault
+  delivery from stored release fields.
+- If `AssetVault.failedRelease(withdrawalId)` exists, call
+  `RetryRelease(withdrawalId)` on `AssetVault`. This retries vault-to-recipient
+  delivery from stored release fields.
 - Do not re-submit `ClaimWithdrawal` for a withdrawal that is already marked
   claimed on `RollupRoot`.
+- Unsupported asset failures are visible but not retryable until the asset path
+  is implemented or registered.
+- Never paste a signed BoC, wallet seed, signer token, or provider API key into
+  incident notes.
 
 ## Log Safety
 

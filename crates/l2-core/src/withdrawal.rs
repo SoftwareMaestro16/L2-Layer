@@ -230,6 +230,37 @@ mod tests {
     }
 
     #[test]
+    fn withdrawal_proof_vector_is_stable() {
+        let leaves = vec![withdrawal(1, 100), withdrawal(2, 200), withdrawal(3, 300)];
+        let root = withdrawal_merkle_root(&leaves).expect("root");
+        let proof = build_withdrawal_merkle_proof(&leaves, 1)
+            .expect("proof build")
+            .expect("proof");
+
+        assert_eq!(
+            hex::encode(root.as_bytes()),
+            "d5e8e681563ae874899124c32b8bb43072a4d95e0b05b2bf9ddda9ce9d5b62cf"
+        );
+        assert_eq!(
+            hex::encode(leaves[1].withdrawal_id.as_bytes()),
+            "bd99c87fa8471211c1fab534ab56b4b5f4d662ecc037f305951eef358d17fad1"
+        );
+        assert_eq!(proof.leaf_index, 1);
+        assert_eq!(
+            proof
+                .siblings
+                .iter()
+                .map(|sibling| hex::encode(sibling.as_bytes()))
+                .collect::<Vec<_>>(),
+            vec![
+                "c0f52e7163104fbc3d88592927dd407bfb52f59366bb9ab2eaa354984bf5341e",
+                "f93417c921216f9c718722963393bf14ec8183afc14559ddf07b302cabb297ac",
+            ]
+        );
+        assert!(verify_withdrawal_merkle_proof(root, &leaves[1], &proof).expect("verify"));
+    }
+
+    #[test]
     fn corrupted_sibling_order_fails() {
         let leaves = vec![withdrawal(1, 100), withdrawal(2, 200)];
         let root = withdrawal_merkle_root(&leaves).expect("root");
