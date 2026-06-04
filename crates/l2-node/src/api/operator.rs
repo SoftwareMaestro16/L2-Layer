@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 
 const FAILURE_LIMIT: u32 = 50;
 const VISIBILITY_LIMIT: u32 = 50;
+const OPERATOR_MAX_ATTEMPTS_FILTER: u32 = i32::MAX as u32;
 
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct OperatorMetricsResponse {
@@ -118,11 +119,19 @@ pub(super) async fn operator_failures(
     state.admin_auth.authorize(&headers)?;
     let relayer_failed_batches = state
         .storage
-        .list_batch_commits(&[BatchCommitStatus::Failed], u32::MAX, FAILURE_LIMIT)
+        .list_batch_commits(
+            &[BatchCommitStatus::Failed],
+            OPERATOR_MAX_ATTEMPTS_FILTER,
+            FAILURE_LIMIT,
+        )
         .await?;
     let failed_finalizations = state
         .storage
-        .list_batch_finalizations(&[BatchFinalizationStatus::Failed], u32::MAX, FAILURE_LIMIT)
+        .list_batch_finalizations(
+            &[BatchFinalizationStatus::Failed],
+            OPERATOR_MAX_ATTEMPTS_FILTER,
+            FAILURE_LIMIT,
+        )
         .await?;
     Ok(Json(OperatorFailuresResponse {
         relayer_failed_batches,
@@ -148,15 +157,27 @@ pub(super) async fn operator_batch_relayer(
             .await?,
         pending: state
             .storage
-            .list_batch_commits(&[BatchCommitStatus::Pending], u32::MAX, VISIBILITY_LIMIT)
+            .list_batch_commits(
+                &[BatchCommitStatus::Pending],
+                OPERATOR_MAX_ATTEMPTS_FILTER,
+                VISIBILITY_LIMIT,
+            )
             .await?,
         submitted: state
             .storage
-            .list_batch_commits(&[BatchCommitStatus::Submitted], u32::MAX, VISIBILITY_LIMIT)
+            .list_batch_commits(
+                &[BatchCommitStatus::Submitted],
+                OPERATOR_MAX_ATTEMPTS_FILTER,
+                VISIBILITY_LIMIT,
+            )
             .await?,
         failed: state
             .storage
-            .list_batch_commits(&[BatchCommitStatus::Failed], u32::MAX, VISIBILITY_LIMIT)
+            .list_batch_commits(
+                &[BatchCommitStatus::Failed],
+                OPERATOR_MAX_ATTEMPTS_FILTER,
+                VISIBILITY_LIMIT,
+            )
             .await?,
     }))
 }
@@ -176,7 +197,7 @@ pub(super) async fn operator_batch_finalizer(
             .storage
             .list_batch_finalizations(
                 &[BatchFinalizationStatus::Pending],
-                u32::MAX,
+                OPERATOR_MAX_ATTEMPTS_FILTER,
                 VISIBILITY_LIMIT,
             )
             .await?,
@@ -184,7 +205,7 @@ pub(super) async fn operator_batch_finalizer(
             .storage
             .list_batch_finalizations(
                 &[BatchFinalizationStatus::Submitted],
-                u32::MAX,
+                OPERATOR_MAX_ATTEMPTS_FILTER,
                 VISIBILITY_LIMIT,
             )
             .await?,
@@ -192,7 +213,7 @@ pub(super) async fn operator_batch_finalizer(
             .storage
             .list_batch_finalizations(
                 &[BatchFinalizationStatus::Failed],
-                u32::MAX,
+                OPERATOR_MAX_ATTEMPTS_FILTER,
                 VISIBILITY_LIMIT,
             )
             .await?,

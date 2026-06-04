@@ -65,6 +65,7 @@ TON_L2_SKILLS = {
     "Outbound messages use send modes that define fee payment, remaining-balance behavior, ignore-errors behavior, and bounce-on-action-failure behavior.",
     "Deposits are L1 -> L2 observations: AssetVault emits canonical deposit logs, the indexer feeds them to the sequencer, and the L2 credits the recipient.",
     "Toncenter v3 `/messages` can filter log messages with `destination=null`, vault `source`, `opcode`, `start_lt`, `limit`, and `sort=asc`; use per-source cursors and fail closed on malformed expected logs.",
+    "Toncenter v3 may return external-log `source` as raw uppercase `workchain:hash` while config uses user-friendly addresses, and may leave `message_content.decoded` null for custom Tolk logs; normalize TON addresses and decode the DepositRecorded BoC body directly.",
     "Withdrawals are L2 -> L1 claims: L2 creates withdrawal leaves, RollupRoot verifies inclusion after finalized commitment, then tells AssetVault to release."
   ],
   cell_boc_system: [

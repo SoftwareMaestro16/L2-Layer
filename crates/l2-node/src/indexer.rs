@@ -9,6 +9,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use tonlib_core::cell::BagOfCells;
+use tonlib_core::types::TonAddress;
 
 const DEPOSIT_RECORDED_OPCODE: u32 = 0x4c324407;
 const CURSOR_SOURCE: &str = "toncenter:vault-deposits";
@@ -201,7 +203,7 @@ pub fn parse_deposit_message(
         .source
         .as_deref()
         .ok_or(IndexerError::Validation("deposit log source is missing"))?;
-    if source != config.vault_address {
+    if !ton_addresses_match(source, &config.vault_address) {
         return Err(IndexerError::Validation("deposit log source is not vault"));
     }
     if message
@@ -226,39 +228,119 @@ pub fn parse_deposit_message(
         return Err(IndexerError::Validation("message hash must be non-zero"));
     }
 
-    let decoded = message
-        .message_content
-        .as_ref()
-        .and_then(|content| content.decoded.as_ref())
-        .ok_or(IndexerError::Decode("message_content.decoded is missing"))?;
-    let event_deposit_id = parse_uint256_hash(field(decoded, &["depositId", "deposit_id"])?)?;
-    let asset_id = parse_u32_value(field(decoded, &["assetId", "asset_id"])?, "asset_id")?;
-    let amount = parse_u128_value(field(decoded, &["amount"])?, "amount")?;
-    let recipient = parse_uint256_hash(field(decoded, &["l2Recipient", "l2_recipient"])?)?;
-    let _query_id = parse_u64_value(Some(field(decoded, &["queryId", "query_id"])?), "query_id")?;
+    let decoded = decode_deposit_recorded(message)?;
 
-    if event_deposit_id == Hash32::ZERO {
+    if decoded.event_deposit_id == Hash32::ZERO {
         return Err(IndexerError::Validation("deposit id must be non-zero"));
     }
-    if !config.allowed_asset_ids.contains(&asset_id) {
+    if !config.allowed_asset_ids.contains(&decoded.asset_id) {
         return Err(IndexerError::Validation("unexpected deposit asset id"));
     }
-    if amount == 0 {
+    if decoded.amount == 0 {
         return Err(IndexerError::Validation("deposit amount must be non-zero"));
     }
-    if recipient == Hash32::ZERO {
+    if decoded.recipient == Hash32::ZERO {
         return Err(IndexerError::Validation(
             "deposit recipient must be non-zero",
         ));
     }
 
     Ok(DepositEvent {
-        deposit_id: canonical_deposit_id(source, l1_tx_hash, l1_lt, event_deposit_id),
-        asset_id,
-        recipient,
-        amount,
+        deposit_id: canonical_deposit_id(source, l1_tx_hash, l1_lt, decoded.event_deposit_id),
+        asset_id: decoded.asset_id,
+        recipient: decoded.recipient,
+        amount: decoded.amount,
         l1_tx_hash,
         l1_lt,
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DecodedDepositRecorded {
+    event_deposit_id: Hash32,
+    asset_id: u32,
+    amount: u128,
+    recipient: Hash32,
+    query_id: u64,
+}
+
+fn decode_deposit_recorded(
+    message: &ToncenterMessage,
+) -> Result<DecodedDepositRecorded, IndexerError> {
+    let content = message
+        .message_content
+        .as_ref()
+        .ok_or(IndexerError::Decode("message_content is missing"))?;
+    if let Some(decoded) = content.decoded.as_ref() {
+        return decode_deposit_recorded_json(decoded);
+    }
+    let body = content
+        .body
+        .as_deref()
+        .ok_or(IndexerError::Decode("message_content body is missing"))?;
+    decode_deposit_recorded_boc(body)
+}
+
+fn decode_deposit_recorded_json(decoded: &Value) -> Result<DecodedDepositRecorded, IndexerError> {
+    let event_deposit_id = parse_uint256_hash(field(decoded, &["depositId", "deposit_id"])?)?;
+    let asset_id = parse_u32_value(field(decoded, &["assetId", "asset_id"])?, "asset_id")?;
+    let amount = parse_u128_value(field(decoded, &["amount"])?, "amount")?;
+    let recipient = parse_uint256_hash(field(decoded, &["l2Recipient", "l2_recipient"])?)?;
+    let query_id = parse_u64_value(Some(field(decoded, &["queryId", "query_id"])?), "query_id")?;
+
+    Ok(DecodedDepositRecorded {
+        event_deposit_id,
+        asset_id,
+        amount,
+        recipient,
+        query_id,
+    })
+}
+
+fn decode_deposit_recorded_boc(
+    body_boc_base64: &str,
+) -> Result<DecodedDepositRecorded, IndexerError> {
+    let root = BagOfCells::parse_base64(body_boc_base64)
+        .and_then(BagOfCells::single_root)
+        .map_err(|_| IndexerError::Decode("message_content body BoC is malformed"))?;
+    let mut parser = root.parser();
+    let opcode = parser
+        .load_u32(32)
+        .map_err(|_| IndexerError::Decode("body opcode is missing"))?;
+    if opcode != DEPOSIT_RECORDED_OPCODE {
+        return Err(IndexerError::Validation("unexpected deposit event opcode"));
+    }
+    let query_id = parser
+        .load_u64(64)
+        .map_err(|_| IndexerError::Decode("query_id is malformed"))?;
+    let event_deposit_id = parser
+        .load_tonhash()
+        .map(hash32_from_tonhash)
+        .map_err(|_| IndexerError::Decode("deposit_id is malformed"))?;
+    let asset_id = parser
+        .load_u32(32)
+        .map_err(|_| IndexerError::Decode("asset_id is malformed"))?;
+    let amount = parser
+        .load_coins()
+        .map_err(|_| IndexerError::Decode("amount is malformed"))
+        .and_then(biguint_to_u128)?;
+    let recipient = parser
+        .load_tonhash()
+        .map(hash32_from_tonhash)
+        .map_err(|_| IndexerError::Decode("l2_recipient is malformed"))?;
+    parser
+        .next_reference()
+        .map_err(|_| IndexerError::Decode("extra ref is missing"))?;
+    if parser.remaining_bits() != 0 || parser.remaining_refs() != 0 {
+        return Err(IndexerError::Decode("deposit body has trailing data"));
+    }
+
+    Ok(DecodedDepositRecorded {
+        event_deposit_id,
+        asset_id,
+        amount,
+        recipient,
+        query_id,
     })
 }
 
@@ -398,6 +480,39 @@ fn parse_uint256_hash(value: &Value) -> Result<Hash32, IndexerError> {
 fn parse_message_hash(value: Option<&String>) -> Result<Hash32, IndexerError> {
     let value = value.ok_or(IndexerError::Decode("message hash is missing"))?;
     parse_hash_or_base64(value)
+}
+
+fn ton_addresses_match(left: &str, right: &str) -> bool {
+    match (canonical_ton_address(left), canonical_ton_address(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => left == right,
+    }
+}
+
+fn canonical_ton_address(value: &str) -> Option<String> {
+    TonAddress::from_base64_url(value)
+        .or_else(|_| TonAddress::from_base64_std(value))
+        .or_else(|_| TonAddress::from_hex_str(value))
+        .ok()
+        .map(|address| address.to_hex())
+}
+
+fn hash32_from_tonhash(value: tonlib_core::types::TonHash) -> Hash32 {
+    let bytes: [u8; 32] = value
+        .as_slice()
+        .try_into()
+        .expect("TonHash is always 32 bytes");
+    Hash32::new(bytes)
+}
+
+fn biguint_to_u128(value: num_bigint::BigUint) -> Result<u128, IndexerError> {
+    let bytes = value.to_bytes_be();
+    if bytes.len() > 16 {
+        return Err(IndexerError::Decode("amount exceeds u128"));
+    }
+    let mut out = [0u8; 16];
+    out[16 - bytes.len()..].copy_from_slice(&bytes);
+    Ok(u128::from_be_bytes(out))
 }
 
 fn parse_hash_or_decimal(value: &str) -> Result<Hash32, IndexerError> {

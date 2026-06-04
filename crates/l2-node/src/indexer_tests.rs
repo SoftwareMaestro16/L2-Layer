@@ -77,6 +77,47 @@ async fn parses_sanitized_toncenter_jetton_deposit_fixture() {
 }
 
 #[tokio::test]
+async fn parses_live_toncenter_deposit_recorded_body_without_decoded_json() {
+    let live_vault = "kQCjkts9rtghtwQ5pVydTlqcnCBsWtMxcTdZKGq9kc_HdQcP";
+    let live_source = "0:A392DB3DAED821B70439A55C9D4E5A9C9C206C5AD331713759286ABD91CFC775";
+    let live_message_hash = "MJBj26d4CQrOF99+A1mxfgltgnPLo74QbnNfu7GrZEs=";
+    let live_body = "te6cckEBAgEAfAABqUwyRAcAABAx1UVSijjEK9miLDGhw4S72Ey788OA5OkePJZ9USO7j6aK28hOAAAAAUBfXhAN1K4ZJPEPShq6VTGZxxV2C3iQd9Xk+mLKc1+PoHUBKXgBAEOACZ+f2IxxSW/yjeoghn88fdiiH0q+4Gt6Mzkc4WDgQV0wSgxNyA==";
+    let config = DepositIndexerConfig {
+        vault_address: live_vault.to_owned(),
+        allowed_asset_ids: vec![1],
+        batch_limit: 100,
+        confirmation_lag_lt: 0,
+    };
+    let message = ToncenterMessage {
+        hash: Some(live_message_hash.to_owned()),
+        hash_norm: None,
+        source: Some(live_source.to_owned()),
+        destination: None,
+        opcode: Some(json!("0x4c324407")),
+        created_lt: Some(json!("74405780000002")),
+        message_content: Some(ToncenterMessageContent {
+            body: Some(live_body.to_owned()),
+            decoded: None,
+        }),
+    };
+
+    let deposit = parse_deposit_message(&message, &config).expect("live deposit");
+
+    assert_eq!(deposit.asset_id, 1);
+    assert_eq!(deposit.amount, 100000000);
+    assert_eq!(
+        deposit.recipient,
+        Hash32::from_hex("dd4ae1924f10f4a1aba553199c715760b789077d5e4fa62ca735f8fa07501297")
+            .unwrap()
+    );
+    assert_eq!(deposit.l1_lt, 74405780000002);
+    assert_eq!(
+        deposit.l1_tx_hash,
+        parse_hash_or_base64(live_message_hash).unwrap()
+    );
+}
+
+#[tokio::test]
 async fn rejects_forged_or_malformed_events() {
     let mut forged = deposit_message(7, 10, hash(0x44));
     forged.source = Some("EQattacker".to_owned());
