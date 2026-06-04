@@ -32,6 +32,7 @@ flowchart TB
 - `crates/l2-node`: Axum HTTP/WebSocket node exposing the planned L2 API.
 - `contracts/l1`: Tolk contract sources for `RollupRoot` and `AssetVault`.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
+- `dashboard`: Static explorer/operator dashboard that calls the L2 API.
 - `docs`: Architecture, local operation notes, CI quality gates, and operator runbooks.
 
 ## Current MVP Boundaries

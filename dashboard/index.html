@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Entropis Operator Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Entropis Dashboard</h1>
+        <p class="muted">testnet prototype explorer</p>
+      </div>
+      <form id="settings-form" class="settings">
+        <label>
+          API
+          <input id="api-base" type="url" value="http://127.0.0.1:8080" />
+        </label>
+        <label>
+          Admin token
+          <input id="admin-token" type="password" autocomplete="off" placeholder="operator only" />
+        </label>
+        <label>
+          Registry
+          <input id="registry-url" type="text" value="../deployments/testnet/entropis.json" />
+        </label>
+        <button type="submit">Refresh</button>
+      </form>
+    </header>
+
+    <main class="layout">
+      <section class="panel span-2">
+        <div class="panel-head">
+          <h2>Prototype Status</h2>
+          <button id="refresh-public" type="button">Refresh Public</button>
+        </div>
+        <div id="summary" class="summary-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Testnet Contracts</h2>
+          <button id="load-registry" type="button">Load Registry</button>
+        </div>
+        <div id="contracts" class="kv-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Lookup</h2>
+        </div>
+        <div class="lookup-grid">
+          <label>
+            Tx hash
+            <input id="tx-hash" type="text" spellcheck="false" />
+          </label>
+          <button id="lookup-tx" type="button">Find Tx</button>
+          <label>
+            Account id
+            <input id="account-id" type="text" spellcheck="false" />
+          </label>
+          <button id="lookup-account" type="button">Find Account</button>
+          <label>
+            Deposit id
+            <input id="deposit-id" type="text" spellcheck="false" />
+          </label>
+          <button id="lookup-deposit" type="button">Find Deposit</button>
+          <label>
+            Withdrawal id
+            <input id="withdrawal-id" type="text" spellcheck="false" />
+          </label>
+          <button id="lookup-withdrawal" type="button">Find Withdrawal</button>
+        </div>
+      </section>
+
+      <section class="panel span-2">
+        <div class="panel-head">
+          <h2>Latest Blocks</h2>
+        </div>
+        <div id="blocks"></div>
+      </section>
+
+      <section class="panel span-2">
+        <div class="panel-head">
+          <h2>Recent Deposits</h2>
+        </div>
+        <div id="deposits"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Lookup Result</h2>
+        </div>
+        <pre id="lookup-result" class="json-box"></pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Operator</h2>
+          <button id="refresh-operator" type="button">Refresh Operator</button>
+        </div>
+        <div id="operator-status" class="kv-list"></div>
+        <pre id="operator-json" class="json-box"></pre>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

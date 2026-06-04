@@ -47,6 +47,11 @@ Useful endpoints:
 - `GET /v1/operator/failures`
 - `GET /v1/operator/batch-relayer`
 - `GET /v1/operator/batch-finalizer`
+- `GET /v1/explorer/summary`
+- `GET /v1/explorer/blocks`
+- `GET /v1/explorer/deposits`
+- `GET /v1/explorer/deposit/{deposit_id_hex}`
+- `GET /v1/explorer/withdrawal/{withdrawal_id_hex}`
 - `GET /v1/proof/withdrawal/{withdrawal_id_hex}`
 - `WS /v1/stream`
 
@@ -76,6 +81,18 @@ and current failed withdrawal visibility.
 
 Use `docs/operator-runbooks.md` for common failure handling, alert thresholds, and
 log safety rules.
+
+## Static dashboard
+
+The optional dashboard is a static frontend in `dashboard/`. Open
+`dashboard/index.html` and point the API field at the node URL. Public panels use
+only public API endpoints. The operator panel asks for the admin bearer token at
+runtime, keeps it only in memory, and can read readiness, failure, relayer, and
+finalizer views.
+
+Contract links are loaded from a deployment registry URL when one exists, for
+example `deployments/testnet/entropis.json`. The dashboard turns RollupRoot and
+AssetVault registry addresses into Tonviewer Testnet links.
 
 ## Mempool admission limits
 
