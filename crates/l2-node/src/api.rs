@@ -2,6 +2,9 @@ use crate::config::NodeConfig;
 use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::{MempoolError, MempoolService};
+use crate::relayer::{
+    BatchRelayer, BatchRelayerConfig, RemoteCommitBatchSigner, ToncenterCommitProvider,
+};
 use crate::storage::{DynStorage, StorageError};
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -74,6 +77,7 @@ pub async fn serve(
     let state = AppState::new(&config, storage, mempool)?;
     spawn_block_producer(state.clone());
     spawn_deposit_indexer(&config, state.clone());
+    spawn_batch_relayer(&config, state.storage.clone());
 
     let app = build_router(state);
 
@@ -251,6 +255,43 @@ fn spawn_deposit_indexer(config: &NodeConfig, state: AppState) {
                     "ton deposit indexer poll completed"
                 ),
                 Err(error) => tracing::warn!(?error, "ton deposit indexer poll failed"),
+            }
+        }
+    });
+}
+
+fn spawn_batch_relayer(config: &NodeConfig, storage: DynStorage) {
+    let Some(relayer_config) = BatchRelayerConfig::from_node_config(config) else {
+        return;
+    };
+    let Some(signer) = RemoteCommitBatchSigner::from_config(config) else {
+        tracing::error!("batch relayer enabled without signer config");
+        return;
+    };
+    let poll_interval = Duration::from_millis(relayer_config.poll_interval_ms);
+    let retry_backoff = Duration::from_millis(relayer_config.retry_backoff_ms);
+    let relayer = BatchRelayer::new(
+        relayer_config,
+        storage,
+        signer,
+        ToncenterCommitProvider::from_config(config),
+    );
+    tokio::spawn(async move {
+        loop {
+            sleep(poll_interval).await;
+            match relayer.relay_once().await {
+                Ok(stats) => tracing::info!(
+                    considered = stats.considered,
+                    submitted = stats.submitted,
+                    confirmed = stats.confirmed,
+                    failed = stats.failed,
+                    skipped = stats.skipped,
+                    "batch relayer poll completed"
+                ),
+                Err(error) => {
+                    tracing::warn!(?error, "batch relayer poll failed");
+                    sleep(retry_backoff).await;
+                }
             }
         }
     });

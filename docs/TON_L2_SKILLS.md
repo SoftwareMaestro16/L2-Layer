@@ -79,6 +79,7 @@ TON_L2_SKILLS = {
     "Sequencer owns ordering in the MVP: ingest deposits, validate L2 txs, sort/canonicalize, execute deterministically, produce receipts and state root.",
     "Batch building should include previous state root, new state root, tx root, receipt root, withdrawal root, DA hash, and monotonic batch number.",
     "Deterministic batch building is isolated from mempool, execution, storage, Redis, network, and wall-clock reads; it consumes ordered txs, receipts, withdrawals, previous header/root, final state root, and an explicit timestamp.",
+    "RollupRoot batch numbers are one-based while L2 block heights are zero-based; block height 0 must be committed as batchNo 1.",
     "Mempool admission must reject malformed signatures, bad nonces, insufficient balances, unsupported call types, and non-canonical encodings.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."
@@ -87,6 +88,8 @@ TON_L2_SKILLS = {
     "TON deposits: user sends TON to AssetVault with DepositTon body; vault records locked amount and emits DepositRecorded external log.",
     "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles transfer_notification.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection.",
+    "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
+    "The node should not hold raw TON wallet credentials for relaying; use a signer boundary and verify the returned signer address matches RollupRoot.sequencer before broadcasting.",
     "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits leaf + Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
     "AssetVault must handle bounce/failure paths and avoid double release through claimed withdrawal tracking at RollupRoot."
   ],

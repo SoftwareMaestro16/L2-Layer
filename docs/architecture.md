@@ -13,7 +13,9 @@ flowchart TB
   Sequencer --> Builder["Deterministic Batch Builder"]
   State --> Builder
   Builder --> DA["Batch DA publisher"]
-  Builder --> Relayer["TON Relayer"]
+  Builder --> CommitQueue["Postgres l1_batch_commits"]
+  CommitQueue --> Relayer["TON Batch Relayer"]
+  Signer["Sequencer Signer Service"] --> Relayer
   Relayer --> Root["RollupRoot.tolk"]
   User --> Vault["AssetVault.tolk"]
   Root --> Vault
@@ -47,3 +49,13 @@ opcode, logical time cursor, and expected bridged TON asset id. Each valid event
 stored through the deposit table before it is handed to the sequencer, so replayed
 `l1_tx_hash + lt` events are idempotent. Malformed expected logs do not advance the
 cursor; temporary TON API failures are logged and do not block block production.
+
+## Batch Relaying
+
+Each persisted L2 block creates a pending `l1_batch_commits` row. The relayer
+maps block height `0` to RollupRoot batch number `1`, forms `BatchRootsA`
+(`prevStateRoot`, `stateRoot`, `txRoot`) and `BatchRootsB` (`receiptRoot`,
+`withdrawalRoot`, `dataHash`), asks the sequencer signer service for a signed
+external message BoC, and sends that BoC to Toncenter v3 `/message`. The node
+stores `pending`, `submitted`, `confirmed`, or `failed` status per batch and
+uses bounded retries to avoid a retry storm during TON API or signer failures.

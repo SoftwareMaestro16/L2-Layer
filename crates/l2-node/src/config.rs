@@ -3,6 +3,16 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+#[path = "config_helpers.rs"]
+mod helpers;
+
+pub use helpers::SecretString;
+use helpers::{
+    bool_literal, optional, optional_secret, optional_string, parse_bool, parse_network,
+    parse_u128, parse_u16, parse_u32, parse_u64, parse_u8, path_exists_in_cwd_or_ancestors,
+    required,
+};
+
 const DEFAULT_NODE_ADDR: &str = "127.0.0.1:8080";
 const DEFAULT_CHAIN_ID: &str = "entropis-testnet";
 const DEFAULT_L2_NAME: &str = "Entropis";
@@ -21,33 +31,15 @@ const DEFAULT_L1_DEPOSIT_BATCH_LIMIT: u16 = 100;
 const DEFAULT_L1_DEPOSIT_CONFIRMATION_LAG_LT: u64 = 0;
 const DEFAULT_L1_TON_ASSET_ID: u32 = 1;
 const DEFAULT_DEV_ADMIN_DEPOSITS_ENABLED: bool = false;
+const DEFAULT_L1_BATCH_RELAYER_ENABLED: bool = false;
+const DEFAULT_L1_COMMIT_MSG_VALUE_NANOTON: u64 = 100_000_000;
+const DEFAULT_L1_BATCH_RELAYER_POLL_INTERVAL_MS: u64 = 5_000;
+const DEFAULT_L1_BATCH_RELAYER_RETRY_BACKOFF_MS: u64 = 15_000;
+const DEFAULT_L1_BATCH_RELAYER_MAX_ATTEMPTS: u32 = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TonNetwork {
     Testnet,
-}
-
-#[derive(Clone, Eq, PartialEq)]
-pub struct SecretString(String);
-
-impl SecretString {
-    pub fn new(value: String) -> anyhow::Result<Self> {
-        let value = value.trim().to_owned();
-        if value.is_empty() {
-            return Err(anyhow!("secret value must not be empty"));
-        }
-        Ok(Self(value))
-    }
-
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Debug for SecretString {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("\"<redacted>\"")
-    }
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -77,6 +69,15 @@ pub struct NodeConfig {
     pub l1_deposit_confirmation_lag_lt: u64,
     pub l1_ton_asset_id: u32,
     pub dev_admin_deposits_enabled: bool,
+    pub l1_batch_relayer_enabled: bool,
+    pub l1_rollup_root_address: Option<String>,
+    pub l1_sequencer_sender_address: Option<String>,
+    pub l1_commit_signer_endpoint: Option<String>,
+    pub l1_commit_signer_token: Option<SecretString>,
+    pub l1_commit_msg_value_nanoton: u64,
+    pub l1_batch_relayer_poll_interval_ms: u64,
+    pub l1_batch_relayer_retry_backoff_ms: u64,
+    pub l1_batch_relayer_max_attempts: u32,
 }
 
 impl NodeConfig {
@@ -191,6 +192,51 @@ impl NodeConfig {
             ),
             "L2_DEV_ADMIN_DEPOSITS_ENABLED",
         )?;
+        let l1_batch_relayer_enabled = parse_bool(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_RELAYER_ENABLED",
+                bool_literal(DEFAULT_L1_BATCH_RELAYER_ENABLED),
+            ),
+            "L1_BATCH_RELAYER_ENABLED",
+        )?;
+        let l1_rollup_root_address = optional_string(&mut lookup, "L1_ROLLUP_ROOT_ADDRESS");
+        let l1_sequencer_sender_address =
+            optional_string(&mut lookup, "L1_SEQUENCER_SENDER_ADDRESS");
+        let l1_commit_signer_endpoint = optional_string(&mut lookup, "L1_COMMIT_SIGNER_ENDPOINT");
+        let l1_commit_signer_token = optional_secret(&mut lookup, "L1_COMMIT_SIGNER_TOKEN")?;
+        let l1_commit_msg_value_nanoton = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_COMMIT_MSG_VALUE_NANOTON",
+                &DEFAULT_L1_COMMIT_MSG_VALUE_NANOTON.to_string(),
+            ),
+            "L1_COMMIT_MSG_VALUE_NANOTON",
+        )?;
+        let l1_batch_relayer_poll_interval_ms = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_RELAYER_POLL_INTERVAL_MS",
+                &DEFAULT_L1_BATCH_RELAYER_POLL_INTERVAL_MS.to_string(),
+            ),
+            "L1_BATCH_RELAYER_POLL_INTERVAL_MS",
+        )?;
+        let l1_batch_relayer_retry_backoff_ms = parse_u64(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_RELAYER_RETRY_BACKOFF_MS",
+                &DEFAULT_L1_BATCH_RELAYER_RETRY_BACKOFF_MS.to_string(),
+            ),
+            "L1_BATCH_RELAYER_RETRY_BACKOFF_MS",
+        )?;
+        let l1_batch_relayer_max_attempts = parse_u32(
+            &optional(
+                &mut lookup,
+                "L1_BATCH_RELAYER_MAX_ATTEMPTS",
+                &DEFAULT_L1_BATCH_RELAYER_MAX_ATTEMPTS.to_string(),
+            ),
+            "L1_BATCH_RELAYER_MAX_ATTEMPTS",
+        )?;
 
         let config = Self {
             l2_name,
@@ -218,6 +264,15 @@ impl NodeConfig {
             l1_deposit_confirmation_lag_lt,
             l1_ton_asset_id,
             dev_admin_deposits_enabled,
+            l1_batch_relayer_enabled,
+            l1_rollup_root_address,
+            l1_sequencer_sender_address,
+            l1_commit_signer_endpoint,
+            l1_commit_signer_token,
+            l1_commit_msg_value_nanoton,
+            l1_batch_relayer_poll_interval_ms,
+            l1_batch_relayer_retry_backoff_ms,
+            l1_batch_relayer_max_attempts,
         };
         config.validate()?;
         Ok(config)
@@ -278,6 +333,51 @@ impl NodeConfig {
                 "L1_TON_ASSET_ID must not equal the ENT gas asset id"
             ));
         }
+        if self.l1_batch_relayer_enabled {
+            if self.l1_rollup_root_address.is_none() {
+                return Err(anyhow!(
+                    "L1_ROLLUP_ROOT_ADDRESS is required when L1_BATCH_RELAYER_ENABLED=true"
+                ));
+            }
+            if self.l1_sequencer_sender_address.is_none() {
+                return Err(anyhow!(
+                    "L1_SEQUENCER_SENDER_ADDRESS is required when L1_BATCH_RELAYER_ENABLED=true"
+                ));
+            }
+            if self.l1_commit_signer_endpoint.is_none() {
+                return Err(anyhow!(
+                    "L1_COMMIT_SIGNER_ENDPOINT is required when L1_BATCH_RELAYER_ENABLED=true"
+                ));
+            }
+            if self.l1_commit_signer_token.is_none() {
+                return Err(anyhow!(
+                    "L1_COMMIT_SIGNER_TOKEN is required when L1_BATCH_RELAYER_ENABLED=true"
+                ));
+            }
+        }
+        if let Some(endpoint) = self.l1_commit_signer_endpoint.as_deref() {
+            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+                return Err(anyhow!("L1_COMMIT_SIGNER_ENDPOINT must be an HTTP URL"));
+            }
+        }
+        if self.l1_commit_msg_value_nanoton == 0 {
+            return Err(anyhow!("L1_COMMIT_MSG_VALUE_NANOTON must be non-zero"));
+        }
+        if self.l1_batch_relayer_poll_interval_ms == 0 {
+            return Err(anyhow!(
+                "L1_BATCH_RELAYER_POLL_INTERVAL_MS must be non-zero"
+            ));
+        }
+        if self.l1_batch_relayer_retry_backoff_ms == 0 {
+            return Err(anyhow!(
+                "L1_BATCH_RELAYER_RETRY_BACKOFF_MS must be non-zero"
+            ));
+        }
+        if self.l1_batch_relayer_max_attempts == 0 || self.l1_batch_relayer_max_attempts > 100 {
+            return Err(anyhow!(
+                "L1_BATCH_RELAYER_MAX_ATTEMPTS must be between 1 and 100"
+            ));
+        }
         Ok(())
     }
 
@@ -327,90 +427,31 @@ impl fmt::Debug for NodeConfig {
                 "dev_admin_deposits_enabled",
                 &self.dev_admin_deposits_enabled,
             )
+            .field("l1_batch_relayer_enabled", &self.l1_batch_relayer_enabled)
+            .field("l1_rollup_root_address", &self.l1_rollup_root_address)
+            .field(
+                "l1_sequencer_sender_address",
+                &self.l1_sequencer_sender_address,
+            )
+            .field("l1_commit_signer_endpoint", &self.l1_commit_signer_endpoint)
+            .field("l1_commit_signer_token", &self.l1_commit_signer_token)
+            .field(
+                "l1_commit_msg_value_nanoton",
+                &self.l1_commit_msg_value_nanoton,
+            )
+            .field(
+                "l1_batch_relayer_poll_interval_ms",
+                &self.l1_batch_relayer_poll_interval_ms,
+            )
+            .field(
+                "l1_batch_relayer_retry_backoff_ms",
+                &self.l1_batch_relayer_retry_backoff_ms,
+            )
+            .field(
+                "l1_batch_relayer_max_attempts",
+                &self.l1_batch_relayer_max_attempts,
+            )
             .finish()
-    }
-}
-
-fn parse_network(value: &str) -> anyhow::Result<TonNetwork> {
-    match value {
-        "testnet" => Ok(TonNetwork::Testnet),
-        _ => Err(anyhow!("TON_NETWORK must be testnet")),
-    }
-}
-
-fn optional(lookup: &mut impl FnMut(&str) -> Option<String>, key: &str, default: &str) -> String {
-    lookup(key)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| default.to_owned())
-}
-
-fn required(lookup: &mut impl FnMut(&str) -> Option<String>, key: &str) -> anyhow::Result<String> {
-    lookup(key)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| anyhow!("{key} is required"))
-}
-
-fn parse_u32(value: &str, key: &str) -> anyhow::Result<u32> {
-    value
-        .parse::<u32>()
-        .with_context(|| format!("{key} must be an unsigned 32-bit integer"))
-}
-
-fn parse_u16(value: &str, key: &str) -> anyhow::Result<u16> {
-    value
-        .parse::<u16>()
-        .with_context(|| format!("{key} must be an unsigned 16-bit integer"))
-}
-
-fn parse_u64(value: &str, key: &str) -> anyhow::Result<u64> {
-    value
-        .parse::<u64>()
-        .with_context(|| format!("{key} must be an unsigned 64-bit integer"))
-}
-
-fn parse_u128(value: &str, key: &str) -> anyhow::Result<u128> {
-    value
-        .parse::<u128>()
-        .with_context(|| format!("{key} must be an unsigned 128-bit integer"))
-}
-
-fn parse_u8(value: &str, key: &str) -> anyhow::Result<u8> {
-    value
-        .parse::<u8>()
-        .with_context(|| format!("{key} must be an unsigned 8-bit integer"))
-}
-
-fn parse_bool(value: &str, key: &str) -> anyhow::Result<bool> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        _ => Err(anyhow!("{key} must be true or false")),
-    }
-}
-
-fn bool_literal(value: bool) -> &'static str {
-    if value {
-        "true"
-    } else {
-        "false"
-    }
-}
-
-fn path_exists_in_cwd_or_ancestors(path: &PathBuf) -> bool {
-    if path.is_absolute() {
-        return path.is_file();
-    }
-
-    let Ok(mut current) = std::env::current_dir() else {
-        return false;
-    };
-    loop {
-        if current.join(path).is_file() {
-            return true;
-        }
-        if !current.pop() {
-            return false;
-        }
     }
 }
 

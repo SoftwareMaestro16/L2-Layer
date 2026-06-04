@@ -3,7 +3,9 @@ use l2_core::{DepositEvent, Hash32, L2Block, WithdrawalProof};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::Row;
 
-use super::{L1Cursor, Storage, StorageError, StoredTransaction};
+use super::{
+    BatchCommitRecord, BatchCommitStatus, L1Cursor, Storage, StorageError, StoredTransaction,
+};
 
 #[derive(Clone, Debug)]
 pub struct PostgresStorage {
@@ -99,6 +101,24 @@ impl Storage for PostgresStorage {
             .bind(block_height)
             .bind(checked_i32(index, "withdrawal_index")?)
             .bind(serde_json::to_value(withdrawal)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if let Some(record) = BatchCommitRecord::pending(&block) {
+            sqlx::query(
+                r#"
+                INSERT INTO l1_batch_commits (
+                    batch_no, block_height, block_hash, status
+                )
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (batch_no) DO NOTHING
+                "#,
+            )
+            .bind(checked_i64(record.batch_no, "batch_no")?)
+            .bind(checked_i64(record.block_height, "block_height")?)
+            .bind(record.block_hash.to_hex())
+            .bind(record.status.as_str())
             .execute(&mut *tx)
             .await?;
         }
@@ -251,6 +271,95 @@ impl Storage for PostgresStorage {
         .await?;
         Ok(())
     }
+
+    async fn get_batch_commit(
+        &self,
+        batch_no: u64,
+    ) -> Result<Option<BatchCommitRecord>, StorageError> {
+        let Some(row) = sqlx::query(
+            r#"
+            SELECT batch_no, block_height, block_hash, status, attempts,
+                   message_hash, message_hash_norm, last_error
+            FROM l1_batch_commits
+            WHERE batch_no = $1
+            "#,
+        )
+        .bind(checked_i64(batch_no, "batch_no")?)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(batch_commit_record_from_row(&row)?))
+    }
+
+    async fn list_batch_commits(
+        &self,
+        statuses: &[BatchCommitStatus],
+        max_attempts: u32,
+        limit: u32,
+    ) -> Result<Vec<BatchCommitRecord>, StorageError> {
+        let statuses = statuses
+            .iter()
+            .map(|status| status.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let rows = sqlx::query(
+            r#"
+            SELECT batch_no, block_height, block_hash, status, attempts,
+                   message_hash, message_hash_norm, last_error
+            FROM l1_batch_commits
+            WHERE status = ANY($1) AND attempts < $2
+            ORDER BY batch_no ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(statuses)
+        .bind(checked_i32(max_attempts as usize, "max_attempts")?)
+        .bind(checked_i32(limit as usize, "limit")?)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(batch_commit_record_from_row).collect()
+    }
+
+    async fn save_batch_commit(&self, record: BatchCommitRecord) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"
+            INSERT INTO l1_batch_commits (
+                batch_no, block_height, block_hash, status, attempts,
+                message_hash, message_hash_norm, last_error
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (batch_no) DO UPDATE SET
+                block_height = EXCLUDED.block_height,
+                block_hash = EXCLUDED.block_hash,
+                status = EXCLUDED.status,
+                attempts = EXCLUDED.attempts,
+                message_hash = EXCLUDED.message_hash,
+                message_hash_norm = EXCLUDED.message_hash_norm,
+                last_error = EXCLUDED.last_error,
+                updated_at = now()
+            "#,
+        )
+        .bind(checked_i64(record.batch_no, "batch_no")?)
+        .bind(checked_i64(record.block_height, "block_height")?)
+        .bind(record.block_hash.to_hex())
+        .bind(record.status.as_str())
+        .bind(
+            i32::try_from(record.attempts).map_err(|_| StorageError::BigIntOverflow {
+                field: "attempts",
+                value: u64::from(record.attempts),
+            })?,
+        )
+        .bind(record.message_hash.map(Hash32::to_hex))
+        .bind(record.message_hash_norm.map(Hash32::to_hex))
+        .bind(record.last_error)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 fn checked_i64(value: u64, field: &'static str) -> Result<i64, StorageError> {
@@ -262,4 +371,39 @@ fn checked_i32(value: usize, field: &'static str) -> Result<i32, StorageError> {
         field,
         value: value as u64,
     })
+}
+
+fn batch_commit_record_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<BatchCommitRecord, StorageError> {
+    let batch_no: i64 = row.try_get("batch_no")?;
+    let block_height: i64 = row.try_get("block_height")?;
+    let block_hash: String = row.try_get("block_hash")?;
+    let status: String = row.try_get("status")?;
+    let attempts: i32 = row.try_get("attempts")?;
+    let message_hash: Option<String> = row.try_get("message_hash")?;
+    let message_hash_norm: Option<String> = row.try_get("message_hash_norm")?;
+    let last_error: Option<String> = row.try_get("last_error")?;
+
+    Ok(BatchCommitRecord {
+        batch_no: batch_no as u64,
+        block_height: block_height as u64,
+        block_hash: parse_hash("l1_batch_commits.block_hash", block_hash)?,
+        status: BatchCommitStatus::parse(&status).ok_or(StorageError::InvalidStatus {
+            field: "l1_batch_commits.status",
+            value: status,
+        })?,
+        attempts: attempts as u32,
+        message_hash: message_hash
+            .map(|value| parse_hash("l1_batch_commits.message_hash", value))
+            .transpose()?,
+        message_hash_norm: message_hash_norm
+            .map(|value| parse_hash("l1_batch_commits.message_hash_norm", value))
+            .transpose()?,
+        last_error,
+    })
+}
+
+fn parse_hash(field: &'static str, value: String) -> Result<Hash32, StorageError> {
+    Hash32::from_hex(&value).map_err(|_| StorageError::InvalidHash { field, value })
 }

@@ -57,6 +57,7 @@ fn valid_entropis_testnet_config_loads() {
     assert!(config.ent_faucet_require_admin);
     assert!(config.dev_admin_deposits_enabled);
     assert!(!config.l1_deposit_indexer_enabled);
+    assert!(!config.l1_batch_relayer_enabled);
 }
 
 #[test]
@@ -126,6 +127,44 @@ fn config_validates_l1_indexer_settings() {
 }
 
 #[test]
+fn config_validates_l1_batch_relayer_settings() {
+    let mut env = valid_env();
+    env.insert("L1_BATCH_RELAYER_ENABLED".to_owned(), "true".to_owned());
+    assert!(load_from(&env).is_err());
+
+    env.insert("L1_ROLLUP_ROOT_ADDRESS".to_owned(), "EQroot".to_owned());
+    env.insert(
+        "L1_SEQUENCER_SENDER_ADDRESS".to_owned(),
+        "EQsequencer".to_owned(),
+    );
+    env.insert(
+        "L1_COMMIT_SIGNER_ENDPOINT".to_owned(),
+        "not-a-url".to_owned(),
+    );
+    env.insert(
+        "L1_COMMIT_SIGNER_TOKEN".to_owned(),
+        "test-signer-token".to_owned(),
+    );
+    assert!(load_from(&env).is_err());
+
+    env.insert(
+        "L1_COMMIT_SIGNER_ENDPOINT".to_owned(),
+        "http://127.0.0.1:8800/sign-commit".to_owned(),
+    );
+    env.insert("L1_BATCH_RELAYER_MAX_ATTEMPTS".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    env.insert("L1_BATCH_RELAYER_MAX_ATTEMPTS".to_owned(), "8".to_owned());
+    let config = load_from(&env).expect("relayer config");
+    assert!(config.l1_batch_relayer_enabled);
+    assert_eq!(config.l1_rollup_root_address.as_deref(), Some("EQroot"));
+    assert_eq!(
+        config.l1_sequencer_sender_address.as_deref(),
+        Some("EQsequencer")
+    );
+}
+
+#[test]
 fn debug_output_redacts_secrets() {
     let env = valid_env();
     let config = load_from(&env).expect("config");
@@ -137,4 +176,23 @@ fn debug_output_redacts_secrets() {
     assert!(!debug.contains(env.get("DATABASE_URL").unwrap()));
     assert!(!debug.contains(env.get("REDIS_URL").unwrap()));
     assert!(!debug.contains(env.get("L2_ADMIN_TOKEN").unwrap()));
+
+    let mut env = valid_env();
+    env.insert("L1_BATCH_RELAYER_ENABLED".to_owned(), "true".to_owned());
+    env.insert("L1_ROLLUP_ROOT_ADDRESS".to_owned(), "EQroot".to_owned());
+    env.insert(
+        "L1_SEQUENCER_SENDER_ADDRESS".to_owned(),
+        "EQsequencer".to_owned(),
+    );
+    env.insert(
+        "L1_COMMIT_SIGNER_ENDPOINT".to_owned(),
+        "http://127.0.0.1:8800/sign-commit".to_owned(),
+    );
+    env.insert(
+        "L1_COMMIT_SIGNER_TOKEN".to_owned(),
+        "test-signer-token".to_owned(),
+    );
+    let config = load_from(&env).expect("relayer config");
+    let debug = format!("{config:?}");
+    assert!(!debug.contains(env.get("L1_COMMIT_SIGNER_TOKEN").unwrap()));
 }

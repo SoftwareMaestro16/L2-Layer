@@ -24,6 +24,7 @@ runtime keys:
 - `ENT_FAUCET_REQUIRE_ADMIN=true`
 - `L2_DEV_ADMIN_DEPOSITS_ENABLED=true` for local-only manual deposits
 - `L1_DEPOSIT_INDEXER_ENABLED=false` until a testnet `AssetVault` address is deployed
+- `L1_BATCH_RELAYER_ENABLED=false` until `RollupRoot` and a sequencer signer are ready
 
 `l2-node` refuses mainnet config and redacts secret values from debug logs.
 
@@ -76,6 +77,30 @@ It polls Toncenter v3 `/messages` for `DepositRecorded` external logs emitted by
 the configured vault, stores progress in `l1_cursors`, saves deposits idempotently,
 and feeds new deposits into the sequencer. Malformed expected logs fail closed and
 do not advance the cursor.
+
+## TON batch relayer
+
+The batch relayer is disabled by default. Enable it only after `RollupRoot` is
+deployed and its `sequencer` storage address matches the configured sender:
+
+```text
+L1_BATCH_RELAYER_ENABLED=true
+L1_ROLLUP_ROOT_ADDRESS=<rollup root address>
+L1_SEQUENCER_SENDER_ADDRESS=<wallet address authorized as RollupRoot.sequencer>
+L1_COMMIT_SIGNER_ENDPOINT=http://127.0.0.1:8800/sign-commit
+L1_COMMIT_SIGNER_TOKEN=<local signer bearer token>
+L1_COMMIT_MSG_VALUE_NANOTON=100000000
+L1_BATCH_RELAYER_POLL_INTERVAL_MS=5000
+L1_BATCH_RELAYER_RETRY_BACKOFF_MS=15000
+L1_BATCH_RELAYER_MAX_ATTEMPTS=8
+```
+
+The node does not store raw wallet credentials. It sends a `CommitBatch` signing
+request to a local/remote signer service, verifies the returned signer address
+matches `L1_SEQUENCER_SENDER_ADDRESS`, then broadcasts the signed external BoC
+through Toncenter v3 `/message`. Submitted message hashes are stored in
+`l1_batch_commits`; confirmation is checked through Toncenter v3
+`/transactionsByMessage`. Retries are bounded by `L1_BATCH_RELAYER_MAX_ATTEMPTS`.
 
 ## Acton
 
