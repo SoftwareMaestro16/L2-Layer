@@ -90,7 +90,8 @@ TON_L2_SKILLS = {
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
     "The node should not hold raw TON wallet credentials for relaying; use a signer boundary and verify the returned signer address matches RollupRoot.sequencer before broadcasting.",
-    "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits leaf + Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
+    "Withdrawals: L2 creates withdrawal leaves; after batch finalization, user submits a ReleaseAuthorized leaf cell + compact Merkle proof to RollupRoot; root sends ReleaseAuthorized to AssetVault.",
+    "The committed withdrawalRoot is the Merkle root of ReleaseAuthorized cell representation hashes; withdrawal tree node hashes are representation hashes of a compact cell containing left uint256 then right uint256.",
     "AssetVault must handle bounce/failure paths and avoid double release through claimed withdrawal tracking at RollupRoot."
   ],
   infrastructure: [
@@ -104,6 +105,7 @@ TON_L2_SKILLS = {
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",
+    "Bind ClaimWithdrawal.withdrawalId to the decoded ReleaseAuthorized.withdrawalId before marking claims or sending vault release messages.",
     "Use domain-separated hashes for deposits, transactions, receipts, withdrawals, and blocks.",
     "Never rely on unordered map iteration for root computation.",
     "Keep challengeWindowSec and finalization logic conservative until fraud proofs are implemented."

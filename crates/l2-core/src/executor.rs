@@ -3,6 +3,7 @@ use crate::state::State;
 use crate::types::{
     L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
 };
+use crate::withdrawal::validate_release_parts;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -102,6 +103,9 @@ impl DeterministicExecutor {
                 let Some(from) = tx.from else {
                     return rejected(tx_hash, "missing_sender");
                 };
+                if let Err(error) = validate_release_parts(*amount, l1_recipient) {
+                    return rejected(tx_hash, error.rejection_reason());
+                }
                 let gas = gas_cost(tx);
                 if !debit_total(state, from, *asset_id, *amount, config.gas_coin_asset, gas) {
                     return rejected(tx_hash, "insufficient_balance");

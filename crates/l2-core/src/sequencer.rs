@@ -243,10 +243,10 @@ impl Sequencer {
 mod tests {
     use super::*;
     use crate::crypto::{derive_account_id, sha256_bytes};
-    use crate::merkle::verify_merkle_proof;
     use crate::types::{
         L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
     };
+    use crate::withdrawal::verify_withdrawal_merkle_proof;
     use ed25519_dalek::{Signer, SigningKey};
     use rand_core::OsRng;
 
@@ -324,11 +324,10 @@ mod tests {
         let proof = block
             .withdrawal_proof(block.withdrawals[0].withdrawal_id)
             .expect("withdrawal proof");
-        assert!(verify_merkle_proof(
-            proof.withdrawal_root,
-            proof.leaf.leaf_hash(),
-            &proof.proof
-        ));
+        assert!(
+            verify_withdrawal_merkle_proof(proof.withdrawal_root, &proof.leaf, &proof.proof)
+                .expect("valid withdrawal proof encoding")
+        );
     }
 
     #[test]

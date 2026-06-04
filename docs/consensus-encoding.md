@@ -83,6 +83,23 @@ l2_sender:Hash32
 l1_recipient:string
 ```
 
+L1 withdrawal claim root:
+
+```text
+leaf_hash = repr_hash(ReleaseAuthorized.toCell())
+node_hash = repr_hash(beginCell()
+    .storeUint(left_hash, 256)
+    .storeUint(right_hash, 256)
+    .endCell())
+```
+
+`ReleaseAuthorized` is the Tolk message cell with opcode `0x4c325206`,
+`withdrawal_id:uint256`, `asset_id:uint32`, `recipient:address`, and
+`amount:coins`. The binary withdrawal leaf above remains the API/DA object, but
+`block_header.withdrawal_root` is the L1-compatible tree root so
+`RollupRoot.tolk` can verify claims on TVM without reimplementing the Rust/SDK
+binary encoder.
+
 Account leaf:
 
 ```text

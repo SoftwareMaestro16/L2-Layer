@@ -19,6 +19,7 @@ base64 = "0.22.1"
 dotenvy = "0.15.7"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 hex = "0.4.3"
+num-bigint = "0.4.6"
 rand_core = "0.6.4"
 redis = { version = "0.27.6", features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -28,6 +29,7 @@ sha2 = "0.10.9"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "migrate", "macros", "json"] }
 thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tonlib-core = "0.26.11"
 tower-http = { version = "0.6.6", features = ["cors", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

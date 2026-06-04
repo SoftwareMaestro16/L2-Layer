@@ -103,6 +103,7 @@ fun handleClaimWithdrawal(msg: ClaimWithdrawal) {
     ) throw Errors.BadWithdrawalProof;
 
     val withdrawal = lazy ReleaseAuthorized.fromCell(msg.withdrawalLeaf);
+    assert (withdrawal.withdrawalId == msg.withdrawalId) throw Errors.BadWithdrawalProof;
     storage.claimedWithdrawals.set(msg.withdrawalId, true);
     storage.save();
 

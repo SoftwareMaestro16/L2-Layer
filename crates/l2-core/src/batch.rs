@@ -62,7 +62,7 @@ impl BatchBuilder {
         }
         .canonical_hash();
 
-        Ok(L2Block::new(
+        L2Block::try_new(
             height,
             prev_block_hash,
             input.prev_state_root,
@@ -72,7 +72,10 @@ impl BatchBuilder {
             input.withdrawals,
             data_hash,
             input.timestamp,
-        ))
+        )
+        .map_err(|error| BatchBuildError::InvalidWithdrawal {
+            reason: error.rejection_reason(),
+        })
     }
 }
 
@@ -87,6 +90,8 @@ pub enum BatchBuildError {
     PrevStateRootMismatch { expected: Hash32, actual: Hash32 },
     #[error("previous height {previous_height} cannot be incremented")]
     HeightOverflow { previous_height: u64 },
+    #[error("invalid withdrawal release fields: {reason}")]
+    InvalidWithdrawal { reason: &'static str },
 }
 
 pub fn canonical_batch_data_hash(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Hash32 {
@@ -248,6 +253,27 @@ mod tests {
             error,
             BatchBuildError::HeightOverflow {
                 previous_height: u64::MAX
+            }
+        );
+    }
+
+    #[test]
+    fn invalid_withdrawal_release_fields_are_rejected_without_panic() {
+        let mut input = input_with(vec![], vec![]);
+        input.withdrawals.push(WithdrawalLeaf::new(
+            sha256_bytes(b"withdraw"),
+            L2_NATIVE_GAS_ASSET,
+            1,
+            sha256_bytes(b"sender"),
+            "not-a-ton-address".to_owned(),
+        ));
+
+        let error = BatchBuilder::build(input).expect_err("invalid withdrawal");
+
+        assert_eq!(
+            error,
+            BatchBuildError::InvalidWithdrawal {
+                reason: "bad_l1_recipient"
             }
         );
     }

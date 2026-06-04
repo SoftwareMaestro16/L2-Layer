@@ -2,8 +2,10 @@ import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
 
+import "@shared/crypto"
 import "@shared/errors"
 import "@shared/messages"
+import "@shared/proofs"
 import "@shared/storage"
 import "@wrappers/AssetVault.gen"
 import "@wrappers/RollupRoot.gen"
@@ -87,44 +89,144 @@ get fun `test vault deposit locks ton and emits deposit log`() {
     expect(status.lockedTon).toEqual(ton("0.5"));
 }
 
-get fun `test fake withdrawal claim is rejected`() {
+get fun `test valid finalized withdrawal claim is accepted and replay is rejected`() {
     testing.setNow(200);
+    val (root, sequencer, _) = setupRoot(0);
+    val user = testing.treasury("claim-user");
+
+    val withdrawalId = 1234;
+    val leaf = releaseLeaf(withdrawalId, 1, user.address, ton("0.3"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, cellReprHash(leaf));
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        withdrawalId,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveSuccessfulTx<ClaimWithdrawal>({
+        from: user.address,
+        to: root.address,
+    });
+
+    val replay = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        withdrawalId,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(replay).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.AlreadyClaimed,
+    });
+}
+
+get fun `test finalized withdrawal claim rejects wrong root`() {
+    testing.setNow(210);
     val (root, sequencer, _) = setupRoot(0);
     val attacker = testing.treasury("claim-attacker");
 
-    val rootsA = BatchRootsA {
-        prevStateRoot: 0,
-        stateRoot: 21,
-        txRoot: 22,
-    };
-    val rootsB = BatchRootsB {
-        receiptRoot: 23,
-        withdrawalRoot: 24,
-        dataHash: 25,
-    };
-
-    root.sendCommitBatch(sequencer.address, 1, rootsA, rootsB, { value: ton("0.1") });
-    root.sendFinalizeBatch(sequencer.address, 1, { value: ton("0.05") });
-
     val fakeWithdrawalId = 1234;
-    val fakeLeaf = ReleaseAuthorized {
-        withdrawalId: fakeWithdrawalId,
-        assetId: 1,
-        recipient: attacker.address,
-        amount: ton("1"),
-    }.toCell();
-    val fakeProof = beginCell().storeUint(1, 1).endCell();
+    val fakeLeaf = releaseLeaf(fakeWithdrawalId, 1, attacker.address, ton("1"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, 24);
 
     val claim = root.sendClaimWithdrawal(
         attacker.address,
         1,
         fakeWithdrawalId,
         fakeLeaf,
-        fakeProof,
+        emptyWithdrawalProof(),
         { value: ton("0.1") },
     );
     expect(claim).toHaveFailedTx({
         from: attacker.address,
+        to: root.address,
+        exitCode: Errors.BadWithdrawalProof,
+    });
+}
+
+get fun `test withdrawal claim before finalization is rejected`() {
+    testing.setNow(220);
+    val (root, sequencer, _) = setupRoot(100);
+    val user = testing.treasury("early-claim-user");
+
+    val withdrawalId = 2234;
+    val leaf = releaseLeaf(withdrawalId, 1, user.address, ton("0.2"));
+    val rootsA = BatchRootsA {
+        prevStateRoot: 0,
+        stateRoot: 121,
+        txRoot: 122,
+    };
+    val rootsB = BatchRootsB {
+        receiptRoot: 123,
+        withdrawalRoot: cellReprHash(leaf),
+        dataHash: 125,
+    };
+    root.sendCommitBatch(sequencer.address, 1, rootsA, rootsB, { value: ton("0.1") });
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        withdrawalId,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.NotFinalized,
+    });
+}
+
+get fun `test withdrawal claim rejects mismatched withdrawal id in leaf`() {
+    testing.setNow(230);
+    val (root, sequencer, _) = setupRoot(0);
+    val user = testing.treasury("mismatch-claim-user");
+
+    val leaf = releaseLeaf(3333, 1, user.address, ton("0.2"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, cellReprHash(leaf));
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        4444,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.BadWithdrawalProof,
+    });
+}
+
+get fun `test withdrawal claim rejects corrupted sibling order`() {
+    testing.setNow(240);
+    val (root, sequencer, _) = setupRoot(0);
+    val user = testing.treasury("sibling-claim-user");
+
+    val leftLeaf = releaseLeaf(5555, 1, user.address, ton("0.2"));
+    val rightLeaf = releaseLeaf(6666, 1, user.address, ton("0.4"));
+    val rootHash = hashWithdrawalNode(cellReprHash(leftLeaf), cellReprHash(rightLeaf));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, rootHash);
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        5555,
+        leftLeaf,
+        oneSiblingWithdrawalProof(1, cellReprHash(rightLeaf)),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: user.address,
         to: root.address,
         exitCode: Errors.BadWithdrawalProof,
     });
@@ -161,6 +263,53 @@ get fun `test fake jetton deposit notification is rejected`() {
         to: vault.address,
         exitCode: Errors.UnsupportedJettonDeposit,
     });
+}
+
+fun releaseLeaf(withdrawalId: uint256, assetId: uint32, recipient: address, amount: coins): cell {
+    return ReleaseAuthorized { withdrawalId, assetId, recipient, amount }.toCell();
+}
+
+fun emptyWithdrawalProof(): cell {
+    return WithdrawalMerkleProof {
+        leafIndex: 0,
+        siblingsCount: 0,
+        first: null,
+    }.toCell();
+}
+
+fun oneSiblingWithdrawalProof(leafIndex: uint64, sibling: uint256): cell {
+    val chunk = WithdrawalProofChunk {
+        count: 1,
+        sibling0: sibling,
+        sibling1: 0,
+        sibling2: 0,
+        next: null,
+    }.toCell();
+    return WithdrawalMerkleProof {
+        leafIndex,
+        siblingsCount: 1,
+        first: chunk,
+    }.toCell();
+}
+
+fun commitAndFinalizeWithdrawalRoot(
+    root: RollupRoot,
+    sequencer: Treasury,
+    batchNo: uint64,
+    withdrawalRoot: uint256,
+) {
+    val rootsA = BatchRootsA {
+        prevStateRoot: 0,
+        stateRoot: 21,
+        txRoot: 22,
+    };
+    val rootsB = BatchRootsB {
+        receiptRoot: 23,
+        withdrawalRoot,
+        dataHash: 25,
+    };
+    root.sendCommitBatch(sequencer.address, batchNo, rootsA, rootsB, { value: ton("0.1") });
+    root.sendFinalizeBatch(sequencer.address, batchNo, { value: ton("0.05") });
 }
 
 fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
