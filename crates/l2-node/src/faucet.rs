@@ -134,13 +134,13 @@ mod tests {
             ),
             (
                 "TONCENTER_API_KEY".to_owned(),
-                "toncenter-secret-key".to_owned(),
+                "test-api-token-a".to_owned(),
             ),
             (
                 "TONAPI_BASE_URL".to_owned(),
                 "https://testnet.tonapi.io".to_owned(),
             ),
-            ("TONAPI_KEY".to_owned(), "tonapi-secret-key".to_owned()),
+            ("TONAPI_KEY".to_owned(), "test-api-token-b".to_owned()),
             (
                 "DATABASE_URL".to_owned(),
                 "postgresql://user:pass@localhost:5432/l2".to_owned(),

@@ -72,7 +72,7 @@ pub fn verify_merkle_proof(root: Hash32, leaf: Hash32, proof: &MerkleProof) -> b
 }
 
 fn hash_pair(left: Hash32, right: Hash32) -> Hash32 {
-    hash_domain("l2.merkle.node", &[left.as_bytes(), right.as_bytes()])
+    hash_domain("l2.merkle.node.v1", &[left.as_bytes(), right.as_bytes()])
 }
 
 #[cfg(test)]

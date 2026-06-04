@@ -11,7 +11,7 @@ Scope:
 - `acton fmt --check`: passed
 - `acton build`: passed
 - `acton check`: passed
-- `acton test`: passed, 14 tests
+- `acton test`: passed, 22 tests
 - `npx tsa-installer install`: failed locally with `npm ERR! cb.apply is not a function`; TSA analysis was unavailable in this environment.
 
 ## Coverage Added
@@ -30,6 +30,14 @@ Covered properties:
 - AssetVault debits locked TON exactly on authorized TON release.
 - AssetVault does not debit locked TON for unsupported asset release.
 - AssetVault ignores empty top-ups and rejects unknown non-empty bodies with `Errors.UnknownOpcode`.
+- RollupRoot accepts a valid finalized withdrawal proof.
+- RollupRoot rejects duplicate withdrawal claims.
+- RollupRoot rejects withdrawal claims before batch finalization.
+- RollupRoot rejects wrong roots, mismatched withdrawal ids, and corrupted sibling order.
+- RollupRoot records bounced vault releases and allows permissionless retry without reopening the claim.
+- RollupRoot rejects bounced release status creation when the withdrawal was not previously claimed.
+- AssetVault records recipient release bounces, re-credits TON locked accounting, and allows one successful retry.
+- AssetVault rejects retry for unsupported asset failures and rejects spoofed recipient bounces.
 
 ## Findings
 
@@ -37,17 +45,17 @@ Covered properties:
 
 The tested L1 MVP behavior did not expose a validated critical or high severity exploit in the currently enabled paths.
 
-### Medium: Withdrawal Claims Are Intentionally Fail-Closed
+### Resolved: Withdrawal Proof Verification Is Enabled
 
-`verifyWithdrawalProof` currently returns `false`, so `ClaimWithdrawal` cannot release funds. This blocks withdrawals, but prevents forged withdrawal proofs until the real verifier is implemented.
+`verifyWithdrawalProof` now verifies compact Merkle proofs over `ReleaseAuthorized` TON-cell representation hashes. `RollupRoot` also binds `ClaimWithdrawal.withdrawalId` to the decoded `ReleaseAuthorized.withdrawalId` before marking the claim and sending the release message.
 
-Status: accepted MVP limitation. Do not enable production withdrawals until positive and negative Merkle proof tests exist.
+Status: implemented with positive and adversarial Acton tests.
 
-### Medium: Bounce Recovery Requires More Coverage Before Real Withdrawals
+### Resolved: Bounce Recovery And Retry Are Implemented For TON Releases
 
-`RollupRoot` and `AssetVault` both define bounced-message handling for release paths, but the current proof verifier prevents real claims from reaching the release path. Before enabling valid withdrawal proofs, bounce recovery must be tested end-to-end, including failed recipient delivery and retry semantics.
+`RollupRoot` stores root-to-vault failures without clearing `claimedWithdrawals`, so a bounced release cannot reopen the proof claim path. `AssetVault` now sends `ReleaseAuthorized` metadata in recipient release messages, records recipient bounces, re-credits `lockedTon` for TON asset failures, and exposes permissionless retry from stored failure records.
 
-Status: residual risk for the next bridge milestone, not currently exploitable through `ClaimWithdrawal` because claims fail closed.
+Status: implemented for TON asset releases with adversarial Acton tests. Jetton/wrapped-gas release remains intentionally unsupported.
 
 ### Low: Permissionless Finalization Is Explicit But Should Stay Documented
 
@@ -55,11 +63,10 @@ Status: residual risk for the next bridge milestone, not currently exploitable t
 
 Status: accepted design.
 
-## Required Next Tests Before Enabling Withdrawals
+## Required Next Tests Before Production Withdrawals
 
-- Positive withdrawal Merkle proof acceptance.
-- Invalid sibling order and corrupted leaf rejection.
-- Replay rejection after a valid claim.
 - Vault release bounce to failed recipient and retry.
 - Root bounce authorization for failed vault release messages.
+- Gas measurements for proof depths greater than one chunk.
 - Jetton/wrapped-gas release authorization and wallet identity checks.
+- End-to-end testnet withdrawal claim through deployed RollupRoot and AssetVault.

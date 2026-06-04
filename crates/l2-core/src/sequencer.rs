@@ -1,7 +1,11 @@
-use crate::crypto::{derive_account_id, hash_domain, verify_signature, Hash32};
+use crate::batch::{BatchBuildInput, BatchBuilder};
+use crate::crypto::{derive_account_id, verify_signature, Hash32};
 use crate::executor::{DeterministicExecutor, ExecutionConfig};
+use crate::gas::GasSchedule;
 use crate::state::State;
-use crate::types::{DepositEvent, L2Block, L2TransactionKind, Receipt, SignedL2Transaction};
+use crate::types::{
+    DepositEvent, L2Block, L2BlockHeader, L2TransactionKind, Receipt, SignedL2Transaction,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 
@@ -11,6 +15,7 @@ pub struct SequencerConfig {
     pub max_txs_per_block: usize,
     pub block_gas_limit: u64,
     pub gas_coin_asset: u32,
+    pub gas_schedule: GasSchedule,
     pub max_internal_messages: u32,
 }
 
@@ -21,6 +26,7 @@ impl Default for SequencerConfig {
             max_txs_per_block: 1024,
             block_gas_limit: 1_000_000,
             gas_coin_asset: crate::types::L2_NATIVE_GAS_ASSET,
+            gas_schedule: GasSchedule::default(),
             max_internal_messages: 1024,
         }
     }
@@ -104,8 +110,7 @@ pub struct Sequencer {
     pub mempool: Mempool,
     executor: DeterministicExecutor,
     committed_deposits: BTreeSet<Hash32>,
-    last_block_hash: Hash32,
-    next_height: u64,
+    last_header: Option<L2BlockHeader>,
 }
 
 impl Sequencer {
@@ -116,8 +121,7 @@ impl Sequencer {
             mempool: Mempool::default(),
             executor: DeterministicExecutor,
             committed_deposits: BTreeSet::new(),
-            last_block_hash: Hash32::ZERO,
-            next_height: 0,
+            last_header: None,
         }
     }
 
@@ -139,14 +143,32 @@ impl Sequencer {
             return None;
         }
 
+        let block_height = self.next_height();
         let prev_state_root = self.state.root_hash();
         let queued_txs = self.mempool.select_block(self.config.max_txs_per_block);
         let mut receipts = Vec::with_capacity(queued_txs.len());
         let mut withdrawals = Vec::new();
+        let mut block_gas_used = 0u64;
 
         for queued in &queued_txs {
             if let Err(reason) = self.verify_tx(&queued.tx, queued.origin) {
                 receipts.push(Receipt::rejected(queued.tx.tx_hash(), reason));
+                continue;
+            }
+
+            let required_gas = self.config.gas_schedule.required_gas(&queued.tx.kind);
+            let Some(next_block_gas_used) = block_gas_used.checked_add(required_gas) else {
+                receipts.push(Receipt::rejected(
+                    queued.tx.tx_hash(),
+                    "block_gas_limit_exceeded",
+                ));
+                continue;
+            };
+            if next_block_gas_used > self.config.block_gas_limit {
+                receipts.push(Receipt::rejected(
+                    queued.tx.tx_hash(),
+                    "block_gas_limit_exceeded",
+                ));
                 continue;
             }
 
@@ -155,11 +177,14 @@ impl Sequencer {
                 &queued.tx,
                 &ExecutionConfig {
                     block_time: timestamp,
-                    block_height: self.next_height,
+                    block_height,
                     gas_coin_asset: self.config.gas_coin_asset,
+                    gas_schedule: self.config.gas_schedule,
                     max_internal_messages: self.config.max_internal_messages,
+                    ..ExecutionConfig::default()
                 },
             );
+            block_gas_used = next_block_gas_used;
             receipts.push(outcome.receipt);
             withdrawals.extend(outcome.withdrawals);
         }
@@ -169,22 +194,25 @@ impl Sequencer {
             .into_iter()
             .map(|queued| queued.tx)
             .collect::<Vec<_>>();
-        let data_hash = canonical_data_hash(&txs, &receipts);
-        let block = L2Block::new(
-            self.next_height,
-            self.last_block_hash,
+        let block = BatchBuilder::build(BatchBuildInput {
+            previous_header: self.last_header.clone(),
             prev_state_root,
             state_root,
-            txs,
+            ordered_transactions: txs,
             receipts,
             withdrawals,
-            data_hash,
             timestamp,
-        );
+        })
+        .expect("sequencer emits exactly one receipt per selected transaction");
 
-        self.last_block_hash = block.header.block_hash();
-        self.next_height += 1;
+        self.last_header = Some(block.header.clone());
         Some(block)
+    }
+
+    fn next_height(&self) -> u64 {
+        self.last_header
+            .as_ref()
+            .map_or(0, |header| header.height + 1)
     }
 
     fn verify_tx(
@@ -234,213 +262,6 @@ impl Sequencer {
     }
 }
 
-fn canonical_data_hash(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Hash32 {
-    let tx_bytes = serde_json::to_vec(txs).expect("transactions are serializable");
-    let receipt_bytes = serde_json::to_vec(receipts).expect("receipts are serializable");
-    hash_domain("l2.batch.data", &[&tx_bytes, &receipt_bytes])
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::crypto::{derive_account_id, sha256_bytes};
-    use crate::merkle::verify_merkle_proof;
-    use crate::types::{
-        L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
-    };
-    use ed25519_dalek::{Signer, SigningKey};
-    use rand_core::OsRng;
-
-    fn signed_tx(
-        signing_key: &SigningKey,
-        from: Hash32,
-        nonce: u64,
-        kind: L2TransactionKind,
-    ) -> SignedL2Transaction {
-        let public_key = signing_key.verifying_key().to_bytes();
-        let mut tx = SignedL2Transaction {
-            chain_id: "ton-l2-devnet".to_owned(),
-            from: Some(from),
-            nonce,
-            gas_limit: 1_000,
-            max_gas_price: 1,
-            kind,
-            public_key: Some(hex::encode(public_key)),
-            signature: None,
-        };
-        let signature = signing_key.sign(&tx.signing_payload());
-        tx.signature = Some(hex::encode(signature.to_bytes()));
-        tx
-    }
-
-    #[test]
-    fn deposit_transfer_withdraw_block_flow() {
-        let mut sequencer = Sequencer::new(SequencerConfig::default());
-        let signing_key = SigningKey::generate(&mut OsRng);
-        let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
-        let recipient = sha256_bytes(b"recipient");
-
-        sequencer.ingest_deposits(vec![DepositEvent {
-            deposit_id: sha256_bytes(b"deposit-1"),
-            asset_id: L2_NATIVE_GAS_ASSET,
-            recipient: account_id,
-            amount: 1_000,
-            l1_tx_hash: sha256_bytes(b"l1-tx"),
-            l1_lt: 7,
-        }]);
-
-        let block = sequencer.produce_block(100).expect("deposit block");
-        assert_eq!(block.header.height, 0);
-        assert_eq!(
-            sequencer.state.account(account_id).unwrap().balance(0),
-            1_000
-        );
-
-        sequencer.submit_tx(signed_tx(
-            &signing_key,
-            account_id,
-            0,
-            L2TransactionKind::Transfer {
-                to: recipient,
-                asset_id: L2_NATIVE_GAS_ASSET,
-                amount: 100,
-            },
-        ));
-        sequencer.submit_tx(signed_tx(
-            &signing_key,
-            account_id,
-            1,
-            L2TransactionKind::Withdraw {
-                asset_id: L2_NATIVE_GAS_ASSET,
-                amount: 50,
-                l1_recipient: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c".to_owned(),
-            },
-        ));
-
-        let block = sequencer.produce_block(200).expect("user block");
-        assert_eq!(block.receipts[0].status, ReceiptStatus::Applied);
-        assert_eq!(block.receipts[1].status, ReceiptStatus::Applied);
-        assert_eq!(block.withdrawals.len(), 1);
-
-        let proof = block
-            .withdrawal_proof(block.withdrawals[0].withdrawal_id)
-            .expect("withdrawal proof");
-        assert!(verify_merkle_proof(
-            proof.withdrawal_root,
-            proof.leaf.leaf_hash(),
-            &proof.proof
-        ));
-    }
-
-    #[test]
-    fn duplicate_deposit_is_idempotent() {
-        let mut sequencer = Sequencer::new(SequencerConfig::default());
-        let recipient = sha256_bytes(b"recipient");
-        let event = DepositEvent {
-            deposit_id: sha256_bytes(b"deposit-1"),
-            asset_id: 0,
-            recipient,
-            amount: 10,
-            l1_tx_hash: sha256_bytes(b"l1-tx"),
-            l1_lt: 1,
-        };
-
-        sequencer.ingest_deposits(vec![event.clone(), event]);
-        sequencer.produce_block(1).expect("block");
-        assert_eq!(sequencer.state.account(recipient).unwrap().balance(0), 10);
-    }
-
-    #[test]
-    fn wrong_nonce_is_rejected() {
-        let mut sequencer = Sequencer::new(SequencerConfig::default());
-        let signing_key = SigningKey::generate(&mut OsRng);
-        let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
-
-        sequencer.ingest_deposits(vec![DepositEvent {
-            deposit_id: sha256_bytes(b"deposit-1"),
-            asset_id: 0,
-            recipient: account_id,
-            amount: 1_000,
-            l1_tx_hash: sha256_bytes(b"l1"),
-            l1_lt: 1,
-        }]);
-        sequencer.produce_block(1);
-
-        sequencer.submit_tx(signed_tx(
-            &signing_key,
-            account_id,
-            9,
-            L2TransactionKind::Transfer {
-                to: sha256_bytes(b"other"),
-                asset_id: 0,
-                amount: 1,
-            },
-        ));
-        let block = sequencer.produce_block(2).expect("block");
-        assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
-        assert_eq!(block.receipts[0].reason.as_deref(), Some("bad_nonce"));
-    }
-
-    #[test]
-    fn public_deposit_transaction_is_rejected() {
-        let mut sequencer = Sequencer::new(SequencerConfig::default());
-        let recipient = sha256_bytes(b"recipient");
-        let tx = SignedL2Transaction::system_deposit(
-            "ton-l2-devnet",
-            sha256_bytes(b"forged-public-deposit"),
-            0,
-            recipient,
-            10_000,
-        );
-
-        sequencer.submit_tx(tx);
-        let block = sequencer.produce_block(1).expect("block");
-
-        assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
-        assert_eq!(
-            block.receipts[0].reason.as_deref(),
-            Some("deposit_must_be_system")
-        );
-        assert!(sequencer.state.account(recipient).is_none());
-    }
-
-    #[test]
-    fn overflowing_deposit_is_rejected_without_panic() {
-        let mut sequencer = Sequencer::new(SequencerConfig::default());
-        let recipient = sha256_bytes(b"recipient");
-
-        sequencer.ingest_deposits(vec![DepositEvent {
-            deposit_id: sha256_bytes(b"deposit-max"),
-            asset_id: 0,
-            recipient,
-            amount: u128::MAX,
-            l1_tx_hash: sha256_bytes(b"l1-a"),
-            l1_lt: 1,
-        }]);
-        sequencer.produce_block(1).expect("first deposit block");
-
-        sequencer.ingest_deposits(vec![DepositEvent {
-            deposit_id: sha256_bytes(b"deposit-overflow"),
-            asset_id: 0,
-            recipient,
-            amount: 1,
-            l1_tx_hash: sha256_bytes(b"l1-b"),
-            l1_lt: 2,
-        }]);
-
-        let result =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sequencer.produce_block(2)));
-        assert!(result.is_ok(), "overflowing deposit must not panic");
-
-        let block = result.unwrap().expect("second deposit block");
-        assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
-        assert_eq!(
-            block.receipts[0].reason.as_deref(),
-            Some("balance_overflow")
-        );
-        assert_eq!(
-            sequencer.state.account(recipient).unwrap().balance(0),
-            u128::MAX
-        );
-    }
-}
+#[path = "sequencer_tests.rs"]
+mod tests;

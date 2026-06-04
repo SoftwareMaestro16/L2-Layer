@@ -1,10 +1,15 @@
 use crate::config::NodeConfig;
-use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService, FaucetError};
-use crate::mempool::{MempoolError, MempoolService};
-use crate::storage::{DynStorage, StorageError};
+use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
+use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
+use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
+use crate::mempool::MempoolService;
+use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
+use crate::relayer::{
+    BatchRelayer, BatchRelayerConfig, RemoteCommitBatchSigner, ToncenterCommitProvider,
+};
+use crate::storage::DynStorage;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -13,20 +18,36 @@ use l2_core::{
     crypto::sha256_bytes, DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig,
     SignedL2Transaction, SubmitTxResponse,
 };
-use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+
+mod auth;
+mod error;
+mod operator;
+#[cfg(test)]
+mod test_support;
+
+use auth::AdminAuth;
+use error::ApiError;
+use operator::{healthz, operator_failures, operator_metrics, readyz};
+#[cfg(test)]
+use test_support::test_config;
 
 #[derive(Clone)]
 pub struct AppState {
     sequencer: Arc<RwLock<Sequencer>>,
     storage: DynStorage,
+    da: DynDa,
     mempool: MempoolService,
+    metrics: Arc<NodeMetrics>,
+    ton_readiness: DynTonReadinessProbe,
     ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
+    dev_admin_deposits_enabled: bool,
+    mempool_pop_batch_size: usize,
 }
 
 impl AppState {
@@ -34,30 +55,51 @@ impl AppState {
         config: &NodeConfig,
         storage: DynStorage,
         mempool: MempoolService,
-    ) -> Result<Self, FaucetError> {
+    ) -> anyhow::Result<Self> {
+        let da = Arc::new(StorageDaStore::new(
+            storage.clone(),
+            DataAvailabilityConfig::from_node_config(config),
+        ));
+        let ton_readiness = Arc::new(ToncenterReadinessClient::from_config(config)?);
         Ok(Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
                 chain_id: config.chain_id.clone(),
+                gas_schedule: config.executor_gas_schedule,
                 ..SequencerConfig::default()
             }))),
             storage,
+            da,
             mempool,
+            metrics: Arc::new(NodeMetrics::default()),
+            ton_readiness,
             ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
+            dev_admin_deposits_enabled: config.dev_admin_deposits_enabled,
+            mempool_pop_batch_size: config.mempool_pop_batch_size,
         })
     }
 
     #[cfg(test)]
     fn test(admin_token: Option<&str>) -> Self {
+        let storage: DynStorage = Arc::new(crate::storage::InMemoryStorage::default());
+        let da = Arc::new(StorageDaStore::new(
+            storage.clone(),
+            DataAvailabilityConfig::from_node_config(&test_config()),
+        ));
         Self {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig::default()))),
-            storage: Arc::new(crate::storage::InMemoryStorage::default()),
+            storage,
+            da,
             mempool: MempoolService::new(
                 "entropis-testnet",
                 Arc::new(crate::mempool::MemoryMempoolStore::default()),
             ),
+            metrics: Arc::new(NodeMetrics::default()),
+            ton_readiness: Arc::new(crate::observability::ReadyTonReadinessProbe),
             ent_faucet: EntFaucetService::from_config(&test_config()).expect("faucet config"),
             admin_auth: AdminAuth::new(admin_token.map(str::to_owned)),
+            dev_admin_deposits_enabled: true,
+            mempool_pop_batch_size: 1024,
         }
     }
 }
@@ -69,6 +111,13 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
     let state = AppState::new(&config, storage, mempool)?;
     spawn_block_producer(state.clone());
+    spawn_deposit_indexer(&config, state.clone());
+    spawn_batch_relayer(
+        &config,
+        state.storage.clone(),
+        state.da.clone(),
+        state.metrics.clone(),
+    );
 
     let app = build_router(state);
 
@@ -81,10 +130,14 @@ pub async fn serve(
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/v1/tx", post(submit_tx))
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
+        .route("/v1/mempool/metrics", get(get_mempool_metrics))
+        .route("/v1/operator/metrics", get(operator_metrics))
+        .route("/v1/operator/failures", get(operator_failures))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
@@ -93,10 +146,6 @@ pub fn build_router(state: AppState) -> Router {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
-}
-
-async fn healthz() -> &'static str {
-    "ok"
 }
 
 async fn submit_tx(
@@ -113,6 +162,9 @@ async fn admin_deposit(
     Json(deposit): Json<DepositEvent>,
 ) -> Result<StatusCode, ApiError> {
     state.admin_auth.authorize(&headers)?;
+    if !state.dev_admin_deposits_enabled {
+        return Err(ApiError::forbidden("dev admin deposits disabled"));
+    }
     validate_deposit_event(&deposit)?;
 
     let inserted = state.storage.save_deposit(deposit.clone()).await?;
@@ -205,6 +257,10 @@ async fn get_withdrawal_proof(
     Ok(Json(proof))
 }
 
+async fn get_mempool_metrics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(state.mempool.metrics().await?))
+}
+
 async fn stream(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(|mut socket| async move {
         let _ = socket
@@ -226,15 +282,105 @@ fn spawn_block_producer(state: AppState) {
     });
 }
 
+fn spawn_deposit_indexer(config: &NodeConfig, state: AppState) {
+    let Some(indexer_config) = DepositIndexerConfig::from_node_config(config) else {
+        return;
+    };
+    let poll_interval = Duration::from_millis(config.l1_deposit_poll_interval_ms);
+    let indexer = TonDepositIndexer::new(indexer_config, ToncenterClient::from_config(config));
+    tokio::spawn(async move {
+        loop {
+            sleep(poll_interval).await;
+            match indexer.poll_once(&state.storage, &state.sequencer).await {
+                Ok(stats) => {
+                    state.metrics.record_indexer_poll(
+                        stats.fetched,
+                        stats.accepted,
+                        stats.duplicates,
+                    );
+                    tracing::info!(
+                        fetched = stats.fetched,
+                        accepted = stats.accepted,
+                        duplicates = stats.duplicates,
+                        "ton deposit indexer poll completed"
+                    );
+                }
+                Err(error) => {
+                    state.metrics.record_indexer_error();
+                    tracing::warn!(?error, "ton deposit indexer poll failed");
+                }
+            }
+        }
+    });
+}
+
+fn spawn_batch_relayer(
+    config: &NodeConfig,
+    storage: DynStorage,
+    da: DynDa,
+    metrics: Arc<NodeMetrics>,
+) {
+    let Some(relayer_config) = BatchRelayerConfig::from_node_config(config) else {
+        return;
+    };
+    let Some(signer) = RemoteCommitBatchSigner::from_config(config) else {
+        tracing::error!("batch relayer enabled without signer config");
+        return;
+    };
+    let poll_interval = Duration::from_millis(relayer_config.poll_interval_ms);
+    let retry_backoff = Duration::from_millis(relayer_config.retry_backoff_ms);
+    let relayer = BatchRelayer::new(
+        relayer_config,
+        storage,
+        da,
+        signer,
+        ToncenterCommitProvider::from_config(config),
+    );
+    tokio::spawn(async move {
+        loop {
+            sleep(poll_interval).await;
+            match relayer.relay_once().await {
+                Ok(stats) => {
+                    metrics.record_relayer_poll(
+                        stats.considered,
+                        stats.submitted,
+                        stats.confirmed,
+                        stats.failed,
+                        stats.skipped,
+                    );
+                    tracing::info!(
+                        considered = stats.considered,
+                        submitted = stats.submitted,
+                        confirmed = stats.confirmed,
+                        failed = stats.failed,
+                        skipped = stats.skipped,
+                        "batch relayer poll completed"
+                    );
+                }
+                Err(error) => {
+                    metrics.record_relayer_error();
+                    tracing::warn!(?error, "batch relayer poll failed");
+                    sleep(retry_backoff).await;
+                }
+            }
+        }
+    });
+}
+
 async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiError> {
     const LEADER_OWNER: &str = "entropis-local-sequencer";
+    state.metrics.record_block_attempt();
     if !state.mempool.acquire_leader_lock(LEADER_OWNER).await? {
+        state.metrics.record_empty_block();
         return Ok(None);
     }
 
     let timestamp = current_unix_time();
     let result = async {
-        let queued = state.mempool.pop_batch(1024).await?;
+        let queued = state
+            .mempool
+            .pop_batch(state.mempool_pop_batch_size)
+            .await?;
         let mut sequencer = state.sequencer.write().await;
         for tx in queued {
             sequencer.submit_tx(tx);
@@ -244,7 +390,14 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
     .await;
     let _ = state.mempool.release_leader_lock(LEADER_OWNER).await;
 
-    let Some(block) = result? else {
+    let Some(block) = (match result {
+        Ok(block) => block,
+        Err(error) => {
+            state.metrics.record_block_error();
+            return Err(error);
+        }
+    }) else {
+        state.metrics.record_empty_block();
         return Ok(None);
     };
 
@@ -253,7 +406,21 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
         state_root = %block.header.state_root,
         "produced l2 block"
     );
+    let da_started = Instant::now();
+    let da_ref = state.da.write_batch_payload(&block).await?;
+    state.metrics.record_da_write_latency(da_started.elapsed());
+    tracing::info!(
+        height = da_ref.block_height,
+        data_hash = %da_ref.data_hash,
+        payload_bytes = da_ref.payload_size,
+        "published l2 batch data"
+    );
+    let storage_started = Instant::now();
     state.storage.save_block(block.clone()).await?;
+    state
+        .metrics
+        .record_storage_save_block_latency(storage_started.elapsed());
+    state.metrics.record_block_produced(block.header.height);
     Ok(Some(block))
 }
 
@@ -264,139 +431,9 @@ fn current_unix_time() -> u64 {
         .unwrap_or_default()
 }
 
-#[derive(Debug, Serialize)]
-struct ApiErrorBody {
-    error: String,
-}
-
-#[derive(Debug)]
-struct ApiError {
-    status: StatusCode,
-    message: String,
-}
-
-impl ApiError {
-    fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: message.into(),
-        }
-    }
-
-    fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            message: message.into(),
-        }
-    }
-
-    fn unauthorized(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::UNAUTHORIZED,
-            message: message.into(),
-        }
-    }
-
-    fn forbidden(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::FORBIDDEN,
-            message: message.into(),
-        }
-    }
-
-    fn internal(message: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: message.into(),
-        }
-    }
-}
-
-impl From<StorageError> for ApiError {
-    fn from(error: StorageError) -> Self {
-        tracing::error!(?error, "storage error");
-        Self::internal("storage error")
-    }
-}
-
-impl From<MempoolError> for ApiError {
-    fn from(error: MempoolError) -> Self {
-        if error.is_conflict() {
-            return Self {
-                status: StatusCode::CONFLICT,
-                message: error.to_string(),
-            };
-        }
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            message: error.to_string(),
-        }
-    }
-}
-
-impl From<FaucetError> for ApiError {
-    fn from(error: FaucetError) -> Self {
-        match error {
-            FaucetError::InvalidAccountId | FaucetError::ZeroAccountId => {
-                Self::bad_request(error.to_string())
-            }
-            FaucetError::Storage(storage_error) => storage_error.into(),
-            FaucetError::AmountOverflow => Self::internal(error.to_string()),
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> axum::response::Response {
-        (
-            self.status,
-            Json(ApiErrorBody {
-                error: self.message,
-            }),
-        )
-            .into_response()
-    }
-}
-
 #[allow(dead_code)]
 fn dev_deposit_id(seed: &str) -> Hash32 {
     sha256_bytes(seed.as_bytes())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct AdminAuth {
-    token: Option<String>,
-}
-
-impl AdminAuth {
-    fn new(token: Option<String>) -> Self {
-        Self {
-            token: token.and_then(|token| {
-                let token = token.trim().to_owned();
-                (!token.is_empty()).then_some(token)
-            }),
-        }
-    }
-
-    fn authorize(&self, headers: &HeaderMap) -> Result<(), ApiError> {
-        let Some(expected_token) = self.token.as_deref() else {
-            return Err(ApiError::forbidden("admin api disabled"));
-        };
-        let Some(header_value) = headers.get(AUTHORIZATION) else {
-            return Err(ApiError::unauthorized("missing admin bearer token"));
-        };
-        let header_value = header_value
-            .to_str()
-            .map_err(|_| ApiError::unauthorized("invalid authorization header"))?;
-        let Some(actual_token) = header_value.strip_prefix("Bearer ") else {
-            return Err(ApiError::unauthorized("missing admin bearer token"));
-        };
-        if !constant_time_eq(actual_token, expected_token) {
-            return Err(ApiError::forbidden("invalid admin bearer token"));
-        }
-
-        Ok(())
-    }
 }
 
 fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
@@ -417,60 +454,6 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
     }
 
     Ok(())
-}
-
-fn constant_time_eq(left: &str, right: &str) -> bool {
-    let left = left.as_bytes();
-    let right = right.as_bytes();
-    let max_len = left.len().max(right.len());
-    let mut diff = left.len() ^ right.len();
-
-    for index in 0..max_len {
-        let left_byte = left.get(index).copied().unwrap_or_default();
-        let right_byte = right.get(index).copied().unwrap_or_default();
-        diff |= (left_byte ^ right_byte) as usize;
-    }
-
-    diff == 0
-}
-
-#[cfg(test)]
-fn test_config() -> NodeConfig {
-    use std::collections::BTreeMap;
-
-    let env = BTreeMap::from([
-        ("L2_NAME".to_owned(), "Entropis".to_owned()),
-        ("L2_CHAIN_ID".to_owned(), "entropis-testnet".to_owned()),
-        ("L2_NATIVE_TOKEN_NAME".to_owned(), "Entropis".to_owned()),
-        ("L2_NATIVE_TOKEN_SYMBOL".to_owned(), "ENT".to_owned()),
-        ("TON_NETWORK".to_owned(), "testnet".to_owned()),
-        (
-            "TONCENTER_V3_BASE_URL".to_owned(),
-            "https://testnet.toncenter.com/api/v3".to_owned(),
-        ),
-        (
-            "TONCENTER_API_KEY".to_owned(),
-            "toncenter-secret-key".to_owned(),
-        ),
-        (
-            "TONAPI_BASE_URL".to_owned(),
-            "https://testnet.tonapi.io".to_owned(),
-        ),
-        ("TONAPI_KEY".to_owned(), "tonapi-secret-key".to_owned()),
-        (
-            "DATABASE_URL".to_owned(),
-            "postgresql://user:pass@localhost:5432/l2".to_owned(),
-        ),
-        (
-            "REDIS_URL".to_owned(),
-            "redis://default:pass@localhost:6379".to_owned(),
-        ),
-        ("L2_ADMIN_TOKEN".to_owned(), "admin-secret-token".to_owned()),
-        ("ENT_DECIMALS".to_owned(), "9".to_owned()),
-        ("ENT_LOGO_PATH".to_owned(), "assets/entropis.png".to_owned()),
-        ("ENT_FAUCET_REQUIRE_ADMIN".to_owned(), "true".to_owned()),
-    ]);
-    NodeConfig::from_lookup(|key| env.get(key).cloned()).expect("test config")
 }
 
 #[cfg(test)]

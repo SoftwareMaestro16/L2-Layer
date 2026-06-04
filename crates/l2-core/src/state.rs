@@ -1,4 +1,5 @@
-use crate::crypto::{hash_domain, Hash32};
+use crate::consensus::account_leaf_hash;
+use crate::crypto::Hash32;
 use crate::merkle::merkle_root;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -72,10 +73,7 @@ impl State {
         let leaves = self
             .accounts
             .iter()
-            .map(|(id, account)| {
-                let account_bytes = serde_json::to_vec(account).expect("account is serializable");
-                hash_domain("l2.state.account", &[id.as_bytes(), &account_bytes])
-            })
+            .map(|(id, account)| account_leaf_hash(*id, account))
             .collect::<Vec<_>>();
         merkle_root(&leaves)
     }

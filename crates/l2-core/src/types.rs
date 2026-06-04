@@ -1,5 +1,6 @@
-use crate::crypto::{hash_domain, sha256_bytes, Hash32};
-use crate::merkle::{build_merkle_proof, merkle_root, MerkleProof};
+use crate::consensus;
+use crate::crypto::Hash32;
+use crate::merkle::{merkle_root, MerkleProof};
 use serde::{Deserialize, Serialize};
 
 pub const L2_NATIVE_GAS_ASSET: u32 = 0;
@@ -92,11 +93,11 @@ impl SignedL2Transaction {
     }
 
     pub fn signing_payload(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.unsigned()).expect("transaction payload is serializable")
+        consensus::signing_payload(self)
     }
 
     pub fn tx_hash(&self) -> Hash32 {
-        sha256_bytes(&self.signing_payload())
+        consensus::transaction_hash(self)
     }
 
     pub fn is_system(&self) -> bool {
@@ -143,18 +144,25 @@ impl Receipt {
     }
 
     pub fn rejected(tx_hash: Hash32, reason: impl Into<String>) -> Self {
+        Self::rejected_with_gas(tx_hash, reason, 0)
+    }
+
+    pub fn rejected_with_gas(
+        tx_hash: Hash32,
+        reason: impl Into<String>,
+        gas_charged: u128,
+    ) -> Self {
         Self {
             tx_hash,
             status: ReceiptStatus::Rejected,
-            gas_charged: 0,
+            gas_charged,
             reason: Some(reason.into()),
             withdrawal_id: None,
         }
     }
 
     pub fn leaf_hash(&self) -> Hash32 {
-        let bytes = serde_json::to_vec(self).expect("receipt is serializable");
-        hash_domain("l2.receipt.leaf", &[&bytes])
+        consensus::receipt_leaf_hash(self)
     }
 }
 
@@ -176,18 +184,8 @@ impl WithdrawalLeaf {
         l2_sender: Hash32,
         l1_recipient: String,
     ) -> Self {
-        let asset_bytes = asset_id.to_be_bytes();
-        let amount_bytes = amount.to_be_bytes();
-        let withdrawal_id = hash_domain(
-            "l2.withdrawal.id",
-            &[
-                tx_hash.as_bytes(),
-                &asset_bytes,
-                &amount_bytes,
-                l2_sender.as_bytes(),
-                l1_recipient.as_bytes(),
-            ],
-        );
+        let withdrawal_id =
+            consensus::withdrawal_id(tx_hash, asset_id, amount, l2_sender, &l1_recipient);
         Self {
             withdrawal_id,
             asset_id,
@@ -198,8 +196,11 @@ impl WithdrawalLeaf {
     }
 
     pub fn leaf_hash(&self) -> Hash32 {
-        let bytes = serde_json::to_vec(self).expect("withdrawal is serializable");
-        hash_domain("l2.withdrawal.leaf", &[&bytes])
+        consensus::withdrawal_leaf_hash(self)
+    }
+
+    pub fn release_leaf_hash(&self) -> Result<Hash32, crate::withdrawal::WithdrawalProofError> {
+        crate::withdrawal::release_leaf_hash(self)
     }
 }
 
@@ -218,8 +219,7 @@ pub struct L2BlockHeader {
 
 impl L2BlockHeader {
     pub fn block_hash(&self) -> Hash32 {
-        let bytes = serde_json::to_vec(self).expect("block header is serializable");
-        hash_domain("l2.block.header", &[&bytes])
+        consensus::block_header_hash(self)
     }
 }
 
@@ -243,17 +243,40 @@ impl L2Block {
         data_hash: Hash32,
         timestamp: u64,
     ) -> Self {
+        Self::try_new(
+            height,
+            prev_block_hash,
+            prev_state_root,
+            state_root,
+            transactions,
+            receipts,
+            withdrawals,
+            data_hash,
+            timestamp,
+        )
+        .expect("withdrawal release fields must be valid before block construction")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        height: u64,
+        prev_block_hash: Hash32,
+        prev_state_root: Hash32,
+        state_root: Hash32,
+        transactions: Vec<SignedL2Transaction>,
+        receipts: Vec<Receipt>,
+        withdrawals: Vec<WithdrawalLeaf>,
+        data_hash: Hash32,
+        timestamp: u64,
+    ) -> Result<Self, crate::withdrawal::WithdrawalProofError> {
         let tx_hashes = transactions
             .iter()
             .map(SignedL2Transaction::tx_hash)
             .collect::<Vec<_>>();
         let receipt_hashes = receipts.iter().map(Receipt::leaf_hash).collect::<Vec<_>>();
-        let withdrawal_hashes = withdrawals
-            .iter()
-            .map(WithdrawalLeaf::leaf_hash)
-            .collect::<Vec<_>>();
+        let withdrawal_root = crate::withdrawal::withdrawal_merkle_root(&withdrawals)?;
 
-        Self {
+        Ok(Self {
             header: L2BlockHeader {
                 height,
                 prev_block_hash,
@@ -261,14 +284,14 @@ impl L2Block {
                 state_root,
                 tx_root: merkle_root(&tx_hashes),
                 receipt_root: merkle_root(&receipt_hashes),
-                withdrawal_root: merkle_root(&withdrawal_hashes),
+                withdrawal_root,
                 data_hash,
                 timestamp,
             },
             transactions,
             receipts,
             withdrawals,
-        }
+        })
     }
 
     pub fn withdrawal_proof(&self, withdrawal_id: Hash32) -> Option<WithdrawalProof> {
@@ -276,12 +299,8 @@ impl L2Block {
             .withdrawals
             .iter()
             .position(|leaf| leaf.withdrawal_id == withdrawal_id)?;
-        let hashes = self
-            .withdrawals
-            .iter()
-            .map(WithdrawalLeaf::leaf_hash)
-            .collect::<Vec<_>>();
-        let proof = build_merkle_proof(&hashes, index)?;
+        let proof =
+            crate::withdrawal::build_withdrawal_merkle_proof(&self.withdrawals, index).ok()??;
         Some(WithdrawalProof {
             block_height: self.header.height,
             withdrawal_root: self.header.withdrawal_root,

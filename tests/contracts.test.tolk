@@ -2,8 +2,10 @@ import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
 
+import "@shared/crypto"
 import "@shared/errors"
 import "@shared/messages"
+import "@shared/proofs"
 import "@shared/storage"
 import "@wrappers/AssetVault.gen"
 import "@wrappers/RollupRoot.gen"
@@ -70,6 +72,11 @@ get fun `test vault deposit locks ton and emits deposit log`() {
         wrappedGasMinter: wrappedGasMinter.address,
         paused: false,
         lockedTon: 0,
+        tonAssetId: 1,
+        tonDecimals: 9,
+        jettonAssets: [],
+        jettonWalletToAsset: [],
+        pendingJettonReleases: [],
         releaseFailures: [],
     });
     val deploy = vault.deploy(deployer.address, { value: ton("0.1") });
@@ -87,40 +94,140 @@ get fun `test vault deposit locks ton and emits deposit log`() {
     expect(status.lockedTon).toEqual(ton("0.5"));
 }
 
-get fun `test fake withdrawal claim is rejected`() {
+get fun `test valid finalized withdrawal claim is accepted and replay is rejected`() {
     testing.setNow(200);
+    val (root, sequencer, _) = setupRoot(0);
+    val user = testing.treasury("claim-user");
+
+    val withdrawalId = 1234;
+    val leaf = releaseLeaf(withdrawalId, 1, user.address, ton("0.3"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, cellReprHash(leaf));
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        withdrawalId,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveSuccessfulTx<ClaimWithdrawal>({
+        from: user.address,
+        to: root.address,
+    });
+
+    val replay = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        withdrawalId,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(replay).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.AlreadyClaimed,
+    });
+}
+
+get fun `test bounced vault release is recorded and permissionless root retry clears failure`() {
+    testing.setNow(205);
+    val (root, sequencer, vaultAddress) = setupRoot(0);
+    val user = testing.treasury("root-retry-user");
+    val retryOperator = testing.treasury("root-retry-operator");
+
+    val withdrawalId = 9234;
+    val leaf = releaseLeaf(withdrawalId, 1, user.address, ton("0.3"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, cellReprHash(leaf));
+
+    val claimMsg = createMessage({
+        bounce: BounceMode.NoBounce,
+        dest: root.address,
+        value: ton("0.1"),
+        body: ClaimWithdrawal {
+            batchNo: 1,
+            withdrawalId,
+            withdrawalLeaf: leaf,
+            merkleProof: emptyWithdrawalProof(),
+        },
+    });
+    testing.processSingleTraceStep(user.address, claimMsg);
+
+    val release = ReleaseAuthorized {
+        withdrawalId,
+        assetId: 1,
+        recipient: user.address,
+        amount: ton("0.3"),
+    };
+    testing.processSingleTraceStep(
+        vaultAddress,
+        rootRichReleaseBounce(root.address, release, ton("0.08")),
+    );
+
+    val failed = root.failedWithdrawal(withdrawalId);
+    expect(failed.exists).toEqual(true);
+    val failure = failed.failure.load();
+    expect(failure.reason).toEqual(RELEASE_FAILURE_VAULT_BOUNCE);
+    expect(failure.retryCount).toEqual(0);
+
+    val retry = root.sendRetryWithdrawal(
+        retryOperator.address,
+        withdrawalId,
+        { value: ton("0.1") },
+    );
+    expect(retry).toHaveSuccessfulTx<RetryWithdrawal>({
+        from: retryOperator.address,
+        to: root.address,
+    });
+    expect(root.failedWithdrawal(withdrawalId).exists).toEqual(false);
+
+    val duplicateRetry = root.sendRetryWithdrawal(
+        retryOperator.address,
+        withdrawalId,
+        { value: ton("0.1") },
+    );
+    expect(duplicateRetry).toHaveFailedTx({
+        from: retryOperator.address,
+        to: root.address,
+        exitCode: Errors.NoFailedWithdrawal,
+    });
+}
+
+get fun `test bounced vault release without proven claim is rejected`() {
+    testing.setNow(206);
+    val (root, _, vaultAddress) = setupRoot(0);
+    val user = testing.treasury("root-spoof-user");
+
+    val release = ReleaseAuthorized {
+        withdrawalId: 9345,
+        assetId: 1,
+        recipient: user.address,
+        amount: ton("0.3"),
+    };
+    testing.processSingleTraceStep(
+        vaultAddress,
+        rootRichReleaseBounce(root.address, release, ton("0.08")),
+    );
+
+    expect(root.failedWithdrawal(9345).exists).toEqual(false);
+}
+
+get fun `test finalized withdrawal claim rejects wrong root`() {
+    testing.setNow(210);
     val (root, sequencer, _) = setupRoot(0);
     val attacker = testing.treasury("claim-attacker");
 
-    val rootsA = BatchRootsA {
-        prevStateRoot: 0,
-        stateRoot: 21,
-        txRoot: 22,
-    };
-    val rootsB = BatchRootsB {
-        receiptRoot: 23,
-        withdrawalRoot: 24,
-        dataHash: 25,
-    };
-
-    root.sendCommitBatch(sequencer.address, 1, rootsA, rootsB, { value: ton("0.1") });
-    root.sendFinalizeBatch(sequencer.address, 1, { value: ton("0.05") });
-
     val fakeWithdrawalId = 1234;
-    val fakeLeaf = ReleaseAuthorized {
-        withdrawalId: fakeWithdrawalId,
-        assetId: 1,
-        recipient: attacker.address,
-        amount: ton("1"),
-    }.toCell();
-    val fakeProof = beginCell().storeUint(1, 1).endCell();
+    val fakeLeaf = releaseLeaf(fakeWithdrawalId, 1, attacker.address, ton("1"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, 24);
 
     val claim = root.sendClaimWithdrawal(
         attacker.address,
         1,
         fakeWithdrawalId,
         fakeLeaf,
-        fakeProof,
+        emptyWithdrawalProof(),
         { value: ton("0.1") },
     );
     expect(claim).toHaveFailedTx({
@@ -130,11 +237,94 @@ get fun `test fake withdrawal claim is rejected`() {
     });
 }
 
-get fun `test fake jetton deposit notification is rejected`() {
+get fun `test withdrawal claim before finalization is rejected`() {
+    testing.setNow(220);
+    val (root, sequencer, _) = setupRoot(100);
+    val user = testing.treasury("early-claim-user");
+
+    val withdrawalId = 2234;
+    val leaf = releaseLeaf(withdrawalId, 1, user.address, ton("0.2"));
+    val rootsA = BatchRootsA {
+        prevStateRoot: 0,
+        stateRoot: 121,
+        txRoot: 122,
+    };
+    val rootsB = BatchRootsB {
+        receiptRoot: 123,
+        withdrawalRoot: cellReprHash(leaf),
+        dataHash: 125,
+    };
+    root.sendCommitBatch(sequencer.address, 1, rootsA, rootsB, { value: ton("0.1") });
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        withdrawalId,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.NotFinalized,
+    });
+}
+
+get fun `test withdrawal claim rejects mismatched withdrawal id in leaf`() {
+    testing.setNow(230);
+    val (root, sequencer, _) = setupRoot(0);
+    val user = testing.treasury("mismatch-claim-user");
+
+    val leaf = releaseLeaf(3333, 1, user.address, ton("0.2"));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, cellReprHash(leaf));
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        4444,
+        leaf,
+        emptyWithdrawalProof(),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.BadWithdrawalProof,
+    });
+}
+
+get fun `test withdrawal claim rejects corrupted sibling order`() {
+    testing.setNow(240);
+    val (root, sequencer, _) = setupRoot(0);
+    val user = testing.treasury("sibling-claim-user");
+
+    val leftLeaf = releaseLeaf(5555, 1, user.address, ton("0.2"));
+    val rightLeaf = releaseLeaf(6666, 1, user.address, ton("0.4"));
+    val rootHash = hashWithdrawalNode(cellReprHash(leftLeaf), cellReprHash(rightLeaf));
+    commitAndFinalizeWithdrawalRoot(root, sequencer, 1, rootHash);
+
+    val claim = root.sendClaimWithdrawal(
+        user.address,
+        1,
+        5555,
+        leftLeaf,
+        oneSiblingWithdrawalProof(1, cellReprHash(rightLeaf)),
+        { value: ton("0.1") },
+    );
+    expect(claim).toHaveFailedTx({
+        from: user.address,
+        to: root.address,
+        exitCode: Errors.BadWithdrawalProof,
+    });
+}
+
+get fun `test valid jetton deposit notification is accepted after registry`() {
     val deployer = testing.treasury("vault-deployer-2");
     val rollupRoot = testing.treasury("rollup-root-2");
     val wrappedGasMinter = testing.treasury("wrapped-gas-minter-2");
-    val attacker = testing.treasury("jetton-attacker");
+    val jettonMaster = testing.treasury("jetton-master-2");
+    val jettonWallet = testing.treasury("jetton-wallet-2");
     val claimedSender = testing.treasury("claimed-jetton-sender");
 
     val vault = AssetVault.fromStorage({
@@ -143,9 +333,63 @@ get fun `test fake jetton deposit notification is rejected`() {
         wrappedGasMinter: wrappedGasMinter.address,
         paused: false,
         lockedTon: 0,
+        tonAssetId: 1,
+        tonDecimals: 9,
+        jettonAssets: [],
+        jettonWalletToAsset: [],
+        pendingJettonReleases: [],
         releaseFailures: [],
     });
     vault.deploy(deployer.address, { value: ton("0.1") });
+
+    val register = vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        jettonWallet.address,
+        9,
+        { value: ton("0.05") },
+    );
+    expect(register).toHaveSuccessfulTx<RegisterJettonAsset>({
+        from: deployer.address,
+        to: vault.address,
+    });
+    expect(vault.jettonAsset(2).exists).toEqual(true);
+
+    val notification = vault.sendJettonTransferNotification(
+        jettonWallet.address,
+        88,
+        ton("10"),
+        claimedSender.address,
+        beginCell().storeUint(777, 256).endCell(),
+        { value: ton("0.05") },
+    );
+    expect(notification).toHaveSuccessfulTx<JettonTransferNotification>({
+        from: jettonWallet.address,
+        to: vault.address,
+    });
+}
+
+get fun `test fake jetton deposit notification is rejected`() {
+    val (
+        vault,
+        deployer,
+        _,
+        _,
+        attacker,
+        claimedSender,
+        jettonMaster,
+        jettonWallet,
+    ) = setupJettonVault();
+
+    vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        jettonWallet.address,
+        9,
+        { value: ton("0.05") },
+    );
 
     val notification = vault.sendJettonTransferNotification(
         attacker.address,
@@ -159,8 +403,323 @@ get fun `test fake jetton deposit notification is rejected`() {
     expect(notification).toHaveFailedTx({
         from: attacker.address,
         to: vault.address,
-        exitCode: Errors.UnsupportedJettonDeposit,
+        exitCode: Errors.BadJettonWallet,
     });
+}
+
+get fun `test malformed jetton forward payload is rejected`() {
+    val (
+        vault,
+        deployer,
+        _,
+        _,
+        _,
+        claimedSender,
+        jettonMaster,
+        jettonWallet,
+    ) = setupJettonVault();
+
+    vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        jettonWallet.address,
+        9,
+        { value: ton("0.05") },
+    );
+
+    val notification = vault.sendJettonTransferNotification(
+        jettonWallet.address,
+        89,
+        ton("10"),
+        claimedSender.address,
+        beginCell().storeUint(777, 256).storeBool(true).endCell(),
+        { value: ton("0.05") },
+    );
+
+    expect(notification).toHaveFailedTx({
+        from: jettonWallet.address,
+        to: vault.address,
+        exitCode: Errors.BadForwardPayload,
+    });
+}
+
+get fun `test zero amount jetton deposit is rejected`() {
+    val (
+        vault,
+        deployer,
+        _,
+        _,
+        _,
+        claimedSender,
+        jettonMaster,
+        jettonWallet,
+    ) = setupJettonVault();
+
+    vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        jettonWallet.address,
+        9,
+        { value: ton("0.05") },
+    );
+
+    val notification = vault.sendJettonTransferNotification(
+        jettonWallet.address,
+        90,
+        0,
+        claimedSender.address,
+        beginCell().storeUint(777, 256).endCell(),
+        { value: ton("0.05") },
+    );
+
+    expect(notification).toHaveFailedTx({
+        from: jettonWallet.address,
+        to: vault.address,
+        exitCode: Errors.BadJettonAmount,
+    });
+}
+
+get fun `test jetton registry update removes previous trusted wallet`() {
+    val (
+        vault,
+        deployer,
+        _,
+        user,
+        _,
+        claimedSender,
+        jettonMaster,
+        oldWallet,
+    ) = setupJettonVault();
+
+    vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        oldWallet.address,
+        9,
+        { value: ton("0.05") },
+    );
+    vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        claimedSender.address,
+        9,
+        { value: ton("0.05") },
+    );
+
+    val oldNotification = vault.sendJettonTransferNotification(
+        oldWallet.address,
+        91,
+        ton("1"),
+        user.address,
+        beginCell().storeUint(777, 256).endCell(),
+        { value: ton("0.05") },
+    );
+    expect(oldNotification).toHaveFailedTx({
+        from: oldWallet.address,
+        to: vault.address,
+        exitCode: Errors.BadJettonWallet,
+    });
+
+    val newNotification = vault.sendJettonTransferNotification(
+        claimedSender.address,
+        92,
+        ton("1"),
+        user.address,
+        beginCell().storeUint(777, 256).endCell(),
+        { value: ton("0.05") },
+    );
+    expect(newNotification).toHaveSuccessfulTx<JettonTransferNotification>({
+        from: claimedSender.address,
+        to: vault.address,
+    });
+}
+
+get fun `test jetton asset registration rejects invalid decimals`() {
+    val (
+        vault,
+        deployer,
+        _,
+        _,
+        _,
+        _,
+        jettonMaster,
+        jettonWallet,
+    ) = setupJettonVault();
+
+    val register = vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        jettonWallet.address,
+        19,
+        { value: ton("0.05") },
+    );
+
+    expect(register).toHaveFailedTx({
+        from: deployer.address,
+        to: vault.address,
+        exitCode: Errors.BadAssetDecimals,
+    });
+}
+
+get fun `test authorized jetton release routes through registered wallet`() {
+    val (
+        vault,
+        deployer,
+        rollupRoot,
+        user,
+        _,
+        _,
+        jettonMaster,
+        jettonWallet,
+    ) = setupJettonVault();
+
+    vault.sendRegisterJettonAsset(
+        deployer.address,
+        2,
+        jettonMaster.address,
+        jettonWallet.address,
+        9,
+        { value: ton("0.05") },
+    );
+
+    val release = vault.sendReleaseAuthorized(
+        rollupRoot.address,
+        610,
+        2,
+        user.address,
+        ton("4"),
+        { value: ton("0.1") },
+    );
+    expect(release).toHaveSuccessfulTx<ReleaseAuthorized>({
+        from: rollupRoot.address,
+        to: vault.address,
+    });
+    expect(vault.failedRelease(610).exists).toEqual(false);
+}
+
+fun releaseLeaf(withdrawalId: uint256, assetId: uint32, recipient: address, amount: coins): cell {
+    return ReleaseAuthorized { withdrawalId, assetId, recipient, amount }.toCell();
+}
+
+fun emptyWithdrawalProof(): cell {
+    return WithdrawalMerkleProof {
+        leafIndex: 0,
+        siblingsCount: 0,
+        first: null,
+    }.toCell();
+}
+
+fun oneSiblingWithdrawalProof(leafIndex: uint64, sibling: uint256): cell {
+    val chunk = WithdrawalProofChunk {
+        count: 1,
+        sibling0: sibling,
+        sibling1: 0,
+        sibling2: 0,
+        next: null,
+    }.toCell();
+    return WithdrawalMerkleProof {
+        leafIndex,
+        siblingsCount: 1,
+        first: chunk,
+    }.toCell();
+}
+
+fun rootRichReleaseBounce(
+    dest: address,
+    release: ReleaseAuthorized,
+    valueCoins: coins,
+): OutMessage {
+    return createMessage({
+        bounce: BounceMode.NoBounce,
+        dest,
+        value: ton("0.02"),
+        body: RichBounceBody {
+            originalBody: release.toCell(),
+            originalInfo: RichBounceOriginalMsgInfo {
+                valueCoins,
+                valueExtra: [],
+                createdLt: 0,
+                createdAt: blockchain.now(),
+            }.toCell(),
+            bouncedByPhase: 1,
+            exitCode: Errors.Paused,
+            computePhase: null,
+        },
+    }).bounced();
+}
+
+fun commitAndFinalizeWithdrawalRoot(
+    root: RollupRoot,
+    sequencer: Treasury,
+    batchNo: uint64,
+    withdrawalRoot: uint256,
+) {
+    val rootsA = BatchRootsA {
+        prevStateRoot: 0,
+        stateRoot: 21,
+        txRoot: 22,
+    };
+    val rootsB = BatchRootsB {
+        receiptRoot: 23,
+        withdrawalRoot,
+        dataHash: 25,
+    };
+    root.sendCommitBatch(sequencer.address, batchNo, rootsA, rootsB, { value: ton("0.1") });
+    root.sendFinalizeBatch(sequencer.address, batchNo, { value: ton("0.05") });
+}
+
+fun setupJettonVault(): (
+    AssetVault,
+    Treasury,
+    Treasury,
+    Treasury,
+    Treasury,
+    Treasury,
+    Treasury,
+    Treasury,
+) {
+    val deployer = testing.treasury("jetton-vault-deployer");
+    val rollupRoot = testing.treasury("jetton-vault-rollup-root");
+    val user = testing.treasury("jetton-vault-user");
+    val attacker = testing.treasury("jetton-vault-attacker");
+    val claimedSender = testing.treasury("jetton-vault-sender");
+    val jettonMaster = testing.treasury("jetton-vault-master");
+    val jettonWallet = testing.treasury("jetton-vault-wallet");
+    val wrappedGasMinter = testing.treasury("jetton-vault-wrapped-gas-minter");
+
+    val vault = AssetVault.fromStorage({
+        admin: deployer.address,
+        rollupRoot: rollupRoot.address,
+        wrappedGasMinter: wrappedGasMinter.address,
+        paused: false,
+        lockedTon: 0,
+        tonAssetId: 1,
+        tonDecimals: 9,
+        jettonAssets: [],
+        jettonWalletToAsset: [],
+        pendingJettonReleases: [],
+        releaseFailures: [],
+    });
+    val deploy = vault.deploy(deployer.address, { value: ton("0.1") });
+    expect(deploy).toHaveSuccessfulDeploy({
+        to: vault.address,
+    });
+
+    return (
+        vault,
+        deployer,
+        rollupRoot,
+        user,
+        attacker,
+        claimedSender,
+        jettonMaster,
+        jettonWallet,
+    );
 }
 
 fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
@@ -177,6 +736,7 @@ fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
         paused: false,
         commitments: [],
         claimedWithdrawals: [],
+        failedWithdrawals: [],
     });
     val deploy = root.deploy(deployer.address, { value: ton("0.1") });
     expect(deploy).toHaveSuccessfulDeploy({

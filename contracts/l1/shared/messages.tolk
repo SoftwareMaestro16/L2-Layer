@@ -34,6 +34,10 @@ struct (0x4c325704) ClaimWithdrawal {
     merkleProof: cell
 }
 
+struct (0x4c325705) RetryWithdrawal {
+    withdrawalId: uint256
+}
+
 struct (0x4c324405) DepositTon {
     queryId: uint64
     amount: coins
@@ -45,6 +49,32 @@ struct (0x4c325206) ReleaseAuthorized {
     assetId: uint32
     recipient: address
     amount: coins
+}
+
+struct (0x4c325207) RetryRelease {
+    withdrawalId: uint256
+}
+
+struct (0x4c32450b) RegisterJettonAsset {
+    assetId: uint32
+    master: address
+    wallet: address
+    decimals: uint8
+}
+
+const RELEASE_FAILURE_VAULT_BOUNCE = 1
+const RELEASE_FAILURE_RECIPIENT_BOUNCE = 2
+const RELEASE_FAILURE_UNSUPPORTED_ASSET = 3
+const RELEASE_FAILURE_JETTON_WALLET_BOUNCE = 4
+
+struct ReleaseFailure {
+    withdrawalId: uint256
+    assetId: uint32
+    recipient: address
+    amount: coins
+    reason: uint8
+    failedAt: uint32
+    retryCount: uint32
 }
 
 struct DepositRecordedExtra {
@@ -65,6 +95,7 @@ struct (0x4c325208) ReleaseFailed {
     assetId: uint32
     recipient: address
     amount: coins
+    reason: uint8
 }
 
 struct (0x7362d09c) JettonTransferNotification {
@@ -74,10 +105,27 @@ struct (0x7362d09c) JettonTransferNotification {
     forwardPayload: cell
 }
 
-type RootMessage = CommitBatch | FinalizeBatch | ClaimWithdrawal
+struct (0xd53276db) JettonExcesses {
+    queryId: uint64
+}
+
+struct JettonAssetConfig {
+    assetId: uint32
+    master: address
+    wallet: address
+    decimals: uint8
+}
+
+type RootMessage = CommitBatch | FinalizeBatch | ClaimWithdrawal | RetryWithdrawal
 
 type BounceableRootMessage = ReleaseAuthorized
 
-type VaultMessage = DepositTon | ReleaseAuthorized | JettonTransferNotification
+type VaultMessage =
+    | DepositTon
+    | ReleaseAuthorized
+    | RetryRelease
+    | RegisterJettonAsset
+    | JettonTransferNotification
+    | JettonExcesses
 
 type BounceableVaultMessage = ReleaseAuthorized

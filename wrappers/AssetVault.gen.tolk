@@ -81,6 +81,39 @@ fun AssetVault.sendReleaseAuthorized(
     return net.send(from, genericMsg);
 }
 
+fun AssetVault.sendRetryRelease(
+    self,
+    from: address,
+    withdrawalId: uint256,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: RetryRelease { withdrawalId },
+    });
+    return net.send(from, genericMsg);
+}
+
+fun AssetVault.sendRegisterJettonAsset(
+    self,
+    from: address,
+    assetId: uint32,
+    master: address,
+    wallet: address,
+    decimals: uint8,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: RegisterJettonAsset { assetId, master, wallet, decimals },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun AssetVault.sendJettonTransferNotification(
     self,
     from: address,
@@ -99,6 +132,21 @@ fun AssetVault.sendJettonTransferNotification(
     return net.send(from, genericMsg);
 }
 
+fun AssetVault.sendJettonExcesses(
+    self,
+    from: address,
+    queryId: uint64,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: JettonExcesses { queryId },
+    });
+    return net.send(from, genericMsg);
+}
+
 /// Send message to the contract with a custom body cell
 fun AssetVault.sendAny(self, from: address, body: cell, config: SendParams = {}): SendResultList {
     val genericMsg = createMessage({
@@ -112,4 +160,12 @@ fun AssetVault.sendAny(self, from: address, body: cell, config: SendParams = {})
 
 fun AssetVault.vaultStatus(self): VaultStatusReply {
     return net.runGetMethod(self.address, "vaultStatus");
+}
+
+fun AssetVault.failedRelease(self, withdrawalId: uint256): ReleaseFailureReply {
+    return net.runGetMethod(self.address, "failedRelease", [withdrawalId]);
+}
+
+fun AssetVault.jettonAsset(self, assetId: uint32): JettonAssetReply {
+    return net.runGetMethod(self.address, "jettonAsset", [assetId]);
 }

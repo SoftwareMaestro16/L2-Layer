@@ -10,6 +10,7 @@ struct RollupStorage {
     paused: bool
     commitments: map<uint64, Cell<BatchCommitment>>
     claimedWithdrawals: map<uint256, bool>
+    failedWithdrawals: map<uint256, Cell<ReleaseFailure>>
 }
 
 fun RollupStorage.load(): RollupStorage {
@@ -26,7 +27,12 @@ struct AssetVaultStorage {
     wrappedGasMinter: address
     paused: bool
     lockedTon: coins
-    releaseFailures: map<uint256, Cell<ReleaseFailed>>
+    tonAssetId: uint32
+    tonDecimals: uint8
+    jettonAssets: map<uint32, Cell<JettonAssetConfig>>
+    jettonWalletToAsset: map<uint256, uint32>
+    pendingJettonReleases: map<uint64, Cell<ReleaseAuthorized>>
+    releaseFailures: map<uint256, Cell<ReleaseFailure>>
 }
 
 fun AssetVaultStorage.load(): AssetVaultStorage {
@@ -51,9 +57,21 @@ struct CommitmentReply {
     commitment: Cell<BatchCommitment>
 }
 
+struct ReleaseFailureReply {
+    exists: bool
+    failure: Cell<ReleaseFailure>
+}
+
 struct VaultStatusReply {
     rollupRoot: address
     wrappedGasMinter: address
     lockedTon: coins
+    tonAssetId: uint32
+    tonDecimals: uint8
     paused: bool
+}
+
+struct JettonAssetReply {
+    exists: bool
+    asset: Cell<JettonAssetConfig>
 }

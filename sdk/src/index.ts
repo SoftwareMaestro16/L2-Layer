@@ -1,9 +1,31 @@
 import { Address, beginCell } from "@ton/core";
-import { createHash } from "node:crypto";
 import nacl from "tweetnacl";
+import { signingPayload } from "./consensus.js";
 
 export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
 export * as RollupRootL1 from "./generated/RollupRoot.gen.js";
+export {
+  accountLeafHash,
+  blockHeaderHash,
+  canonicalBatchDataHash,
+  CONSENSUS_ENCODING_VERSION,
+  deriveAccountId,
+  encodeAccountLeaf,
+  encodeBatchData,
+  encodeBlockHeader,
+  encodeReceipt,
+  encodeSignedTransaction,
+  encodeUnsignedTransaction,
+  encodeWithdrawalLeaf,
+  hashDomain,
+  receiptLeafHash,
+  sha256Hex,
+  signingPayload,
+  txHash,
+  withdrawalId,
+  withdrawalLeafHash,
+} from "./consensus.js";
+export type { AccountLeaf, L2BlockHeader, Receipt, WithdrawalLeaf } from "./consensus.js";
 
 export type Hash32 = string;
 
@@ -58,33 +80,6 @@ export function normalizeHash32(value: string): Hash32 {
   return cleaned.toLowerCase();
 }
 
-export function sha256Hex(data: Uint8Array | string): Hash32 {
-  return createHash("sha256").update(data).digest("hex");
-}
-
-export function deriveAccountId(publicKey: Uint8Array): Hash32 {
-  if (publicKey.length !== 32) {
-    throw new Error("ed25519 public key must be 32 bytes");
-  }
-  return hashDomain("l2.account.ed25519", [publicKey]);
-}
-
-export function signingPayload(tx: SignedL2Transaction): Uint8Array {
-  const unsigned = {
-    chain_id: tx.chain_id,
-    from: tx.from,
-    nonce: tx.nonce,
-    gas_limit: tx.gas_limit,
-    max_gas_price: tx.max_gas_price,
-    kind: tx.kind,
-  };
-  return Buffer.from(JSON.stringify(unsigned));
-}
-
-export function txHash(tx: SignedL2Transaction): Hash32 {
-  return sha256Hex(signingPayload(tx));
-}
-
 export function signTransaction(
   tx: Omit<SignedL2Transaction, "public_key" | "signature">,
   keyPair: nacl.SignKeyPair,
@@ -104,6 +99,10 @@ export function signTransaction(
 export function tonDepositForwardPayload(l2Recipient: Hash32) {
   const recipient = BigInt(`0x${normalizeHash32(l2Recipient)}`);
   return beginCell().storeUint(recipient, 256).endCell();
+}
+
+export function jettonDepositForwardPayload(l2Recipient: Hash32) {
+  return tonDepositForwardPayload(l2Recipient);
 }
 
 export function encodeDepositTonBody(queryId: bigint, amount: bigint, l2Recipient: Hash32) {
@@ -180,22 +179,4 @@ export class TonL2Client {
 
 export function parseTonAddress(value: string): Address {
   return Address.parse(value);
-}
-
-function hashDomain(domain: string, parts: Uint8Array[]): Hash32 {
-  const hash = createHash("sha256");
-  const domainBytes = Buffer.from(domain);
-  hash.update(u64be(BigInt(domainBytes.length)));
-  hash.update(domainBytes);
-  for (const part of parts) {
-    hash.update(u64be(BigInt(part.length)));
-    hash.update(part);
-  }
-  return hash.digest("hex");
-}
-
-function u64be(value: bigint): Buffer {
-  const out = Buffer.alloc(8);
-  out.writeBigUInt64BE(value);
-  return out;
 }
