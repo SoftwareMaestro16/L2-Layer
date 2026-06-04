@@ -103,6 +103,8 @@ TON_L2_SKILLS = {
   ],
   bridge_design: [
     "TON deposits: user sends TON to AssetVault with DepositTon body; vault records locked amount and emits DepositRecorded external log.",
+    "Native TON deposits must reject zero L2 recipients at the vault boundary, not only in the Rust indexer, because otherwise funds can be locked while the log is later discarded.",
+    "The credited L2 deposit id should be derived from unique L1 event identity such as vault source, message hash, logical time, and event id; user-controlled query ids are not sufficient uniqueness for repeated real deposits.",
     "Jetton deposits: user sends Jettons through their Jetton wallet with forward payload containing L2 recipient; vault handles transfer_notification only from registered vault-owned Jetton wallets.",
     "Jetton releases: AssetVault sends TEP-74 transfer to the registered vault-owned Jetton wallet, uses contract.getAddress() as response_destination, tracks pending query ids, clears them on excesses, and records wallet bounces as retryable failures.",
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
@@ -134,6 +136,7 @@ TON_L2_SKILLS = {
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
     "Root-to-vault deployment linking must be admin-only, reject the zero sentinel, reject replay after first link, and happen before any batch commitment.",
+    "RollupRoot must reject CommitBatch while the AssetVault address is still the zero sentinel, because linking is intentionally disabled after the first committed batch.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",
     "Bind ClaimWithdrawal.withdrawalId to the decoded ReleaseAuthorized.withdrawalId before marking claims or sending vault release messages.",
     "Do not clear claimedWithdrawals on root-to-vault bounce; store a failed release and retry from stored fields to avoid reopening proof claims.",

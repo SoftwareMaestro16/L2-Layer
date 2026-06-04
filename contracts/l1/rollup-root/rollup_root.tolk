@@ -49,6 +49,7 @@ fun handleSetAssetVault(senderAddress: address, msg: SetAssetVault) {
 fun handleCommitBatch(senderAddress: address, msg: CommitBatch) {
     var storage = lazy RollupStorage.load();
     assert (!storage.paused) throw Errors.Paused;
+    assert (storage.assetVault != unlinkedAssetVaultAddress()) throw Errors.BadAssetConfig;
     assert (senderAddress == storage.sequencer) throw Errors.Unauthorized;
     assert (msg.batchNo == storage.lastCommitted + 1) throw Errors.BadBatchNo;
 

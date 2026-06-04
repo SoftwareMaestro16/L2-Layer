@@ -49,6 +49,7 @@ fun handleDepositTon(senderAddress: address, valueCoins: coins, msg: DepositTon)
     var storage = lazy AssetVaultStorage.load();
     assert (!storage.paused) throw Errors.Paused;
     assert (msg.amount > 0) throw Errors.BadDepositValue;
+    assert (msg.l2Recipient != 0) throw Errors.BadDepositValue;
     assert (valueCoins >= msg.amount) throw Errors.BadDepositValue;
 
     storage.lockedTon += msg.amount;
