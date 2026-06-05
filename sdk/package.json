@@ -4,8 +4,24 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "browser": "dist/browser.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./admin": {
+      "types": "./dist/admin.d.ts",
+      "default": "./dist/admin.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "sandbox:l2-counter": "npm run build && node examples/l2-counter-sample.mjs",
     "test:vectors": "npm run build && node --test dist/consensus.test.js dist/contracts.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -52,6 +52,8 @@ import {
   type WithdrawalLeaf,
   type WithdrawalProofResponse,
 } from "./index.js";
+import { EntropisAdminClient } from "./admin.js";
+import { BrowserEntropisClient, createEntropisWalletAccount } from "./browser.js";
 
 const TON_RECIPIENT = "EQDk2VTvn04SUKJrW7rXahzdF8_Qi6utb0wj43InCu9vdjrR";
 
@@ -247,7 +249,7 @@ test("L2 zero address is stable and reserved by helpers", async () => {
     throw new Error("zero faucet request must fail before fetch");
   }) as typeof fetch;
   try {
-    const client = new EntropisClient("http://127.0.0.1:8080", { adminToken: "operator" });
+    const client = new EntropisAdminClient("http://127.0.0.1:8080", { adminToken: "operator" });
     await assert.rejects(
       client.requestEntFaucet(L2_ZERO_FRIENDLY_ADDRESS),
       /reserved zero address/,
@@ -643,7 +645,7 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
   }) as typeof fetch;
 
   try {
-    const client = new EntropisClient("http://127.0.0.1:8080/", { adminToken: "operator" });
+    const client = new EntropisAdminClient("http://127.0.0.1:8080/", { adminToken: "operator" });
     const faucet = await client.requestEntFaucet(accountId);
     assert.equal(client.baseUrl, "http://127.0.0.1:8080");
     assert.equal(faucet.granted, true);
@@ -659,6 +661,20 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+test("browser entrypoint creates EnWallet accounts without admin helpers", async () => {
+  const account = await createEntropisWalletAccount();
+  const client = new BrowserEntropisClient("http://127.0.0.1:8080/");
+
+  assert.equal(account.recoveryWords.length, 24);
+  assert.equal(account.ownerAccountId, account.initialState.owner_account_id);
+  assert.equal(account.walletAccountId, account.initialState.wallet_account_id);
+  assert.equal(account.rawAddress.startsWith("8:"), true);
+  assert.equal(account.userFriendlyAddress.startsWith("EX"), true);
+  assert.equal("requestEntFaucet" in client, false);
+  assert.equal("produceBlock" in client, false);
+  assert.equal("devDeposit" in client, false);
 });
 
 test("Entropis client polls transaction receipt lifecycle", async () => {

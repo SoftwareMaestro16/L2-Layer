@@ -318,19 +318,33 @@ legacy bare 64-hex values for compatibility with older tests and fixtures.
 Sample counter local flow:
 
 ```powershell
-npm --prefix sdk run build
 $env:ENTROPIS_API_URL="http://127.0.0.1:8080"
 $env:ENTROPIS_ADMIN_TOKEN="<local admin token>"
-node sdk/examples/l2-counter-sample.mjs
+npm --prefix sdk run sandbox:l2-counter
 ```
 
+To reset local L2 Postgres tables before the demo, stop the node first and run:
+
+```powershell
+.\scripts\demo\l2-counter-local.ps1 -Reset -ResetOnly
+```
+
+Then start `l2-node` again and run the sandbox command above.
+
 The script generates a throwaway key, requests the local ENT faucet when an admin
-token is present, deploys the sample counter hash state, submits an increment call,
+token is present, deploys the sample counter code/data BoCs, submits an increment call,
 produces local blocks through the admin endpoint, and reads `GET
 /v1/sample-counter/{contract}`. It does not print the generated secret key.
 Run the node with `TVM_ADAPTER=prototype` for this sample unless a working
 `tonlibjson` emulator library is installed and `TVM_TONLIB_LIBRARY_PATH` points to
 it.
+
+Browser dApps should import `@ton-l2-rollup/sdk/browser`. That entrypoint exposes
+`BrowserEntropisClient`, create/import helpers for 24-word EnWallet mnemonics,
+transaction builders, contract deploy/call helpers, typed receipt parsing, and
+public read/submit APIs. Admin-only faucet/deposit/block-production helpers live
+under `@ton-l2-rollup/sdk/admin` and are intended for Node operator scripts or a
+demo backend, not browser bundles.
 
 ## Data availability
 

@@ -11,6 +11,7 @@ import {
   signCallContractTransaction,
   signDeployContractTransaction,
 } from "../dist/index.js";
+import { EntropisAdminClient } from "../dist/admin.js";
 
 const apiUrl = process.env.ENTROPIS_API_URL ?? "http://127.0.0.1:8080";
 const chainId = process.env.ENTROPIS_CHAIN_ID ?? "entropis-testnet";
@@ -35,7 +36,8 @@ const contractId = hashDomain("l2.contract.deploy.v1", [
   Buffer.from(contractCellHash(codeBocBase64), "hex"),
   Buffer.from(process.env.ENTROPIS_CONTRACT_SALT ?? "acton-demo", "utf8"),
 ]);
-const client = new EntropisClient(apiUrl, adminToken ? { adminToken } : {});
+const client = new EntropisClient(apiUrl);
+const admin = adminToken ? new EntropisAdminClient(apiUrl, { adminToken }) : null;
 
 console.log("Throwaway test account raw:", l2RawAddress(accountId));
 console.log("Throwaway test account friendly:", l2UserFriendlyAddress(accountId));
@@ -44,9 +46,9 @@ console.log("Contract friendly:", l2UserFriendlyAddress(contractId));
 console.log("Code cell hash:", contractCellHash(codeBocBase64));
 console.log("Data cell hash:", contractCellHash(dataBocBase64));
 
-if (adminToken) {
-  await client.requestEntFaucet(accountId);
-  await client.adminProduceBlock();
+if (admin) {
+  await admin.requestEntFaucet(accountId);
+  await admin.produceBlock();
 }
 
 const account = await client.getAccount(accountId);
@@ -63,8 +65,8 @@ const deploy = signDeployContractTransaction({
 });
 console.log("Deploy tx:", (await client.submitTx(deploy)).tx_hash);
 
-if (adminToken) {
-  await client.adminProduceBlock();
+if (admin) {
+  await admin.produceBlock();
 }
 
 if (callBodyBocBase64) {
@@ -80,8 +82,8 @@ if (callBodyBocBase64) {
     keyPair,
   });
   console.log("Call tx:", (await client.submitTx(call)).tx_hash);
-  if (adminToken) {
-    await client.adminProduceBlock();
+  if (admin) {
+    await admin.produceBlock();
   }
 }
 

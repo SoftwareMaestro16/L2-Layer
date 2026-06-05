@@ -10,6 +10,7 @@ import {
   signCallContractTransaction,
   signDeployContractTransaction,
 } from "../dist/index.js";
+import { EntropisAdminClient } from "../dist/admin.js";
 
 const apiUrl = process.env.ENTROPIS_API_URL ?? "http://127.0.0.1:8080";
 const chainId = process.env.ENTROPIS_CHAIN_ID ?? "entropis-testnet";
@@ -21,16 +22,17 @@ const contractId = hashDomain("l2.sample.counter.contract.v1", [
   Buffer.from(accountId, "hex"),
   Buffer.from(process.env.ENTROPIS_COUNTER_SALT ?? "public-demo", "utf8"),
 ]);
-const client = new EntropisClient(apiUrl, adminToken ? { adminToken } : {});
+const client = new EntropisClient(apiUrl);
+const admin = adminToken ? new EntropisAdminClient(apiUrl, { adminToken }) : null;
 
 console.log("Throwaway test account raw:", l2RawAddress(accountId));
 console.log("Throwaway test account friendly:", l2UserFriendlyAddress(accountId));
 console.log("Sample counter contract raw:", l2RawAddress(contractId));
 console.log("Sample counter contract friendly:", l2UserFriendlyAddress(contractId));
 
-if (adminToken) {
-  await client.requestEntFaucet(accountId);
-  await client.adminProduceBlock();
+if (admin) {
+  await admin.requestEntFaucet(accountId);
+  await admin.produceBlock();
 }
 
 const account = await client.getAccount(accountId);
@@ -49,8 +51,8 @@ const deploy = signDeployContractTransaction({
 const deployResult = await client.submitTx(deploy);
 console.log("Deploy tx:", deployResult.tx_hash);
 
-if (adminToken) {
-  await client.adminProduceBlock();
+if (admin) {
+  await admin.produceBlock();
 }
 
 const afterDeploy = await client.getAccount(accountId);
@@ -67,8 +69,8 @@ const call = signCallContractTransaction({
 const callResult = await client.submitTx(call);
 console.log("Increment tx:", callResult.tx_hash);
 
-if (adminToken) {
-  await client.adminProduceBlock();
+if (admin) {
+  await admin.produceBlock();
   console.log("Counter state:", await client.getSampleCounter(contractId));
   console.log("Get currentCounter:", await client.getContractMethod(contractId, "currentCounter"));
 } else {

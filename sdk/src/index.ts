@@ -356,7 +356,7 @@ export interface ClaimWithdrawalTonConnectMessageParams {
 }
 
 export interface TonL2ClientOptions {
-  adminToken?: string;
+  headers?: Record<string, string>;
 }
 
 export interface ContractGetMethodResponse {
@@ -786,23 +786,6 @@ export class TonL2Client {
     return this.getJson(`/v1/proof/withdrawal/${normalizeHash32(withdrawalId)}`);
   }
 
-  async devDeposit(deposit: DepositEvent): Promise<void> {
-    await this.postJson<void>("/v1/admin/deposit", deposit, { admin: true });
-  }
-
-  async requestEntFaucet(accountId: Hash32): Promise<EntFaucetResponse> {
-    const account = requireNonZeroL2Address(accountId, "accountId");
-    return this.postJson(
-      "/v1/admin/faucet/ent",
-      { account_id: l2RawAddress(account) },
-      { admin: true },
-    );
-  }
-
-  async adminProduceBlock(): Promise<unknown | undefined> {
-    return this.postJson("/v1/admin/produce-block", {}, { admin: true });
-  }
-
   async submitSignedTransfer(
     params: TransferTransactionParams & SigningParams,
   ): Promise<SubmitTxResponse> {
@@ -833,30 +816,30 @@ export class TonL2Client {
     return this.submitTx(signCallContractTransaction(params));
   }
 
-  private async getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`);
+  protected async getJson<T>(path: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: this.options.headers,
+    });
     if (!response.ok) {
       throw await apiError(response);
     }
     return response.json() as Promise<T>;
   }
 
-  private async postJson<T>(
+  protected async postJson<T>(
     path: string,
     body: unknown,
-    options: { admin?: boolean } = {},
+    headers: Record<string, string> = {},
   ): Promise<T> {
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    if (options.admin) {
-      if (!this.options.adminToken) {
-        throw new Error("admin token required for L2 admin API");
-      }
-      headers.authorization = `Bearer ${this.options.adminToken}`;
-    }
+    const requestHeaders: Record<string, string> = {
+      ...(this.options.headers ?? {}),
+      "content-type": "application/json",
+      ...headers,
+    };
 
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: "POST",
-      headers,
+      headers: requestHeaders,
       body: JSON.stringify(body),
     });
     const text = await response.text();

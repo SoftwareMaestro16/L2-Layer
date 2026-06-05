@@ -29,19 +29,22 @@ address.
 
 ## Wallet Flow
 
+Browser dApps should import from the browser entrypoint. It exposes public
+read/submit APIs and wallet helpers only; admin faucet and block-production
+methods are intentionally absent.
+
 ```ts
-import nacl from "tweetnacl";
 import {
-  EntropisClient,
-  accountIdFromKeyPair,
+  BrowserEntropisClient,
+  createEntropisWalletAccount,
   depositJettonTonConnectMessage,
   depositTonTonConnectMessage,
   signTransferTransaction,
-} from "@ton-l2-rollup/sdk";
+} from "@ton-l2-rollup/sdk/browser";
 
-const client = new EntropisClient("http://127.0.0.1:8080");
-const keyPair = nacl.sign.keyPair();
-const accountId = accountIdFromKeyPair(keyPair);
+const client = new BrowserEntropisClient("http://127.0.0.1:8080");
+const wallet = await createEntropisWalletAccount();
+const accountId = wallet.ownerAccountId;
 const account = await client.getAccount(accountId);
 
 const transfer = signTransferTransaction({
@@ -53,7 +56,7 @@ const transfer = signTransferTransaction({
   amount: "1000000000",
   gasLimit: 1000,
   maxGasPrice: "1",
-  keyPair,
+  keyPair: wallet.keyPair,
 });
 
 await client.submitTx(transfer);
@@ -82,6 +85,12 @@ entry. TON Connect raw messages carry a user-friendly address, nanotons as a
 decimal string, and a base64 BoC payload. Jetton deposits send a TEP-74
 `transfer` to the user's Jetton wallet with a canonical ref `forward_payload`
 containing the L2 account id.
+
+`createEntropisWalletAccount()` returns 24 mnemonic words, the local Ed25519
+keypair, owner account id, EnWallet V5 smart-wallet account id, raw `8:...`
+address, friendly `EX...` address, and the wallet init BoCs. Store mnemonic or
+private key only in browser/wallet storage chosen by the user; never send it to
+the L2 API.
 
 ## Withdrawal Claim
 
@@ -118,9 +127,8 @@ const deploy = signDeployContractTransaction({
   from: accountId,
   nonce: account.nonce,
   contract: "<32-byte contract id hex>",
-  codeHash: initial.code_hash,
-  dataHash: initial.data_hash,
-  storageRoot: initial.storage_root,
+  codeBocBase64: initial.code_boc_base64,
+  dataBocBase64: initial.data_boc_base64,
   gasLimit: 50,
   maxGasPrice: "1",
   keyPair,
@@ -140,6 +148,19 @@ const call = signCallContractTransaction({
 
 Run `sdk/examples/l2-counter-sample.mjs` after building the SDK for a local
 deploy/call/read demo. Unsupported contract code hashes remain fail-closed.
+With a local node already running, the one-command SDK sandbox is:
+
+```powershell
+$env:ENTROPIS_API_URL="http://127.0.0.1:8080"
+$env:ENTROPIS_ADMIN_TOKEN="<local admin token>"
+npm --prefix sdk run sandbox:l2-counter
+```
+
+Optional local reset, with the node stopped:
+
+```powershell
+.\scripts\demo\l2-counter-local.ps1 -Reset -ResetOnly
+```
 
 ## Operator Faucet
 
@@ -147,9 +168,12 @@ The ENT faucet is admin-only in the MVP. Use it from an operator script or demo
 backend, not from browser code:
 
 ```ts
-const operatorClient = new EntropisClient("http://127.0.0.1:8080", {
+import { EntropisAdminClient } from "@ton-l2-rollup/sdk/admin";
+
+const operatorClient = new EntropisAdminClient("http://127.0.0.1:8080", {
   adminToken: process.env.ENTROPIS_ADMIN_TOKEN,
 });
 
 await operatorClient.requestEntFaucet(accountId);
+await operatorClient.produceBlock();
 ```

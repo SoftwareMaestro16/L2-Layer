@@ -11,6 +11,7 @@ import {
   txHash,
   withdrawalId,
 } from "../src/index.ts";
+import { EntropisAdminClient } from "../src/admin.ts";
 
 const apiUrl = process.env.ENTROPIS_API_URL ?? "http://127.0.0.1:8080";
 const chainId = process.env.ENTROPIS_CHAIN_ID ?? "entropis-testnet";
@@ -22,10 +23,10 @@ console.log("Throwaway account friendly:", l2UserFriendlyAddress(accountId));
 
 const operatorToken = process.env.ENTROPIS_ADMIN_TOKEN;
 if (operatorToken) {
-  const operator = new EntropisClient(apiUrl, { adminToken: operatorToken });
+  const operator = new EntropisAdminClient(apiUrl, { adminToken: operatorToken });
   const faucet = await operator.requestEntFaucet(accountId);
   console.log("ENT faucet:", faucet);
-  const faucetBlock = await operator.adminProduceBlock();
+  const faucetBlock = await operator.produceBlock();
   console.log("Produced faucet block:", faucetBlock ?? "no pending deposits");
 }
 
@@ -47,8 +48,8 @@ const transferResult = await client.submitTx(transfer);
 console.log("Submitted transfer:", transferResult);
 
 if (operatorToken) {
-  const operator = new EntropisClient(apiUrl, { adminToken: operatorToken });
-  const transferBlock = await operator.adminProduceBlock();
+  const operator = new EntropisAdminClient(apiUrl, { adminToken: operatorToken });
+  const transferBlock = await operator.produceBlock();
   console.log("Produced transfer block:", transferBlock ?? "no pending transactions");
 }
 
@@ -84,8 +85,8 @@ if (
   await client.submitTx(withdraw);
 
   if (operatorToken) {
-    const operator = new EntropisClient(apiUrl, { adminToken: operatorToken });
-    await operator.adminProduceBlock();
+    const operator = new EntropisAdminClient(apiUrl, { adminToken: operatorToken });
+    await operator.produceBlock();
   }
 
   const withdrawalProof = await client.getWithdrawalProof(

@@ -165,12 +165,15 @@ TON_L2_SKILLS = {
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
     "SDK browser examples must not include admin bearer tokens; admin-only faucet helpers are for operator scripts or demo backends.",
+    "Use `@ton-l2-rollup/sdk/browser` for dApps and wallet UI code. It must expose public read/submit APIs, transaction builders, receipt parsing, and local EnWallet create/import helpers, but no `/v1/admin/*` helpers.",
+    "Use `@ton-l2-rollup/sdk/admin` for Node/operator scripts that need ENT faucet, dev deposits, or manual block production. Browser bundles should not import this entrypoint.",
     "Local browser/operator tooling may accept an admin token at runtime for operator panels but must not store it in localStorage, sessionStorage, generated bundles, or config files.",
     "Acton wallet metadata such as wallets.toml/global.wallets.toml and signer commands are local-only; prefer keyring or mnemonic-env and never commit mnemonic material.",
     "Postgres persists L2 blocks, transactions, deposits, withdrawals, L1 cursors, batch DA payload mirrors and public refs, L1 batch commit relay state, L1 batch finalization state, observer replay checkpoints, and ENT faucet grants; Redis owns public mempool replay, nonce locks, per-account queue counters, rate-limit counters, and sequencer leader-lock responsibilities."
   ],
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
+    "Run L2-only audit passes separately from L1 contract audits: cover nonce replay, signature spoofing, deploy overwrite, malformed BoC, gas griefing, state-root manipulation, internal message explosion, mempool flood, withdrawal double creation, and DA/block mismatch.",
     "Root-to-vault deployment linking must be admin-only, reject the zero sentinel, reject replay after first link, and happen before any batch commitment.",
     "RollupRoot must reject CommitBatch while the AssetVault address is still the zero sentinel, because linking is intentionally disabled after the first committed batch.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",

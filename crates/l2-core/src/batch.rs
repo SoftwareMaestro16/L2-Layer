@@ -1,6 +1,8 @@
 use crate::consensus::{batch_data_hash, encode_batch_data};
 use crate::crypto::Hash32;
-use crate::types::{L2Block, L2BlockHeader, Receipt, SignedL2Transaction, WithdrawalLeaf};
+use crate::types::{
+    BlockConstructionError, L2Block, L2BlockHeader, Receipt, SignedL2Transaction, WithdrawalLeaf,
+};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,9 +79,7 @@ impl BatchBuilder {
             data_hash,
             input.timestamp,
         )
-        .map_err(|error| BatchBuildError::InvalidWithdrawal {
-            reason: error.rejection_reason(),
-        })
+        .map_err(BatchBuildError::from)
     }
 }
 
@@ -96,6 +96,21 @@ pub enum BatchBuildError {
     HeightOverflow { previous_height: u64 },
     #[error("invalid withdrawal release fields: {reason}")]
     InvalidWithdrawal { reason: &'static str },
+    #[error("invalid receipt events: {reason}")]
+    InvalidReceiptEvents { reason: &'static str },
+}
+
+impl From<BlockConstructionError> for BatchBuildError {
+    fn from(error: BlockConstructionError) -> Self {
+        match error {
+            BlockConstructionError::InvalidWithdrawal(error) => Self::InvalidWithdrawal {
+                reason: error.rejection_reason(),
+            },
+            BlockConstructionError::InvalidReceiptEvents(error) => Self::InvalidReceiptEvents {
+                reason: error.rejection_reason(),
+            },
+        }
+    }
 }
 
 pub fn canonical_batch_data_hash(txs: &[SignedL2Transaction], receipts: &[Receipt]) -> Hash32 {
@@ -112,8 +127,9 @@ mod tests {
     use crate::crypto::sha256_bytes;
     use crate::merkle::merkle_root;
     use crate::types::{
-        L2TransactionKind, ReceiptStatus, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1,
-        L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+        L2Event, L2TransactionKind, ReceiptStatus, L2_NATIVE_GAS_ASSET,
+        L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+        MAX_RECEIPT_EVENTS,
     };
 
     #[test]
@@ -285,6 +301,30 @@ mod tests {
             error,
             BatchBuildError::InvalidWithdrawal {
                 reason: "bad_l1_recipient"
+            }
+        );
+    }
+
+    #[test]
+    fn oversized_receipt_event_list_is_rejected_before_block_root() {
+        let tx = deposit_tx(b"deposit-events");
+        let events = (0..=MAX_RECEIPT_EVENTS)
+            .map(|index| L2Event::ContractCalled {
+                contract: sha256_bytes(format!("contract-{index}").as_bytes()),
+                caller: sha256_bytes(b"caller"),
+                body_hash: sha256_bytes(b"body"),
+            })
+            .collect::<Vec<_>>();
+        let mut receipt = Receipt::applied(tx.tx_hash(), 0, None);
+        receipt.events = events;
+
+        let error =
+            BatchBuilder::build(input_with(vec![tx], vec![receipt])).expect_err("event limit");
+
+        assert_eq!(
+            error,
+            BatchBuildError::InvalidReceiptEvents {
+                reason: "too_many_receipt_events"
             }
         );
     }

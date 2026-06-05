@@ -281,6 +281,44 @@ fn duplicate_transaction_hash_in_same_batch_is_rejected_before_nonce_check() {
 }
 
 #[test]
+fn duplicate_withdraw_transaction_creates_only_one_withdrawal_leaf() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"deposit-1"),
+        asset_id: 0,
+        recipient: account_id,
+        amount: 1_000,
+        l1_tx_hash: sha256_bytes(b"l1"),
+        l1_lt: 1,
+    }]);
+    sequencer.produce_block(1).expect("deposit block");
+
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Withdraw {
+            asset_id: 0,
+            amount: 100,
+            l1_recipient: "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c".to_owned(),
+        },
+    );
+    sequencer.submit_tx(tx.clone());
+    sequencer.submit_tx(tx);
+
+    let block = sequencer.produce_block(2).expect("withdraw block");
+
+    assert_eq!(block.withdrawals.len(), 1);
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Applied);
+    assert_eq!(block.receipts[1].status, ReceiptStatus::Rejected);
+    assert_eq!(block.receipts[1].reason.as_deref(), Some("duplicate_tx"));
+    assert_eq!(sequencer.state.account(account_id).unwrap().nonce, 1);
+}
+
+#[test]
 fn unsupported_fee_asset_is_rejected_without_nonce_increment() {
     let mut sequencer = Sequencer::new(SequencerConfig::default());
     let signing_key = SigningKey::generate(&mut OsRng);
