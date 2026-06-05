@@ -246,6 +246,8 @@ not available in the clean environment.
    URLs.
 3. Build and test contracts through Acton.
 4. Deploy `RollupRoot` and `AssetVault` with `docs/testnet-l1-deployment.md`.
+   If the deploy alias settles transactions but exits before writing local
+   output, recover the ignored JSON with `l1-export-deployment-testnet`.
 5. Verify getters with `acton run l1-verify-testnet -- ...`.
 6. Copy only public addresses and code hashes into the local registry copy.
 7. Fill `.env.local` with testnet endpoints, public L1 addresses, and local

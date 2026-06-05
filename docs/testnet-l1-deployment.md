@@ -85,6 +85,28 @@ The script refuses replay when either planned contract address is already
 deployed. The root link is also one-time on-chain, so replay cannot overwrite an
 existing root-to-vault link.
 
+If the deploy transactions settle but the script exits with a getter mismatch
+before writing `build/testnet-l1-deployment.json`, do not rerun the deploy alias:
+the planned addresses are already deployed and the contracts refuse replay.
+Instead verify and export the already deployed pair from testnet fork state:
+
+```bash
+export L1_DEPLOY_OUTPUT_JSON=build/testnet-l1-deployment.json
+
+acton run l1-export-deployment-testnet -- \
+  <rollup-root-address> \
+  <asset-vault-address> \
+  <admin-address> \
+  <sequencer-address> \
+  <wrapped-gas-minter-address> \
+  300 \
+  1 \
+  9
+```
+
+The export alias reads getters through `--fork-net testnet`, verifies the root
+and vault link, then writes the ignored deployment JSON.
+
 ## Readback
 
 After deployment, verify the getter state against the output JSON:
