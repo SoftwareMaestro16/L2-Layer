@@ -1,6 +1,6 @@
 use crate::config::NodeConfig;
 use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
-use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
+use crate::faucet::EntFaucetService;
 use crate::finalizer::{BatchFinalizer, BatchFinalizerConfig};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
@@ -32,6 +32,8 @@ mod contract;
 mod da;
 mod error;
 mod explorer;
+mod faucet;
+mod faucet_explorer;
 mod mempool_ingress;
 mod operator;
 mod receipt;
@@ -50,6 +52,8 @@ use explorer::{
     explorer_account, explorer_account_transactions, explorer_blocks, explorer_deposit,
     explorer_deposits, explorer_summary, explorer_tx, explorer_withdrawal, get_withdrawal_proof,
 };
+use faucet::{admin_ent_faucet, admin_ent_faucet_batch};
+use faucet_explorer::explorer_faucet_batches;
 use mempool_ingress::MempoolIngressGuard;
 use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
@@ -231,18 +235,21 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/explorer/summary", get(explorer_summary))
         .route("/v1/explorer/blocks", get(explorer_blocks))
         .route("/v1/explorer/deposits", get(explorer_deposits))
+        .route("/v1/explorer/faucet/batches", get(explorer_faucet_batches))
         .route("/v1/explorer/account/:id", get(explorer_account))
         .route(
             "/v1/explorer/account/:id/transactions",
             get(explorer_account_transactions),
         )
         .route("/v1/explorer/tx/:hash", get(explorer_tx))
+        .route("/v1/explorer/contract/:id", get(get_contract_state))
         .route("/v1/explorer/deposit/:id", get(explorer_deposit))
         .route("/v1/explorer/withdrawal/:id", get(explorer_withdrawal))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
         .route("/v1/admin/faucet/ent", post(admin_ent_faucet))
+        .route("/v1/admin/faucet/ent/batch", post(admin_ent_faucet_batch))
         .route("/v1/admin/produce-block", post(admin_produce_block))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -294,24 +301,6 @@ async fn admin_produce_block(
         Some(block) => (StatusCode::CREATED, Json(block)).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
     })
-}
-
-async fn admin_ent_faucet(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(request): Json<EntFaucetRequest>,
-) -> Result<Json<EntFaucetResponse>, ApiError> {
-    state.admin_auth.authorize(&headers)?;
-    let account_id = EntFaucetService::parse_account_id(&request.account_id)
-        .map_err(|_| ApiError::bad_request("invalid account id"))?;
-    let grant = state.ent_faucet.grant(&state.storage, account_id).await?;
-
-    if let Some(deposit) = grant.deposit {
-        let mut sequencer = state.sequencer.write().await;
-        sequencer.ingest_deposits(vec![deposit]);
-    }
-
-    Ok(Json(grant.response))
 }
 
 async fn get_account(

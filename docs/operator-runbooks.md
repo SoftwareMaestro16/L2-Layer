@@ -9,6 +9,8 @@ Public:
 
 - `GET /healthz`: process is alive. It does not check dependencies.
 - `GET /readyz`: dependency readiness for `db`, `redis`, and `ton`.
+- `GET /v1/explorer/faucet/batches`: public-safe recent node-side faucet batch
+  claim visibility for explorer or ecosystem faucet UI.
 
 Admin-only:
 
@@ -21,6 +23,8 @@ Admin-only:
 - `GET /v1/operator/batch-finalizer`: pending/submitted/failed/latest L1
   finalization state.
 - `GET /v1/mempool/metrics`: mempool admission and queue metrics.
+- `POST /v1/admin/faucet/ent/batch`: storage-backed ENT faucet batch grants
+  with per-claim `claim_id` idempotency.
 
 Admin endpoints require:
 

@@ -285,6 +285,70 @@ export interface EntFaucetResponse {
   granted: boolean;
 }
 
+export type EntFaucetBatchClaimStatus =
+  | "granted"
+  | "duplicate_claim"
+  | "duplicate_account"
+  | "invalid_account"
+  | "invalid_amount"
+  | "failed";
+
+export interface EntFaucetBatchClaimRequest {
+  claimId: string;
+  accountId: Hash32;
+  amountEnt?: UIntLike;
+}
+
+export interface EntFaucetBatchClaimResponse {
+  claim_id: string;
+  status: EntFaucetBatchClaimStatus;
+  account_id: Hash32 | null;
+  account_raw_address: string | null;
+  account_friendly_address: string | null;
+  amount_ent: string;
+  amount_base_units: string;
+  deposit_id: Hash32 | null;
+  error: string | null;
+}
+
+export interface EntFaucetBatchResponse {
+  batch_id: Hash32;
+  totals: {
+    total: number;
+    granted: number;
+    duplicate_claim: number;
+    duplicate_account: number;
+    invalid_account: number;
+    invalid_amount: number;
+    failed: number;
+  };
+  claims: EntFaucetBatchClaimResponse[];
+}
+
+export interface ExplorerFaucetClaim {
+  claim_index: number;
+  claim_id: string;
+  account_id: Hash32;
+  account_raw_address: string;
+  account_friendly_address: string;
+  amount_base_units: string;
+  deposit_id: Hash32;
+  status: "granted" | "duplicate_account" | "failed";
+}
+
+export interface ExplorerFaucetBatch {
+  batch_id: Hash32;
+  claims_total: number;
+  granted: number;
+  duplicate_account: number;
+  failed: number;
+  claims: ExplorerFaucetClaim[];
+}
+
+export interface ExplorerFaucetBatchesResponse {
+  items: ExplorerFaucetBatch[];
+}
+
 export interface TransferTransactionParams {
   chainId: string;
   from: Hash32;
@@ -697,6 +761,11 @@ export class TonL2Client {
     return this.getJson(`/v1/contract/${address}/state`);
   }
 
+  async getExplorerContractState(contractId: Hash32): Promise<ContractStateResponse> {
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(contractId)));
+    return this.getJson(`/v1/explorer/contract/${address}`);
+  }
+
   async getContractMethod(
     contractId: Hash32,
     method: string | ContractGetMethodRequest,
@@ -737,6 +806,18 @@ export class TonL2Client {
     const queryString = params.toString();
     const suffix = queryString ? `?${queryString}` : "";
     return this.getJson(`/v1/explorer/account/${address}/transactions${suffix}`);
+  }
+
+  async getExplorerFaucetBatches(
+    query: { limit?: number } = {},
+  ): Promise<ExplorerFaucetBatchesResponse> {
+    const params = new URLSearchParams();
+    if (query.limit !== undefined) {
+      params.set("limit", query.limit.toString());
+    }
+    const queryString = params.toString();
+    const suffix = queryString ? `?${queryString}` : "";
+    return this.getJson(`/v1/explorer/faucet/batches${suffix}`);
   }
 
   async getBlock(height: number): Promise<unknown> {

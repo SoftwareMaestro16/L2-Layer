@@ -1,14 +1,17 @@
 use async_trait::async_trait;
 use l2_core::{DepositEvent, Hash32, L2Block, WithdrawalProof};
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
+    EntFaucetClaimRecord, EntFaucetClaimSaveResult, EntFaucetClaimSaveStatus, EntFaucetClaimStatus,
     InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage, StorageError,
     StoredBatchPayload, StoredContractState, StoredTransaction,
 };
-use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
+use crate::storage::postgres_util::{
+    batch_commit_record_from_row, checked_i32, checked_i64, parse_hash,
+};
 use crate::storage::{
     postgres_contracts, postgres_da, postgres_finalization, postgres_internal_queue,
     postgres_observer,
@@ -313,6 +316,106 @@ impl Storage for PostgresStorage {
         Ok(inserted.is_some())
     }
 
+    async fn save_ent_faucet_batch_claim(
+        &self,
+        mut record: EntFaucetClaimRecord,
+        deposit: DepositEvent,
+    ) -> Result<EntFaucetClaimSaveResult, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        if let Some(row) = sqlx::query(
+            r#"
+            SELECT batch_id, claim_index, claim_id, account_id, amount::TEXT,
+                   deposit_id, status
+            FROM ent_faucet_claims
+            WHERE claim_id = $1
+            "#,
+        )
+        .bind(&record.claim_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(EntFaucetClaimSaveResult {
+                status: EntFaucetClaimSaveStatus::DuplicateClaim,
+                record: faucet_claim_record_from_row(&row)?,
+            });
+        }
+
+        let account_exists = sqlx::query_scalar::<_, String>(
+            "SELECT account_id FROM ent_faucet_grants WHERE account_id = $1",
+        )
+        .bind(record.account_id.to_hex())
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+
+        if account_exists {
+            record.status = EntFaucetClaimStatus::DuplicateAccount;
+            insert_faucet_claim(&mut tx, &record).await?;
+            tx.commit().await?;
+            return Ok(EntFaucetClaimSaveResult {
+                status: EntFaucetClaimSaveStatus::DuplicateAccount,
+                record,
+            });
+        }
+
+        record.status = EntFaucetClaimStatus::Granted;
+        sqlx::query(
+            r#"
+            INSERT INTO ent_faucet_grants (account_id, asset_id, amount)
+            VALUES ($1, 0, $2::numeric)
+            "#,
+        )
+        .bind(record.account_id.to_hex())
+        .bind(record.amount_base_units.to_string())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO l2_deposits (
+                deposit_id, asset_id, recipient, amount, l1_tx_hash, l1_lt, deposit_json
+            )
+            VALUES ($1, $2, $3, $4::numeric, $5, $6, $7)
+            "#,
+        )
+        .bind(deposit.deposit_id.to_hex())
+        .bind(i64::from(deposit.asset_id))
+        .bind(deposit.recipient.to_hex())
+        .bind(deposit.amount.to_string())
+        .bind(deposit.l1_tx_hash.to_hex())
+        .bind(checked_i64(deposit.l1_lt, "l1_lt")?)
+        .bind(serde_json::to_value(deposit)?)
+        .execute(&mut *tx)
+        .await?;
+        insert_faucet_claim(&mut tx, &record).await?;
+        tx.commit().await?;
+
+        Ok(EntFaucetClaimSaveResult {
+            status: EntFaucetClaimSaveStatus::Granted,
+            record,
+        })
+    }
+
+    async fn list_ent_faucet_claims(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EntFaucetClaimRecord>, StorageError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT batch_id, claim_index, claim_id, account_id, amount::TEXT,
+                   deposit_id, status
+            FROM ent_faucet_claims
+            ORDER BY created_at DESC, claim_id DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(checked_i32(limit as usize, "limit")?)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(faucet_claim_record_from_row).collect()
+    }
+
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {
         let Some(row) = sqlx::query("SELECT lt, hash FROM l1_cursors WHERE source = $1")
             .bind(source)
@@ -555,4 +658,55 @@ impl Storage for PostgresStorage {
     async fn latest_observer_checkpoint(&self) -> Result<Option<ObserverCheckpoint>, StorageError> {
         postgres_observer::latest_observer_checkpoint(&self.pool).await
     }
+}
+
+async fn insert_faucet_claim(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    record: &EntFaucetClaimRecord,
+) -> Result<(), StorageError> {
+    sqlx::query(
+        r#"
+        INSERT INTO ent_faucet_claims (
+            batch_id, claim_index, claim_id, account_id, asset_id, amount,
+            deposit_id, status
+        )
+        VALUES ($1, $2, $3, $4, 0, $5::numeric, $6, $7)
+        "#,
+    )
+    .bind(record.batch_id.to_hex())
+    .bind(checked_i32(record.claim_index as usize, "claim_index")?)
+    .bind(&record.claim_id)
+    .bind(record.account_id.to_hex())
+    .bind(record.amount_base_units.to_string())
+    .bind(record.deposit_id.to_hex())
+    .bind(record.status.as_str())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+fn faucet_claim_record_from_row(row: &PgRow) -> Result<EntFaucetClaimRecord, StorageError> {
+    let batch_id: String = row.try_get("batch_id")?;
+    let claim_index: i32 = row.try_get("claim_index")?;
+    let claim_id: String = row.try_get("claim_id")?;
+    let account_id: String = row.try_get("account_id")?;
+    let amount: String = row.try_get("amount")?;
+    let deposit_id: String = row.try_get("deposit_id")?;
+    let status: String = row.try_get("status")?;
+
+    Ok(EntFaucetClaimRecord {
+        batch_id: parse_hash("ent_faucet_claims.batch_id", batch_id)?,
+        claim_index: claim_index as u32,
+        claim_id,
+        account_id: parse_hash("ent_faucet_claims.account_id", account_id)?,
+        amount_base_units: amount.parse().map_err(|_| StorageError::InvalidNumeric {
+            field: "ent_faucet_claims.amount",
+            value: amount,
+        })?,
+        deposit_id: parse_hash("ent_faucet_claims.deposit_id", deposit_id)?,
+        status: EntFaucetClaimStatus::parse(&status).ok_or(StorageError::InvalidStatus {
+            field: "ent_faucet_claims.status",
+            value: status,
+        })?,
+    })
 }

@@ -12,7 +12,11 @@ use crate::storage::{DynStorage, StorageError};
 pub struct EntFaucetService {
     amount_ent: u128,
     amount_base_units: u128,
+    decimals: u8,
 }
+
+pub const MAX_ENT_FAUCET_BATCH_CLAIMS: usize = 100;
+const MAX_ENT_FAUCET_CLAIM_ID_BYTES: usize = 128;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EntFaucetRequest {
@@ -42,8 +46,12 @@ pub struct EntFaucetGrant {
 pub enum FaucetError {
     #[error("invalid account id")]
     InvalidAccountId,
+    #[error("invalid claim id")]
+    InvalidClaimId,
     #[error("reserved zero address")]
     ZeroAccountId,
+    #[error("invalid faucet amount")]
+    InvalidAmount,
     #[error("ENT faucet amount overflows base units")]
     AmountOverflow,
     #[error("storage failed: {0}")]
@@ -62,6 +70,7 @@ impl EntFaucetService {
         Ok(Self {
             amount_ent: config.ent_faucet_amount,
             amount_base_units,
+            decimals: config.ent_decimals,
         })
     }
 
@@ -100,6 +109,81 @@ impl EntFaucetService {
 
     pub fn parse_account_id(value: &str) -> Result<Hash32, FaucetError> {
         parse_l2_address(value).map_err(|_| FaucetError::InvalidAccountId)
+    }
+
+    pub fn default_amount_ent(&self) -> u128 {
+        self.amount_ent
+    }
+
+    pub fn default_amount_base_units(&self) -> u128 {
+        self.amount_base_units
+    }
+
+    pub fn amount_ent_to_base_units(&self, amount_ent: u128) -> Result<u128, FaucetError> {
+        if amount_ent == 0 || amount_ent > self.amount_ent {
+            return Err(FaucetError::InvalidAmount);
+        }
+        let multiplier = 10u128
+            .checked_pow(u32::from(self.decimals))
+            .ok_or(FaucetError::AmountOverflow)?;
+        amount_ent
+            .checked_mul(multiplier)
+            .ok_or(FaucetError::AmountOverflow)
+    }
+
+    pub fn amount_base_units_to_ent(&self, amount_base_units: u128) -> Result<u128, FaucetError> {
+        let multiplier = 10u128
+            .checked_pow(u32::from(self.decimals))
+            .ok_or(FaucetError::AmountOverflow)?;
+        Ok(amount_base_units / multiplier)
+    }
+
+    pub fn validate_claim_id(value: &str) -> Result<(), FaucetError> {
+        if value.is_empty() || value.len() > MAX_ENT_FAUCET_CLAIM_ID_BYTES {
+            return Err(FaucetError::InvalidClaimId);
+        }
+        if !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+        {
+            return Err(FaucetError::InvalidClaimId);
+        }
+        Ok(())
+    }
+
+    pub fn batch_id<'a>(claim_ids: impl IntoIterator<Item = &'a str>) -> Hash32 {
+        let joined = claim_ids.into_iter().fold(Vec::new(), |mut acc, claim_id| {
+            if !acc.is_empty() {
+                acc.push(0);
+            }
+            acc.extend_from_slice(claim_id.as_bytes());
+            acc
+        });
+        hash_domain("entropis.faucet.batch.v1", &[&joined])
+    }
+
+    pub fn batch_deposit_event(
+        &self,
+        claim_id: &str,
+        account_id: Hash32,
+        amount_base_units: u128,
+    ) -> DepositEvent {
+        let amount_bytes = amount_base_units.to_be_bytes();
+        let deposit_id = hash_domain(
+            "entropis.faucet.batch.deposit.v1",
+            &[claim_id.as_bytes(), account_id.as_bytes(), &amount_bytes],
+        );
+        DepositEvent {
+            deposit_id,
+            asset_id: L2_NATIVE_GAS_ASSET,
+            recipient: account_id,
+            amount: amount_base_units,
+            l1_tx_hash: hash_domain(
+                "entropis.faucet.batch.synthetic-l1.v1",
+                &[deposit_id.as_bytes()],
+            ),
+            l1_lt: 1,
+        }
     }
 
     fn deposit_event(&self, account_id: Hash32) -> DepositEvent {

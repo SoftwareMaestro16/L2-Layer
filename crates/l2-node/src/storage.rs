@@ -13,6 +13,7 @@ use crate::config::NodeConfig;
 
 mod contracts;
 mod da_payload;
+mod faucet;
 mod observer;
 mod postgres;
 mod postgres_contracts;
@@ -23,6 +24,9 @@ mod postgres_observer;
 mod postgres_util;
 
 pub use contracts::{StoredContractCodeCell, StoredContractDataCell, StoredContractState};
+pub use faucet::{
+    EntFaucetClaimRecord, EntFaucetClaimSaveResult, EntFaucetClaimSaveStatus, EntFaucetClaimStatus,
+};
 pub use observer::ObserverCheckpoint;
 pub use postgres::PostgresStorage;
 
@@ -184,6 +188,8 @@ pub enum StorageError {
     BigIntOverflow { field: &'static str, value: u64 },
     #[error("{field} contains invalid hash value {value}")]
     InvalidHash { field: &'static str, value: String },
+    #[error("{field} contains invalid numeric value {value}")]
+    InvalidNumeric { field: &'static str, value: String },
     #[error("{field} contains invalid status value {value}")]
     InvalidStatus { field: &'static str, value: String },
     #[error("{resource} already exists with different data")]
@@ -226,6 +232,15 @@ pub trait Storage: Send + Sync {
         account_id: Hash32,
         amount: u128,
     ) -> Result<bool, StorageError>;
+    async fn save_ent_faucet_batch_claim(
+        &self,
+        record: EntFaucetClaimRecord,
+        deposit: DepositEvent,
+    ) -> Result<EntFaucetClaimSaveResult, StorageError>;
+    async fn list_ent_faucet_claims(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EntFaucetClaimRecord>, StorageError>;
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError>;
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError>;
     async fn get_batch_commit(
@@ -306,6 +321,7 @@ pub struct InMemoryStorage {
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
     deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
     ent_faucet_grants: RwLock<BTreeMap<Hash32, u128>>,
+    ent_faucet_claims: RwLock<BTreeMap<String, EntFaucetClaimRecord>>,
     cursors: RwLock<BTreeMap<String, L1Cursor>>,
 }
 
@@ -438,6 +454,65 @@ impl Storage for InMemoryStorage {
     ) -> Result<bool, StorageError> {
         let mut grants = self.ent_faucet_grants.write().await;
         Ok(grants.insert(account_id, amount).is_none())
+    }
+
+    async fn save_ent_faucet_batch_claim(
+        &self,
+        mut record: EntFaucetClaimRecord,
+        deposit: DepositEvent,
+    ) -> Result<EntFaucetClaimSaveResult, StorageError> {
+        let mut claims = self.ent_faucet_claims.write().await;
+        if let Some(existing) = claims.get(&record.claim_id) {
+            return Ok(EntFaucetClaimSaveResult {
+                status: EntFaucetClaimSaveStatus::DuplicateClaim,
+                record: existing.clone(),
+            });
+        }
+
+        let mut grants = self.ent_faucet_grants.write().await;
+        if grants.contains_key(&record.account_id) {
+            record.status = faucet::EntFaucetClaimStatus::DuplicateAccount;
+            claims.insert(record.claim_id.clone(), record.clone());
+            return Ok(EntFaucetClaimSaveResult {
+                status: EntFaucetClaimSaveStatus::DuplicateAccount,
+                record,
+            });
+        }
+
+        let mut deposits = self.deposits.write().await;
+        let mut l1_keys = self.deposit_l1_keys.write().await;
+        let l1_key = (deposit.l1_tx_hash, deposit.l1_lt);
+        if deposits.contains_key(&deposit.deposit_id) || l1_keys.contains(&l1_key) {
+            return Err(StorageError::Conflict {
+                resource: "ent faucet deposit",
+            });
+        }
+
+        record.status = faucet::EntFaucetClaimStatus::Granted;
+        grants.insert(record.account_id, record.amount_base_units);
+        l1_keys.insert(l1_key);
+        deposits.insert(deposit.deposit_id, deposit);
+        claims.insert(record.claim_id.clone(), record.clone());
+        Ok(EntFaucetClaimSaveResult {
+            status: EntFaucetClaimSaveStatus::Granted,
+            record,
+        })
+    }
+
+    async fn list_ent_faucet_claims(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EntFaucetClaimRecord>, StorageError> {
+        let limit = limit as usize;
+        Ok(self
+            .ent_faucet_claims
+            .read()
+            .await
+            .values()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect())
     }
 
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {

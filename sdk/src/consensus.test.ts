@@ -641,6 +641,75 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
         { status: 200 },
       );
     }
+    if (input.toString().endsWith("/v1/admin/faucet/ent/batch")) {
+      assert.equal((init?.headers as Record<string, string>).authorization, "Bearer operator");
+      assert.deepEqual(JSON.parse(init?.body as string), {
+        claims: [
+          {
+            claim_id: "gh-100",
+            account_id: l2RawAddress(accountId),
+            amount_ent: "100",
+          },
+        ],
+      });
+      return new Response(
+        JSON.stringify({
+          batch_id: hash(0xbe),
+          totals: {
+            total: 1,
+            granted: 1,
+            duplicate_claim: 0,
+            duplicate_account: 0,
+            invalid_account: 0,
+            invalid_amount: 0,
+            failed: 0,
+          },
+          claims: [
+            {
+              claim_id: "gh-100",
+              status: "granted",
+              account_id: accountId,
+              account_raw_address: l2RawAddress(accountId),
+              account_friendly_address: l2UserFriendlyAddress(accountId),
+              amount_ent: "100",
+              amount_base_units: "100000000000",
+              deposit_id: hash(0xde),
+              error: null,
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (input.toString().endsWith("/v1/explorer/faucet/batches?limit=5")) {
+      assert.equal((init?.headers as Record<string, string> | undefined)?.authorization, undefined);
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              batch_id: hash(0xbe),
+              claims_total: 1,
+              granted: 1,
+              duplicate_account: 0,
+              failed: 0,
+              claims: [
+                {
+                  claim_index: 0,
+                  claim_id: "gh-100",
+                  account_id: accountId,
+                  account_raw_address: l2RawAddress(accountId),
+                  account_friendly_address: l2UserFriendlyAddress(accountId),
+                  amount_base_units: "100000000000",
+                  deposit_id: hash(0xde),
+                  status: "granted",
+                },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
     return new Response(JSON.stringify({ error: "nonce_locked" }), { status: 409 });
   }) as typeof fetch;
 
@@ -650,6 +719,13 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
     assert.equal(client.baseUrl, "http://127.0.0.1:8080");
     assert.equal(faucet.granted, true);
     assert.equal(calls[0].url, "http://127.0.0.1:8080/v1/admin/faucet/ent");
+    const batch = await client.requestEntFaucetBatch([
+      { claimId: "gh-100", accountId, amountEnt: 100 },
+    ]);
+    assert.equal(batch.totals.granted, 1);
+    assert.equal(batch.claims[0].status, "granted");
+    const batches = await client.getExplorerFaucetBatches({ limit: 5 });
+    assert.equal(batches.items[0].claims[0].claim_id, "gh-100");
 
     await assert.rejects(
       client.submitTx(vectorTransaction()),
@@ -673,6 +749,7 @@ test("browser entrypoint creates EnWallet accounts without admin helpers", async
   assert.equal(account.rawAddress.startsWith("8:"), true);
   assert.equal(account.userFriendlyAddress.startsWith("EX"), true);
   assert.equal("requestEntFaucet" in client, false);
+  assert.equal("requestEntFaucetBatch" in client, false);
   assert.equal("produceBlock" in client, false);
   assert.equal("devDeposit" in client, false);
 });

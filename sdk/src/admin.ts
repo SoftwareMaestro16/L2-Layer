@@ -1,5 +1,11 @@
 import { isL2ZeroAddress, l2RawAddress, parseL2Address, type Hash32 } from "./address.js";
-import { TonL2Client, type DepositEvent, type EntFaucetResponse } from "./index.js";
+import {
+  TonL2Client,
+  type DepositEvent,
+  type EntFaucetBatchClaimRequest,
+  type EntFaucetBatchResponse,
+  type EntFaucetResponse,
+} from "./index.js";
 
 export interface EntropisAdminClientOptions {
   adminToken: string;
@@ -25,6 +31,29 @@ export class EntropisAdminClient extends TonL2Client {
     return this.postJson(
       "/v1/admin/faucet/ent",
       { account_id: l2RawAddress(account) },
+      this.authHeaders(),
+    );
+  }
+
+  async requestEntFaucetBatch(
+    claims: EntFaucetBatchClaimRequest[],
+  ): Promise<EntFaucetBatchResponse> {
+    return this.postJson(
+      "/v1/admin/faucet/ent/batch",
+      {
+        claims: claims.map((claim) => {
+          if (!claim.claimId) {
+            throw new Error("claimId required");
+          }
+          const account = requireNonZeroL2Address(claim.accountId, "accountId");
+          return {
+            claim_id: claim.claimId,
+            account_id: l2RawAddress(account),
+            amount_ent:
+              claim.amountEnt === undefined ? undefined : claim.amountEnt.toString(),
+          };
+        }),
+      },
       this.authHeaders(),
     );
   }
