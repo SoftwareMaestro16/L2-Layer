@@ -53,8 +53,10 @@ L2 economics Phase A is accounting only.
 
 - Gas and rejection fees are credited to configured L2 accounts and emitted as
   `fee_distributed` events.
-- Staking, delegation, unbonding, and slashing remain future deterministic state
-  modules and are not active consensus rules in this pass.
+- Staking, delegation, unbonding, funded rewards, and reward claims have a
+  deterministic Rust state-machine groundwork. Public staking transaction types,
+  proposer selection, slashing, and TVM migration are not active consensus rules
+  in this pass.
 
 ## Attack Matrix
 
@@ -90,9 +92,10 @@ L2 economics Phase A is accounting only.
   emulator fixtures for non-sample contracts.
 - Browser wallet UX must add explicit seed backup, encryption, lock/unlock, and
   clear testnet-only warnings before public wallet distribution.
-- Fee accounting currently has configured accounts but no staking/slashing
-  authorization model; operator commission and treasury policy must remain
-  explicit deployment config until staking is implemented.
+- Fee accounting currently has configured accounts and a local staking state
+  machine, but no public staking/slashing authorization model; operator
+  commission and treasury policy must remain explicit deployment config until
+  staking transaction types are implemented.
 
 ## Launch Gate
 

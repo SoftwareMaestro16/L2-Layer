@@ -41,15 +41,17 @@ fn enwallet_deploy_call_and_read_state_uses_real_bocs() {
         &ExecutionConfig::default(),
     );
     assert_eq!(deploy.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(deploy.receipt.events.len(), 2);
     assert_eq!(
-        deploy.receipt.events,
-        vec![L2Event::ContractDeployed {
+        deploy.receipt.events[0],
+        L2Event::ContractDeployed {
             contract: wallet,
             deployer: owner,
             code_hash: ENWALLET_V5R1_CODE_HASH,
             data_hash: state.account(wallet).unwrap().data_hash,
-        }]
+        }
     );
+    assert_eq!(deploy.receipt.events[1].kind(), "fee_distributed");
 
     let call_config = ExecutionConfig {
         block_time: 100,

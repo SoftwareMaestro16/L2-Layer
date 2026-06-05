@@ -78,6 +78,10 @@ Charged fees are no longer burned: deterministic L2 fee accounting credits the
 configured sequencer reward, operator commission, and treasury accounts and emits
 a `fee_distributed` receipt event. Operator and treasury basis points are bounded
 to `<= 10000` total, and rounding remainder goes to the sequencer reward account.
+The Rust staking module is Phase B groundwork: stake, delegate, undelegate,
+unbond, funded reward distribution, and reward claims are deterministic in-memory
+state transitions, but they are not public transaction/API surfaces until the
+staking rollout gate wires them into consensus transaction types.
 
 ## TVM Adapter Boundary
 

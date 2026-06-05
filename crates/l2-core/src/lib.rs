@@ -11,6 +11,9 @@ pub mod internal_queue;
 pub mod merkle;
 pub mod sequencer;
 mod sequencer_validation;
+pub mod staking;
+#[cfg(test)]
+mod staking_tests;
 pub mod state;
 pub mod tvm;
 pub mod types;
@@ -50,6 +53,10 @@ pub use internal_queue::{
 };
 pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};
+pub use staking::{
+    RewardDistribution, RewardRequest, StakingConfig, StakingError, StakingState, UnbondingEntry,
+    ValidatorStake, DEFAULT_MINIMUM_STAKE_ENT, DEFAULT_UNBONDING_PERIOD_BLOCKS,
+};
 pub use state::{Account, AccountFlags, AccountRecoveryLock, AccountType, State};
 pub use tvm::{
     boc_single_root_hash, decode_call_body_boc_base64, decode_contract_cell_boc_base64,
