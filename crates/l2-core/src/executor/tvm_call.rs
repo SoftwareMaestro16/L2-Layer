@@ -1,7 +1,8 @@
-use super::{
+use super::validation::{
     can_increment_nonce, charge_rejection_fee, execution_fee, mark_sender_attempt, rejected,
-    rejected_attempt, ExecutionConfig, ExecutionOutcome,
+    rejected_attempt,
 };
+use super::{ExecutionConfig, ExecutionOutcome};
 use crate::address::is_l2_zero_address;
 use crate::crypto::{sha256_bytes, Hash32};
 use crate::state::{AccountType, State};

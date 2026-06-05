@@ -3,9 +3,9 @@ use axum::extract::Query;
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address,
-    sample_counter_initial_state, L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf,
-    ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL, L2_NATIVE_GAS_ASSET,
-    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+    sample_counter_initial_state, L2Block, L2TransactionKind, Receipt, SignedL2Transaction,
+    WithdrawalLeaf, ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL,
+    L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
     L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL, L2_ZERO_FRIENDLY_ADDRESS,
     L2_ZERO_RAW_ADDRESS,
 };

@@ -13,6 +13,7 @@ use l2_core::{
     L2_TX_VERSION_V2,
 };
 use rand_core::OsRng;
+use tokio::time::Duration;
 
 const ADMIN_TOKEN: &str = "test-admin-token";
 

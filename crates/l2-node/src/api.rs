@@ -1,27 +1,21 @@
 use crate::config::NodeConfig;
 use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
 use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
-use crate::finalizer::{BatchFinalizer, BatchFinalizerConfig};
-use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
-use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
-use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
-use crate::storage::{DynStorage, InternalQueueSnapshotRecord, StoredContractState};
+use crate::storage::DynStorage;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use l2_core::{
-    parse_l2_address, DepositEvent, Hash32, L2Block, L2TransactionKind, ReceiptStatus, Sequencer,
-    SequencerConfig, SignedL2Transaction, SubmitTxResponse,
+    parse_l2_address, DepositEvent, Hash32, Sequencer, SequencerConfig, SignedL2Transaction,
+    SubmitTxResponse,
 };
-use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration, Instant};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -39,6 +33,7 @@ mod sample;
 mod stream;
 #[cfg(test)]
 mod test_support;
+mod workers;
 
 use account::get_account_metadata;
 use auth::AdminAuth;
@@ -63,6 +58,10 @@ use sample::{get_contract_method, get_sample_counter};
 use stream::stream;
 #[cfg(test)]
 use test_support::test_config;
+use workers::{
+    produce_block_once, spawn_batch_finalizer, spawn_batch_relayer, spawn_block_producer,
+    spawn_deposit_indexer,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -384,291 +383,6 @@ async fn get_tx(
 
 async fn get_mempool_metrics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     Ok(Json(state.mempool.metrics().await?))
-}
-
-fn spawn_block_producer(state: AppState) {
-    tokio::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(2)).await;
-            if let Err(error) = produce_block_once(&state).await {
-                tracing::error!(?error, "failed to produce l2 block");
-            }
-        }
-    });
-}
-
-fn spawn_deposit_indexer(config: &NodeConfig, state: AppState) {
-    let Some(indexer_config) = DepositIndexerConfig::from_node_config(config) else {
-        return;
-    };
-    let poll_interval = Duration::from_millis(config.l1_deposit_poll_interval_ms);
-    let indexer = TonDepositIndexer::new(indexer_config, ToncenterClient::from_config(config));
-    tokio::spawn(async move {
-        loop {
-            sleep(poll_interval).await;
-            match indexer.poll_once(&state.storage, &state.sequencer).await {
-                Ok(stats) => {
-                    state.metrics.record_indexer_poll(
-                        stats.fetched,
-                        stats.accepted,
-                        stats.duplicates,
-                    );
-                    tracing::info!(
-                        fetched = stats.fetched,
-                        accepted = stats.accepted,
-                        duplicates = stats.duplicates,
-                        "ton deposit indexer poll completed"
-                    );
-                }
-                Err(error) => {
-                    state.metrics.record_indexer_error();
-                    tracing::warn!(?error, "ton deposit indexer poll failed");
-                }
-            }
-        }
-    });
-}
-
-fn spawn_batch_relayer(
-    config: &NodeConfig,
-    storage: DynStorage,
-    da: DynDa,
-    metrics: Arc<NodeMetrics>,
-) {
-    let Some(relayer_config) = BatchRelayerConfig::from_node_config(config) else {
-        return;
-    };
-    let Some(signer) = RemoteCommitBatchSigner::from_config(config) else {
-        tracing::error!("batch relayer enabled without signer config");
-        return;
-    };
-    let poll_interval = Duration::from_millis(relayer_config.poll_interval_ms);
-    let retry_backoff = Duration::from_millis(relayer_config.retry_backoff_ms);
-    let relayer = BatchRelayer::new(
-        relayer_config,
-        storage,
-        da,
-        signer,
-        ToncenterCommitProvider::from_config(config),
-    );
-    tokio::spawn(async move {
-        loop {
-            sleep(poll_interval).await;
-            match relayer.relay_once().await {
-                Ok(stats) => {
-                    metrics.record_relayer_poll(
-                        stats.considered,
-                        stats.submitted,
-                        stats.confirmed,
-                        stats.failed,
-                        stats.skipped,
-                    );
-                    tracing::info!(
-                        considered = stats.considered,
-                        submitted = stats.submitted,
-                        confirmed = stats.confirmed,
-                        failed = stats.failed,
-                        skipped = stats.skipped,
-                        "batch relayer poll completed"
-                    );
-                }
-                Err(error) => {
-                    metrics.record_relayer_error();
-                    tracing::warn!(?error, "batch relayer poll failed");
-                    sleep(retry_backoff).await;
-                }
-            }
-        }
-    });
-}
-
-fn spawn_batch_finalizer(config: &NodeConfig, storage: DynStorage, metrics: Arc<NodeMetrics>) {
-    let Some(finalizer_config) = BatchFinalizerConfig::from_node_config(config) else {
-        return;
-    };
-    let Some(signer) = RemoteFinalizeBatchSigner::from_config(config) else {
-        tracing::error!("batch finalizer enabled without finalize signer config");
-        return;
-    };
-    let poll_interval = Duration::from_millis(finalizer_config.poll_interval_ms);
-    let retry_backoff = Duration::from_millis(finalizer_config.retry_backoff_ms);
-    let finalizer = BatchFinalizer::new(
-        finalizer_config,
-        storage,
-        signer,
-        ToncenterCommitProvider::from_config(config),
-    );
-    tokio::spawn(async move {
-        loop {
-            sleep(poll_interval).await;
-            match finalizer.finalize_once().await {
-                Ok(stats) => {
-                    metrics.record_finalizer_poll(
-                        stats.created_pending,
-                        stats.considered,
-                        stats.submitted,
-                        stats.finalized,
-                        stats.failed,
-                        stats.waiting,
-                        stats.skipped,
-                    );
-                    tracing::info!(
-                        created_pending = stats.created_pending,
-                        considered = stats.considered,
-                        submitted = stats.submitted,
-                        finalized = stats.finalized,
-                        failed = stats.failed,
-                        waiting = stats.waiting,
-                        skipped = stats.skipped,
-                        "batch finalizer poll completed"
-                    );
-                }
-                Err(error) => {
-                    metrics.record_finalizer_error();
-                    tracing::warn!(?error, "batch finalizer poll failed");
-                    sleep(retry_backoff).await;
-                }
-            }
-        }
-    });
-}
-
-async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiError> {
-    const LEADER_OWNER: &str = "entropis-local-sequencer";
-    state.metrics.record_block_attempt();
-    if !state.mempool.acquire_leader_lock(LEADER_OWNER).await? {
-        state.metrics.record_empty_block();
-        return Ok(None);
-    }
-
-    let timestamp = current_unix_time();
-    let result = async {
-        let queued = state
-            .mempool
-            .pop_batch(state.mempool_pop_batch_size)
-            .await?;
-        let mut sequencer = state.sequencer.write().await;
-        let mut candidate = sequencer.clone();
-        for tx in queued.iter().cloned() {
-            candidate.submit_tx(tx);
-        }
-
-        let Some(block) = candidate.produce_block(timestamp) else {
-            return Ok(None);
-        };
-
-        tracing::info!(
-            height = block.header.height,
-            state_root = %block.header.state_root,
-            "produced l2 block"
-        );
-        let da_started = Instant::now();
-        let da_ref = match state.da.write_batch_payload(&block).await {
-            Ok(da_ref) => da_ref,
-            Err(error) => {
-                for tx in queued {
-                    sequencer.submit_tx(tx);
-                }
-                return Err(error.into());
-            }
-        };
-        state.metrics.record_da_write_latency(da_started.elapsed());
-        tracing::info!(
-            height = da_ref.block_height,
-            data_hash = %da_ref.data_hash,
-            payload_bytes = da_ref.payload_size,
-            "published l2 batch data"
-        );
-        let storage_started = Instant::now();
-        if let Err(error) = state.storage.save_block(block.clone()).await {
-            for tx in queued {
-                sequencer.submit_tx(tx);
-            }
-            return Err(error.into());
-        }
-        if let Err(error) = persist_contract_states(state, &block, &candidate).await {
-            for tx in queued {
-                sequencer.submit_tx(tx);
-            }
-            return Err(error);
-        }
-        if let Err(error) = state
-            .storage
-            .save_internal_queue_snapshot(InternalQueueSnapshotRecord {
-                block_height: block.header.height,
-                queue: candidate.internal_queue_snapshot(),
-            })
-            .await
-        {
-            for tx in queued {
-                sequencer.submit_tx(tx);
-            }
-            return Err(error.into());
-        }
-        state
-            .metrics
-            .record_storage_save_block_latency(storage_started.elapsed());
-        *sequencer = candidate;
-        Ok(Some(block))
-    }
-    .await;
-    let _ = state.mempool.release_leader_lock(LEADER_OWNER).await;
-
-    match result {
-        Ok(Some(block)) => {
-            state.metrics.record_block_produced(block.header.height);
-            Ok(Some(block))
-        }
-        Ok(None) => {
-            state.metrics.record_empty_block();
-            Ok(None)
-        }
-        Err(error) => {
-            state.metrics.record_block_error();
-            Err(error)
-        }
-    }
-}
-
-async fn persist_contract_states(
-    state: &AppState,
-    block: &L2Block,
-    candidate: &Sequencer,
-) -> Result<(), ApiError> {
-    for account_id in touched_contract_accounts(block) {
-        let Some(account) = candidate.state.account(account_id) else {
-            continue;
-        };
-        let Some(record) =
-            StoredContractState::from_account(account_id, account, block.header.height)?
-        else {
-            continue;
-        };
-        state.storage.save_contract_state(record).await?;
-    }
-    Ok(())
-}
-
-fn touched_contract_accounts(block: &L2Block) -> BTreeSet<Hash32> {
-    block
-        .transactions
-        .iter()
-        .zip(block.receipts.iter())
-        .filter(|(_, receipt)| receipt.status == ReceiptStatus::Applied)
-        .filter_map(|(transaction, _)| match &transaction.kind {
-            L2TransactionKind::DeployContract { contract, .. }
-            | L2TransactionKind::CallContract { contract, .. } => Some(*contract),
-            L2TransactionKind::InternalMessage { to, .. } => Some(*to),
-            _ => None,
-        })
-        .collect()
-}
-
-fn current_unix_time() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
 }
 
 fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
