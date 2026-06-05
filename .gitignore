@@ -8,6 +8,7 @@ desktop.ini
 
 # Local planning / agent workspace outside the L2 product
 /.codex/
+/ecosystem/
 
 # Logs and local diagnostics
 *.log
