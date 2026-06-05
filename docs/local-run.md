@@ -250,6 +250,9 @@ The response includes `read_only=true`, `state_root`, `method_id`, `gas_limit`,
 getters such as the sample counter and EnWallet V5 R1 getters return typed JSON.
 Arbitrary contract getters require `TVM_ADAPTER=real` and return
 `{"type":"vm_stack_boc","stack_boc_base64":"..."}` from the TON emulator stack.
+Real TVM getter C7 uses the timestamp of the account's last stored L2 block,
+falling back to zero for unstored local fixtures; it does not read wall-clock
+time during getter execution.
 
 Getter limits are runtime config, but not consensus state:
 

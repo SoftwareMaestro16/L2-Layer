@@ -32,6 +32,8 @@ mod contract;
 mod da;
 mod error;
 mod explorer;
+mod getter;
+mod getter_known;
 mod mempool_ingress;
 mod operator;
 mod receipt;
@@ -50,14 +52,14 @@ use explorer::{
     explorer_account, explorer_account_transactions, explorer_blocks, explorer_deposit,
     explorer_deposits, explorer_summary, explorer_tx, explorer_withdrawal, get_withdrawal_proof,
 };
+use getter::{get_contract_method, post_contract_get_method};
 use mempool_ingress::MempoolIngressGuard;
 use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
 use receipt::{get_block_finality, get_receipt, get_tx_receipt};
-use sample::post_contract_get_method;
-use sample::{get_contract_method, get_sample_counter};
+use sample::get_sample_counter;
 use stream::stream;
 #[cfg(test)]
 use test_support::test_config;

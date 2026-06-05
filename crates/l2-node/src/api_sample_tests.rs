@@ -1,11 +1,12 @@
 use super::*;
-use crate::api::sample::ContractGetMethodRequest;
+use crate::api::getter::ContractGetMethodRequest;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use l2_core::crypto::sha256_bytes;
 use l2_core::{
     decode_contract_cell_boc_base64, l2_raw_address, l2_user_friendly_address,
-    sample_counter_initial_state, Hash32, ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_TESTNET_WALLET_ID,
+    sample_counter_initial_state, Account, Hash32, L2Block, ENWALLET_V5R1_CODE_HASH,
+    ENWALLET_V5R1_TESTNET_WALLET_ID, L2_NATIVE_GAS_ASSET,
 };
 use tonlib_core::cell::{BagOfCells, CellBuilder};
 
@@ -193,6 +194,36 @@ async fn contract_get_method_reads_enwallet_v5_seqno() {
     assert_eq!(response.method, "seqno");
     assert_eq!(response.result["result"]["value"], "9");
     assert_eq!(response.source, "l2_state");
+}
+
+#[tokio::test]
+async fn contract_getter_context_uses_stored_block_timestamp() {
+    let state = AppState::test(Some("test-admin-token"));
+    let block = L2Block::new(
+        7,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"state-root"),
+        vec![],
+        vec![],
+        vec![],
+        sha256_bytes(b"data-hash"),
+        1_717_171,
+    );
+    state.storage.save_block(block).await.expect("save block");
+
+    let account = Account {
+        last_lt: 7,
+        ..Account::default()
+    };
+    let context = getter::getter_execution_context(&state, &account)
+        .await
+        .expect("getter context");
+
+    assert_eq!(context.block_height, 7);
+    assert_eq!(context.block_time, 1_717_171);
+    assert_eq!(context.gas_coin_asset, L2_NATIVE_GAS_ASSET);
+    assert_eq!(context.max_internal_messages, 0);
 }
 
 #[tokio::test]
