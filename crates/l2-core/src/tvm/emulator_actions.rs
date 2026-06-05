@@ -1,5 +1,7 @@
 use crate::crypto::Hash32;
 use crate::tvm::{TvmAdapterError, TvmInternalMessage};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use num_bigint::BigUint;
 use tonlib_core::cell::BagOfCells;
 use tonlib_core::tlb_types::block::message::{CommonMsgInfo, Message};
@@ -12,10 +14,12 @@ pub(super) fn parse_actions(
     contract: Hash32,
     workchain: i32,
     max_messages: u32,
+    max_actions_boc_bytes: usize,
 ) -> Result<Vec<TvmInternalMessage>, TvmAdapterError> {
     let Some(actions_boc_base64) = actions_boc_base64.filter(|value| !value.is_empty()) else {
         return Ok(vec![]);
     };
+    validate_actions_boc(actions_boc_base64, max_actions_boc_bytes)?;
     let out_list =
         OutList::from_boc_b64(actions_boc_base64).map_err(|_| TvmAdapterError::Rejected {
             reason: "tvm_malformed_actions",
@@ -23,6 +27,31 @@ pub(super) fn parse_actions(
     let mut messages = Vec::new();
     collect_actions(&out_list, contract, workchain, max_messages, &mut messages)?;
     Ok(messages)
+}
+
+fn validate_actions_boc(value: &str, max_bytes: usize) -> Result<(), TvmAdapterError> {
+    if value.len() > max_base64_len(max_bytes) {
+        return Err(TvmAdapterError::Rejected {
+            reason: "tvm_actions_boc_too_large",
+        });
+    }
+    let bytes =
+        BASE64_STANDARD
+            .decode(value.as_bytes())
+            .map_err(|_| TvmAdapterError::Rejected {
+                reason: "tvm_malformed_actions",
+            })?;
+    if bytes.is_empty() {
+        return Err(TvmAdapterError::Rejected {
+            reason: "tvm_malformed_actions",
+        });
+    }
+    if bytes.len() > max_bytes {
+        return Err(TvmAdapterError::Rejected {
+            reason: "tvm_actions_boc_too_large",
+        });
+    }
+    Ok(())
 }
 
 fn collect_actions(
@@ -147,4 +176,11 @@ fn biguint_to_u128(value: &BigUint) -> Result<u128, TvmAdapterError> {
 fn hash_from_slice(value: &[u8]) -> Result<Hash32, ()> {
     let bytes: [u8; 32] = value.try_into().map_err(|_| ())?;
     Ok(Hash32::new(bytes))
+}
+
+fn max_base64_len(max_bytes: usize) -> usize {
+    max_bytes
+        .saturating_add(2)
+        .saturating_div(3)
+        .saturating_mul(4)
 }

@@ -12,6 +12,11 @@ use tonlib_core::cell::{BagOfCells, CellBuilder};
 #[path = "emulator_actions.rs"]
 mod emulator_actions;
 use emulator_actions::parse_actions;
+#[path = "emulator_limits.rs"]
+mod emulator_limits;
+use emulator_limits::{
+    validate_emulator_config, validate_getter_stack_input, validate_getter_stack_output,
+};
 
 const DEFAULT_TVM_WORKCHAIN: i32 = 0;
 const EMPTY_CONFIG_CELL_ERROR: &str = "empty config cell must be serializable";
@@ -155,6 +160,7 @@ impl<B: TvmEmulatorGetBackend> TvmGetMethodAdapter for TvmEmulatorAdapter<B> {
                 reason: error.reason,
             }
         })?;
+        validate_getter_stack_output(&result.stack_boc_base64)?;
         Ok(TvmGetMethodOutput {
             vm_exit_code: result.vm_exit_code,
             gas_used: result.gas_used,
@@ -224,6 +230,7 @@ impl<B> TvmEmulatorAdapter<B> {
         input: &TvmExecutionInput,
         image: &AccountImage,
     ) -> Result<TvmEmulatorRequest, TvmAdapterError> {
+        validate_emulator_config(&self.config)?;
         let unixtime =
             u32::try_from(input.context.block_time).map_err(|_| TvmAdapterError::Rejected {
                 reason: "tvm_invalid_context",
@@ -257,6 +264,8 @@ impl<B> TvmEmulatorAdapter<B> {
         input: &TvmGetMethodInput,
         image: &AccountImage,
     ) -> Result<TvmEmulatorGetRequest, TvmAdapterError> {
+        validate_emulator_config(&self.config)?;
+        validate_getter_stack_input(&input.stack_boc)?;
         let unixtime =
             u32::try_from(input.context.block_time).map_err(|_| TvmAdapterError::Rejected {
                 reason: "tvm_invalid_context",
@@ -343,6 +352,7 @@ impl<B> TvmEmulatorAdapter<B> {
             input.contract,
             self.config.workchain,
             input.context.max_internal_messages,
+            DEFAULT_MAX_TVM_BOC_BYTES,
         )?;
 
         Ok(TvmExecutionOutput {
@@ -427,6 +437,10 @@ fn empty_cell_boc() -> Vec<u8> {
 #[cfg(test)]
 #[path = "emulator_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "emulator_hardening_tests.rs"]
+mod hardening_tests;
 
 #[path = "tonlib_backend.rs"]
 mod tonlib_backend;
