@@ -3,7 +3,8 @@ use axum::extract::Query;
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address, L2TransactionKind,
-    Receipt, SignedL2Transaction, WithdrawalLeaf,
+    Receipt, SignedL2Transaction, WithdrawalLeaf, ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE,
+    ENWALLET_V5R1_LABEL,
 };
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -85,6 +86,26 @@ async fn explorer_account_returns_addresses_and_balances() {
     assert_eq!(account.last_lt, 9);
     assert_eq!(account.balances[0].asset_id, 0);
     assert_eq!(account.balances[0].amount, 123);
+    assert!(account.interfaces.is_empty());
+}
+
+#[tokio::test]
+async fn explorer_account_marks_enwallet_v5_interface() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"enwallet");
+    {
+        let mut sequencer = state.sequencer.write().await;
+        sequencer.state.account_mut(account_id).code_hash = ENWALLET_V5R1_CODE_HASH;
+    }
+
+    let account = explorer_account(State(state), Path(l2_raw_address(account_id)))
+        .await
+        .expect("account")
+        .0;
+
+    assert_eq!(account.interfaces.len(), 1);
+    assert_eq!(account.interfaces[0].id, ENWALLET_V5R1_INTERFACE);
+    assert_eq!(account.interfaces[0].label, ENWALLET_V5R1_LABEL);
 }
 
 #[tokio::test]

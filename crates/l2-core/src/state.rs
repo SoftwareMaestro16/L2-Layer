@@ -59,6 +59,15 @@ impl Account {
         *balance -= amount;
         true
     }
+
+    pub fn can_initialize_contract(&self) -> bool {
+        self.nonce == 0
+            && self.code_hash == Hash32::ZERO
+            && self.data_hash == Hash32::ZERO
+            && self.storage_root == Hash32::ZERO
+            && self.code_boc_base64.is_none()
+            && self.data_boc_base64.is_none()
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

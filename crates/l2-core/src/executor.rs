@@ -246,7 +246,7 @@ impl DeterministicExecutor {
                 };
                 if state
                     .account(*contract)
-                    .is_some_and(|account| account != &crate::state::Account::default())
+                    .is_some_and(|account| !account.can_initialize_contract())
                 {
                     return rejected_attempt(state, tx, from, config, "contract_already_exists");
                 }

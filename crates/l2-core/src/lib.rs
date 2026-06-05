@@ -3,6 +3,7 @@ pub mod batch;
 pub mod batch_decode;
 pub mod consensus;
 pub mod crypto;
+pub mod enwallet;
 pub mod executor;
 pub mod gas;
 pub mod merkle;
@@ -22,6 +23,11 @@ pub use batch::{
 };
 pub use batch_decode::{decode_batch_data, BatchDataDecodeError, DecodedBatchData};
 pub use crypto::{derive_account_id, verify_signature, Hash32};
+pub use enwallet::{
+    decode_enwallet_v5_data_boc, interface_for_code_hash, is_enwallet_v5r1_code_hash,
+    read_enwallet_v5_state, EnWalletReadError, EnWalletV5State, ENWALLET_V5R1_CODE_HASH,
+    ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL, ENWALLET_V5R1_TESTNET_WALLET_ID,
+};
 pub use executor::{DeterministicExecutor, ExecutionConfig, ExecutionOutcome};
 pub use gas::{
     GasError, GasFee, GasSchedule, DEFAULT_CALL_CONTRACT_GAS, DEFAULT_MIN_GAS_PRICE,

@@ -117,6 +117,41 @@ fn deploy_contract_rejects_overwrite_without_corrupting_existing_contract() {
 }
 
 #[test]
+fn deploy_contract_initializes_prefunded_uninitialized_account() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let contract = account(b"prefunded-wallet");
+    let sample = sample_counter_initial_state(0);
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+    assert!(state.account_mut(contract).credit(L2_NATIVE_GAS_ASSET, 250));
+    state.account_mut(contract).last_lt = 3;
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            GasSchedule::default().call_contract_gas,
+            1,
+            L2TransactionKind::DeployContract {
+                contract,
+                code_boc_base64: sample.code_boc_base64.clone(),
+                data_boc_base64: sample.data_boc_base64.clone(),
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    let deployed = state.account(contract).unwrap();
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(deployed.balance(L2_NATIVE_GAS_ASSET), 250);
+    assert_eq!(deployed.code_hash, sample.code_hash);
+    assert_eq!(deployed.data_hash, sample.data_hash);
+    assert_eq!(deployed.storage_root, sample.storage_root);
+}
+
+#[test]
 fn transfer_uses_configured_gas_schedule_and_price() {
     let executor = DeterministicExecutor;
     let mut state = State::default();

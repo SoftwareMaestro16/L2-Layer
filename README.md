@@ -31,6 +31,8 @@ flowchart TB
 - `crates/l2-core`: Rust L2 state model, Merkle hashing, sequencer, mempool, executor boundary, and tests.
 - `crates/l2-node`: Axum HTTP/WebSocket node exposing the planned L2 API.
 - `contracts/l1`: Tolk contract sources for `RollupRoot` and `AssetVault`.
+- `examples/l2-wallet-v5`: Tolk EnWallet V5 R1-compatible smart-contract wallet.
+- `examples/l2-counter`: sample L2 Tolk counter contract.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
 - `docs`: Architecture, local operation notes, CI quality gates, operator runbooks,
   and the public testnet launch checklist.
@@ -138,6 +140,47 @@ npm exec --yes node examples/l2-counter-sample.mjs
 Set-Location ..
 ```
 
+Create an EnWallet V5 R1 init transaction from a 24-word seed-backed keypair in
+SDK code:
+
+```ts
+import {
+  createEnWalletMnemonic,
+  enwalletKeyPairFromMnemonic,
+  enwalletV5InitialState,
+  signEnWalletV5InitTransaction,
+} from "@ton-l2-rollup/sdk";
+
+const mnemonic = await createEnWalletMnemonic();
+const keyPair = await enwalletKeyPairFromMnemonic(mnemonic);
+const wallet = enwalletV5InitialState({ publicKey: keyPair.publicKey });
+
+const initTx = signEnWalletV5InitTransaction({
+  chainId: "entropis-testnet",
+  from: wallet.owner_account_id,
+  nonce: 0,
+  gasLimit: 50,
+  maxGasPrice: "1",
+  keyPair,
+});
+```
+
+CLI-style demo after `npm run build`:
+
+```powershell
+Set-Location sdk
+npm run build
+npm exec --yes node examples/enwallet-v5-init.mjs
+Set-Location ..
+```
+
+`wallet.wallet_account_id` is the smart-contract wallet address and can be shown
+as `EX...` through `l2UserFriendlyAddress`. The account may receive deposits
+before initialization; the first `DeployContract` init transaction installs the
+W5 code/data and preserves any prefunded balance. Explorer account responses
+mark the interface as `org.ton.wallet.v5.r1` / `Wallet Signed External V5 R1`,
+and wallet init transactions are marked with `operation: "wallet_init"`.
+
 Deploy code compiled from any Tolk source when you already have the initial data
 cell BoC:
 
@@ -170,7 +213,8 @@ funded wallets are available. Do not use mainnet endpoints for this prototype.
 - The off-chain observer prototype can replay supplied RollupRoot-style commitments from DA bytes and report missing DA, corrupt DA, receipt, or root divergence.
 - Operators get split `/healthz` and `/readyz` checks plus admin-only metrics and failure visibility endpoints.
 - ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
-- `DeployContract` stores real code/data BoC cells in L2 account state and commits their TON cell hashes into the state root. `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter executes the sample counter prototype; `--features tonlib-tvm` enables the tonlib TVM backend for arbitrary Tolk code/data cells.
+- `DeployContract` stores real code/data BoC cells in L2 account state and commits their TON cell hashes into the state root. It can initialize an uninitialized prefunded account, matching the TON wallet pattern where an address exists before the first deploy/init transaction. `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter executes the sample counter prototype; `--features tonlib-tvm` enables the tonlib TVM backend for arbitrary Tolk code/data cells.
+- EnWallet V5 R1 is included as a Tolk smart-contract wallet derived from the TON Wallet V5 interface. The SDK supports 24-word mnemonic key derivation, W5 init-state construction, signed init transactions, and W5 signed body builders.
 - Fraud proofs are documented as a roadmap only; the current MVP remains trusted-sequencer optimistic until L1 challenge verification is implemented.
 - Tolk contracts are source scaffolds following current Tolk message/storage/getter patterns.
 - Acton is required for contract build/tests, but current Windows release assets do not include a native Windows binary.

@@ -35,7 +35,8 @@ TON_L2_SKILLS = {
     "Prefer typed structs, fixed-width serialized fields, union message dispatch, typed Cell<T> refs, lazy loading, and typed getters.",
     "Use opcode-prefixed structs for inbound messages and a union listed in contract incomingMessages.",
     "Use onInternalMessage for normal wallet/contract interaction and onBouncedMessage when outbound sends can bounce and state must be tracked.",
-    "Unknown-message policy should be explicit: ignore empty top-ups, throw a known error for non-empty unknown bodies."
+    "Unknown-message policy should be explicit: ignore empty top-ups, throw a known error for non-empty unknown bodies.",
+    "Wallet V5 R1 storage is signatureAllowed:bool, seqno:uint32, walletId:uint32, publicKey:uint256, extensions:HashmapE<uint256,bool>; signed requests end with a 512-bit Ed25519 signature over the signed slice hash."
   ],
   acton_toolchain: [
     "Acton is the unified TON smart-contract CLI around Tolk: scaffold, build, test, script, wallet, verify, lint, format, and low-level tooling.",
@@ -104,7 +105,9 @@ TON_L2_SKILLS = {
     "Executor gas is versioned config: applied fees are gas_used * max_gas_price in ENT asset id 0; authenticated rejected execution advances nonce and charges only rejected_execution_gas when possible.",
     "CallContract uses a TvmExecutionAdapter boundary: single-root BoC input, explicit deterministic context, real contract code/data BoC from account state, contract-local state delta, bounded internal messages/body sizes, and gas_used validation.",
     "The default prototype adapter recognizes only the sample L2 counter code cell and fails closed with tvm_adapter_not_implemented for unsupported code hashes. Building with the tonlib-tvm feature routes calls through tonlib's TVM emulator using stored code/data BoC cells.",
-    "DeployContract accepts code_boc_base64 and data_boc_base64, validates them as single-root TON BoC cells, computes code_hash/data_hash from TON cell hashes, stores the BoCs on the account, sets storage_root=data_hash, rejects overwrites, and uses the CallContract gas schedule.",
+    "DeployContract accepts code_boc_base64 and data_boc_base64, validates them as single-root TON BoC cells, computes code_hash/data_hash from TON cell hashes, stores the BoCs on the account, sets storage_root=data_hash, rejects deployed-code overwrites, and uses the CallContract gas schedule.",
+    "DeployContract may initialize a prefunded but still uninitialized account whose nonce/code/data/storage are empty, preserving balances. This supports TON-style wallet addresses that can receive deposits before the first deploy/init transaction.",
+    "EnWallet V5 R1 is included under examples/l2-wallet-v5 as a Tolk smart-contract wallet based on the TON Wallet V5 interface; explorer metadata identifies code hash 9afaeff10bb834d0cfc32f7b230cdef530e65044352fc1f196fb0ccb6324c5c8 as org.ton.wallet.v5.r1 / Wallet Signed External V5 R1.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."
   ],
   bridge_design: [
@@ -135,6 +138,7 @@ TON_L2_SKILLS = {
     "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",
     "ENT is L2-native first in the MVP: decimals=9, logo at assets/entropis.png, faucet-only testnet supply, no L1 Jetton minter/wallet until bridge/indexer hardening is stable.",
     "Entropis L2 public account/contract address formats are raw 8:<64 lowercase hex chars> and deterministic user-friendly EX... base64url with 48 chars total; after EX, valid characters are A-Z, a-z, 0-9, -, and _; legacy bare 64-hex remains accepted only for local compatibility.",
+    "EnWallet seed flow is 24 words -> Ed25519 private/public key -> W5 init data cell -> L2 smart-contract account id from StateInit hash -> EX... address. Seed/private key must stay browser-local or wallet-local and never be sent to l2-node.",
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",

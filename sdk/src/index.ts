@@ -71,6 +71,27 @@ export type {
 } from "./contracts.js";
 export * as AssetVaultL1 from "./generated/AssetVault.gen.js";
 export * as RollupRootL1 from "./generated/RollupRoot.gen.js";
+export * as EnWalletV5Generated from "./generated/EnWalletV5.gen.js";
+export {
+  createEnWalletMnemonic,
+  enwalletKeyPairFromMnemonic,
+  enwalletV5AccountId,
+  enwalletV5ContractSalt,
+  enwalletV5CodeBocBase64,
+  enwalletV5CodeHash,
+  enwalletV5DataBocBase64,
+  enwalletV5DataCell,
+  enwalletV5InitialState,
+  enwalletV5SignedExternalBodyBase64,
+  enwalletV5SignedInternalBodyBase64,
+  enwalletV5StateInitCell,
+  signEnWalletV5InitTransaction,
+  validateEnWalletMnemonic,
+  ENWALLET_V5R1_INTERFACE,
+  ENWALLET_V5R1_LABEL,
+  ENWALLET_V5R1_TESTNET_WALLET_ID,
+} from "./enwallet.js";
+export type { EnWalletV5DeployParams, EnWalletV5InitialState, EnWalletV5InitParams } from "./enwallet.js";
 export {
   accountLeafHash,
   blockHeaderHash,
@@ -228,6 +249,55 @@ export interface ContractGetMethodResponse {
   method: string;
   result: unknown;
   source: string;
+}
+
+export interface ExplorerInterface {
+  id: string;
+  label: string;
+}
+
+export interface ExplorerBalance {
+  asset_id: number;
+  amount: string;
+}
+
+export interface ExplorerAccountResponse {
+  account_id: Hash32;
+  raw_address: string;
+  user_friendly_address: string;
+  status: string;
+  nonce: number;
+  balances: ExplorerBalance[];
+  code_hash: Hash32;
+  data_hash: Hash32;
+  storage_root: Hash32;
+  interfaces: ExplorerInterface[];
+  last_lt: number;
+}
+
+export interface ExplorerTransactionSummary {
+  block_height: number;
+  tx_index: number;
+  timestamp: number;
+  block_hash: Hash32;
+  tx_hash: Hash32;
+  kind: string;
+  interface: string | null;
+  interface_label: string | null;
+  operation: string | null;
+  direction: string;
+  participants: unknown[];
+  asset_id: number | null;
+  amount: string | null;
+  status: string;
+  gas_charged: string | null;
+  reason: string | null;
+  withdrawal_id: Hash32 | null;
+}
+
+export interface ExplorerAccountTransactionsResponse {
+  items: ExplorerTransactionSummary[];
+  next_cursor: { before_height: number; before_index: number } | null;
 }
 
 export function signTransaction(
@@ -406,6 +476,31 @@ export class TonL2Client {
   ): Promise<ContractGetMethodResponse> {
     const address = encodeURIComponent(l2RawAddress(parseL2Address(contractId)));
     return this.getJson(`/v1/contract/${address}/get/${encodeURIComponent(method)}`);
+  }
+
+  async getExplorerAccount(accountId: Hash32): Promise<ExplorerAccountResponse> {
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(accountId)));
+    return this.getJson(`/v1/explorer/account/${address}`);
+  }
+
+  async getExplorerAccountTransactions(
+    accountId: Hash32,
+    query: { limit?: number; beforeHeight?: number; beforeIndex?: number } = {},
+  ): Promise<ExplorerAccountTransactionsResponse> {
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(accountId)));
+    const params = new URLSearchParams();
+    if (query.limit !== undefined) {
+      params.set("limit", query.limit.toString());
+    }
+    if (query.beforeHeight !== undefined) {
+      params.set("before_height", query.beforeHeight.toString());
+    }
+    if (query.beforeIndex !== undefined) {
+      params.set("before_index", query.beforeIndex.toString());
+    }
+    const queryString = params.toString();
+    const suffix = queryString ? `?${queryString}` : "";
+    return this.getJson(`/v1/explorer/account/${address}/transactions${suffix}`);
   }
 
   async getBlock(height: number): Promise<unknown> {
