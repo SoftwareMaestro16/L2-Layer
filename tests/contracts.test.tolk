@@ -402,6 +402,7 @@ fun setupRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, address) {
         lastCommitted: 0,
         lastFinalized: 0,
         paused: false,
+        security: emptyRollupSecurityState().toCell(),
         commitments: [],
         claimedWithdrawals: [],
         failedWithdrawals: [],

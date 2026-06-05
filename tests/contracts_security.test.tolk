@@ -106,6 +106,193 @@ get fun `test security rollup root rejects missing and duplicate finalization`()
     expect(root.rollupStatus().lastFinalized).toEqual(1);
 }
 
+get fun `test security challenge gates finality and slashes sequencer bond`() {
+    testing.setNow(3000);
+    val (root, sequencer, challenger, _) = securityDeployRoot(10);
+
+    val stake = root.sendAny(
+        sequencer.address,
+        StakeSequencerBond { amount: ton("1") }.toCell(),
+        { value: ton("1.01") },
+    );
+    expect(stake).toHaveSuccessfulTx<StakeSequencerBond>({
+        from: sequencer.address,
+        to: root.address,
+    });
+    expect(root.bondStatus().sequencerBond).toEqual(ton("1"));
+
+    root.sendCommitBatch(
+        sequencer.address,
+        1,
+        securityRootsA(0, 61, 62),
+        securityRootsB(63, 64, 65),
+        { value: ton("0.1") },
+    );
+
+    val challenge = root.sendAny(
+        challenger.address,
+        ChallengeBatch {
+            batchNo: 1,
+            reason: CHALLENGE_REASON_INVALID_STATE_ROOT,
+            evidenceHash: 999,
+            challengerBond: MIN_CHALLENGE_BOND_NANOTON,
+        }.toCell(),
+        { value: ton("0.06") },
+    );
+    expect(challenge).toHaveSuccessfulTx<ChallengeBatch>({
+        from: challenger.address,
+        to: root.address,
+    });
+
+    val challengeStatus = root.batchChallenge(1);
+    expect(challengeStatus.exists).toEqual(true);
+    expect(challengeStatus.challenge.load().status).toEqual(CHALLENGE_STATUS_OPEN);
+
+    testing.setNow(3011);
+    val blockedFinalize = root.sendFinalizeBatch(sequencer.address, 1, { value: ton("0.05") });
+    expect(blockedFinalize).toHaveFailedTx({
+        from: sequencer.address,
+        to: root.address,
+        exitCode: Errors.ChallengeOpen,
+    });
+
+    val unauthorizedResolve = root.sendAny(
+        challenger.address,
+        ResolveChallenge {
+            batchNo: 1,
+            uphold: true,
+            slashAmount: ton("0.4"),
+        }.toCell(),
+        { value: ton("0.05") },
+    );
+    expect(unauthorizedResolve).toHaveFailedTx({
+        from: challenger.address,
+        to: root.address,
+        exitCode: Errors.Unauthorized,
+    });
+
+    val resolve = root.sendAny(
+        sequencer.address,
+        ResolveChallenge {
+            batchNo: 1,
+            uphold: true,
+            slashAmount: ton("0.4"),
+        }.toCell(),
+        { value: ton("0.05") },
+    );
+    expect(resolve).toHaveSuccessfulTx<ResolveChallenge>({
+        from: sequencer.address,
+        to: root.address,
+    });
+    expect(root.bondStatus().sequencerBond).toEqual(ton("0.6"));
+    expect(root.bondStatus().slashedBond).toEqual(ton("0.4"));
+    expect(root.batchChallenge(1).challenge.load().status).toEqual(CHALLENGE_STATUS_UPHELD);
+
+    val stillBlocked = root.sendFinalizeBatch(sequencer.address, 1, { value: ton("0.05") });
+    expect(stillBlocked).toHaveFailedTx({
+        from: sequencer.address,
+        to: root.address,
+        exitCode: Errors.ChallengeOpen,
+    });
+}
+
+get fun `test security challenge requires evidence bond and unresolved batch`() {
+    testing.setNow(4000);
+    val (root, sequencer, challenger, _) = securityDeployRoot(10);
+
+    root.sendCommitBatch(
+        sequencer.address,
+        1,
+        securityRootsA(0, 71, 72),
+        securityRootsB(73, 74, 75),
+        { value: ton("0.1") },
+    );
+
+    val noEvidence = root.sendAny(
+        challenger.address,
+        ChallengeBatch {
+            batchNo: 1,
+            reason: CHALLENGE_REASON_DA_UNAVAILABLE,
+            evidenceHash: 0,
+            challengerBond: MIN_CHALLENGE_BOND_NANOTON,
+        }.toCell(),
+        { value: ton("0.06") },
+    );
+    expect(noEvidence).toHaveFailedTx({
+        from: challenger.address,
+        to: root.address,
+        exitCode: Errors.BadChallenge,
+    });
+
+    val underBonded = root.sendAny(
+        challenger.address,
+        ChallengeBatch {
+            batchNo: 1,
+            reason: CHALLENGE_REASON_DA_UNAVAILABLE,
+            evidenceHash: 123,
+            challengerBond: MIN_CHALLENGE_BOND_NANOTON - 1,
+        }.toCell(),
+        { value: ton("0.06") },
+    );
+    expect(underBonded).toHaveFailedTx({
+        from: challenger.address,
+        to: root.address,
+        exitCode: Errors.InsufficientBond,
+    });
+
+    val accepted = root.sendAny(
+        challenger.address,
+        ChallengeBatch {
+            batchNo: 1,
+            reason: CHALLENGE_REASON_DA_UNAVAILABLE,
+            evidenceHash: 124,
+            challengerBond: MIN_CHALLENGE_BOND_NANOTON,
+        }.toCell(),
+        { value: ton("0.06") },
+    );
+    expect(accepted).toHaveSuccessfulTx<ChallengeBatch>({
+        from: challenger.address,
+        to: root.address,
+    });
+
+    val rejected = root.sendAny(
+        sequencer.address,
+        ResolveChallenge {
+            batchNo: 1,
+            uphold: false,
+            slashAmount: 0,
+        }.toCell(),
+        { value: ton("0.05") },
+    );
+    expect(rejected).toHaveSuccessfulTx<ResolveChallenge>({
+        from: sequencer.address,
+        to: root.address,
+    });
+
+    testing.setNow(4011);
+    val finalize = root.sendFinalizeBatch(sequencer.address, 1, { value: ton("0.05") });
+    expect(finalize).toHaveSuccessfulTx<FinalizeBatch>({
+        from: sequencer.address,
+        to: root.address,
+    });
+
+    val challengeAfterFinalize = root.sendAny(
+        challenger.address,
+        ChallengeBatch {
+            batchNo: 1,
+            reason: CHALLENGE_REASON_DA_UNAVAILABLE,
+            evidenceHash: 125,
+            challengerBond: MIN_CHALLENGE_BOND_NANOTON,
+        }.toCell(),
+        { value: ton("0.06") },
+    );
+    expect(challengeAfterFinalize).toHaveFailedTx({
+        from: challenger.address,
+        to: root.address,
+        exitCode: Errors.AlreadyFinalized,
+    });
+}
+
 get fun `test security rollup root ignores empty topup and rejects unknown non empty message`() {
     val (root, _, attacker, _) = securityDeployRoot(30);
 
@@ -400,6 +587,7 @@ fun securityDeployRoot(challengeWindowSec: uint32): (RollupRoot, Treasury, Treas
         lastCommitted: 0,
         lastFinalized: 0,
         paused: false,
+        security: emptyRollupSecurityState().toCell(),
         commitments: [],
         claimedWithdrawals: [],
         failedWithdrawals: [],

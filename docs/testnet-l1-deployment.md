@@ -153,3 +153,49 @@ acton run l1-deposit-testnet -- \
 `amount` is the TON value credited to the L2 bridged TON asset. The script sends
 `amount + L1_DEPOSIT_FEE_BUFFER_NANOTON` as the attached L1 message value so the
 vault has fee headroom while the `DepositRecorded` log credits exactly `amount`.
+
+## Testnet Bond And Challenge Rehearsal
+
+The current L1 challenge path is a testnet finality gate, not automatic fraud
+proof verification. Use it to rehearse bond custody and finalization blocking.
+It requires a RollupRoot deployed with the current storage schema; older testnet
+deployments must be redeployed and the local registry/config updated.
+
+Stake sequencer bond from the sequencer wallet:
+
+```bash
+export L1_STAKE_WALLET_LABEL=entropis-testnet-sequencer
+
+acton run l1-stake-bond-testnet -- \
+  <rollup-root-address> \
+  1000000000
+```
+
+Open a challenge before the batch is finalized. `reason` is one of the
+repository constants, for example `1` for invalid state root or `2` for DA
+unavailable. `evidenceHash` is a non-zero hash from observer output or manual
+audit evidence:
+
+```bash
+export L1_CHALLENGE_WALLET_LABEL=entropis-testnet-deployer
+
+acton run l1-challenge-testnet -- \
+  <rollup-root-address> \
+  <batchNo> \
+  2 \
+  0x<64_HEX_EVIDENCE_HASH>
+```
+
+Resolve the challenge from the admin/deployer wallet. Upholding slashes the
+sequencer bond accounting and leaves the batch blocked from finalization;
+rejecting must pass `false 0` and is the path that unlocks finalization:
+
+```bash
+export L1_RESOLVE_WALLET_LABEL=entropis-testnet-deployer
+
+acton run l1-resolve-challenge-testnet -- \
+  <rollup-root-address> \
+  <batchNo> \
+  true \
+  400000000
+```

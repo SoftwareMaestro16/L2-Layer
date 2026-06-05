@@ -227,7 +227,11 @@ funded wallets are available. Do not use mainnet endpoints for this prototype.
 - ENT is L2-native first with 9 decimals and an admin-only testnet faucet; no L1 Jetton is deployed in this phase.
 - `DeployContract` stores real code/data BoC cells in L2 account state and commits their TON cell hashes into the state root. It can initialize an uninitialized prefunded account, matching the TON wallet pattern where an address exists before the first deploy/init transaction. `CallContract` validates a single-root TON BoC body and goes through a mockable TVM adapter boundary. The default adapter executes the sample counter prototype; `--features tonlib-tvm` enables the tonlib TVM backend for arbitrary Tolk code/data cells.
 - EnWallet V5 R1 is included as a Tolk smart-contract wallet derived from the TON Wallet V5 interface. The SDK supports 24-word mnemonic key derivation, W5 init-state construction, signed init transactions, and W5 signed body builders.
-- Fraud proofs are documented as a roadmap only; the current MVP remains trusted-sequencer optimistic until L1 challenge verification is implemented.
+- RollupRoot has a testnet challenge gate: the sequencer can stake an L1 bond,
+  challengers can open a bonded challenge with an evidence hash before finality,
+  and admin/testnet resolution can slash the sequencer bond or reject the
+  challenge. Full automatic fraud-proof verification is still not implemented,
+  so the MVP remains trusted-sequencer optimistic for mainnet purposes.
 - Tolk contracts are source scaffolds following current Tolk message/storage/getter patterns.
 - Acton is required for contract build/tests, but current Windows release assets do not include a native Windows binary.
 

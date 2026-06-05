@@ -8,9 +8,16 @@ struct RollupStorage {
     lastCommitted: uint64
     lastFinalized: uint64
     paused: bool
+    security: Cell<RollupSecurityState>
     commitments: map<uint64, Cell<BatchCommitment>>
     claimedWithdrawals: map<uint256, bool>
     failedWithdrawals: map<uint256, Cell<ReleaseFailure>>
+}
+
+struct RollupSecurityState {
+    sequencerBond: coins
+    slashedBond: coins
+    challenges: map<uint64, Cell<BatchChallenge>>
 }
 
 fun RollupStorage.load(): RollupStorage {
@@ -23,6 +30,22 @@ fun RollupStorage.save(self) {
 
 fun unlinkedAssetVaultAddress(): address {
     return address("0:0000000000000000000000000000000000000000000000000000000000000000");
+}
+
+fun emptyRollupSecurityState(): RollupSecurityState {
+    return RollupSecurityState {
+        sequencerBond: 0,
+        slashedBond: 0,
+        challenges: [],
+    };
+}
+
+fun RollupStorage.challengeBlocksFinality(self, batchNo: uint64): bool {
+    val found = self.security.load().challenges.get(batchNo);
+    if (found.isFound) {
+        return found.loadValue().load().status != CHALLENGE_STATUS_REJECTED;
+    }
+    return false;
 }
 
 struct AssetVaultStorage {
@@ -59,6 +82,17 @@ struct RollupStatusReply {
 struct CommitmentReply {
     exists: bool
     commitment: Cell<BatchCommitment>
+}
+
+struct BondStatusReply {
+    sequencer: address
+    sequencerBond: coins
+    slashedBond: coins
+}
+
+struct ChallengeReply {
+    exists: bool
+    challenge: Cell<BatchChallenge>
 }
 
 struct ReleaseFailureReply {

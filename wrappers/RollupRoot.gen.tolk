@@ -130,6 +130,56 @@ fun RollupRoot.sendRetryWithdrawal(
     return net.send(from, genericMsg);
 }
 
+fun RollupRoot.sendStakeSequencerBond(
+    self,
+    from: address,
+    amount: coins,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: StakeSequencerBond { amount },
+    });
+    return net.send(from, genericMsg);
+}
+
+fun RollupRoot.sendChallengeBatch(
+    self,
+    from: address,
+    batchNo: uint64,
+    reason: uint8,
+    evidenceHash: uint256,
+    challengerBond: coins,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: ChallengeBatch { batchNo, reason, evidenceHash, challengerBond },
+    });
+    return net.send(from, genericMsg);
+}
+
+fun RollupRoot.sendResolveChallenge(
+    self,
+    from: address,
+    batchNo: uint64,
+    uphold: bool,
+    slashAmount: coins,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: ResolveChallenge { batchNo, uphold, slashAmount },
+    });
+    return net.send(from, genericMsg);
+}
+
 /// Send message to the contract with a custom body cell
 fun RollupRoot.sendAny(self, from: address, body: cell, config: SendParams = {}): SendResultList {
     val genericMsg = createMessage({
@@ -147,6 +197,14 @@ fun RollupRoot.rollupStatus(self): RollupStatusReply {
 
 fun RollupRoot.commitment(self, batchNo: uint64): CommitmentReply {
     return net.runGetMethod(self.address, "commitment", [batchNo]);
+}
+
+fun RollupRoot.bondStatus(self): BondStatusReply {
+    return net.runGetMethod(self.address, "bondStatus");
+}
+
+fun RollupRoot.batchChallenge(self, batchNo: uint64): ChallengeReply {
+    return net.runGetMethod(self.address, "batchChallenge", [batchNo]);
 }
 
 fun RollupRoot.failedWithdrawal(self, withdrawalId: uint256): ReleaseFailureReply {

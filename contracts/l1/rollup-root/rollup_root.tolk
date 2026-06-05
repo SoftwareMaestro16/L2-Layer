@@ -1,6 +1,7 @@
 import "@shared/errors"
 import "@shared/messages"
 import "@shared/storage"
+import "@contracts/rollup-root/challenges"
 import "@contracts/rollup-root/commitment"
 import "@contracts/rollup-root/withdrawals"
 
@@ -35,6 +36,27 @@ get fun commitment(batchNo: uint64): CommitmentReply {
     return { exists: false, commitment: createEmptyCell() as Cell<BatchCommitment> };
 }
 
+/// Reads sequencer bond accounting for testnet challengers and operators.
+get fun bondStatus(): BondStatusReply {
+    val storage = lazy RollupStorage.load();
+    val security = storage.security.load();
+    return {
+        sequencer: storage.sequencer,
+        sequencerBond: security.sequencerBond,
+        slashedBond: security.slashedBond,
+    };
+}
+
+/// Reads a batch challenge, if one exists.
+get fun batchChallenge(batchNo: uint64): ChallengeReply {
+    val storage = lazy RollupStorage.load();
+    val found = storage.security.load().challenges.get(batchNo);
+    if (found.isFound) {
+        return { exists: true, challenge: found.loadValue() };
+    }
+    return { exists: false, challenge: createEmptyCell() as Cell<BatchChallenge> };
+}
+
 /// Reads a failed root-to-vault withdrawal release for retry operators and explorers.
 get fun failedWithdrawal(withdrawalId: uint256): ReleaseFailureReply {
     val storage = lazy RollupStorage.load();
@@ -53,6 +75,9 @@ fun onInternalMessage(in: InMessage) {
         FinalizeBatch => handleFinalizeBatch(msg),
         ClaimWithdrawal => handleClaimWithdrawal(msg),
         RetryWithdrawal => handleRetryWithdrawal(msg),
+        StakeSequencerBond => handleStakeSequencerBond(in.senderAddress, in.valueCoins, msg),
+        ChallengeBatch => handleChallengeBatch(in.senderAddress, in.valueCoins, msg),
+        ResolveChallenge => handleResolveChallenge(in.senderAddress, msg),
         else => {
             assert (in.body.isEmpty()) throw Errors.UnknownOpcode;
         }

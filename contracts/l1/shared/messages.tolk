@@ -17,6 +17,25 @@ struct BatchCommitment {
     finalized: bool
 }
 
+const MIN_CHALLENGE_BOND_NANOTON = 50000000
+const CHALLENGE_STATUS_OPEN = 1
+const CHALLENGE_STATUS_UPHELD = 2
+const CHALLENGE_STATUS_REJECTED = 3
+const CHALLENGE_REASON_INVALID_STATE_ROOT = 1
+const CHALLENGE_REASON_DA_UNAVAILABLE = 2
+const CHALLENGE_REASON_WITHDRAWAL_ROOT = 3
+
+struct BatchChallenge {
+    batchNo: uint64
+    challenger: address
+    reason: uint8
+    evidenceHash: uint256
+    openedAt: uint32
+    status: uint8
+    challengerBond: coins
+    slashedAmount: coins
+}
+
 struct (0x4c324301) CommitBatch {
     batchNo: uint64
     rootsA: Cell<BatchRootsA>
@@ -40,6 +59,23 @@ struct (0x4c325704) ClaimWithdrawal {
 
 struct (0x4c325705) RetryWithdrawal {
     withdrawalId: uint256
+}
+
+struct (0x4c32530b) StakeSequencerBond {
+    amount: coins
+}
+
+struct (0x4c324348) ChallengeBatch {
+    batchNo: uint64
+    reason: uint8
+    evidenceHash: uint256
+    challengerBond: coins
+}
+
+struct (0x4c325243) ResolveChallenge {
+    batchNo: uint64
+    uphold: bool
+    slashAmount: coins
 }
 
 struct (0x4c324405) DepositTon {
@@ -120,7 +156,15 @@ struct JettonAssetConfig {
     decimals: uint8
 }
 
-type RootMessage = CommitBatch | SetAssetVault | FinalizeBatch | ClaimWithdrawal | RetryWithdrawal
+type RootMessage =
+    | CommitBatch
+    | SetAssetVault
+    | FinalizeBatch
+    | ClaimWithdrawal
+    | RetryWithdrawal
+    | StakeSequencerBond
+    | ChallengeBatch
+    | ResolveChallenge
 
 type BounceableRootMessage = ReleaseAuthorized
 

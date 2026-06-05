@@ -42,6 +42,9 @@ l1-deposit-testnet = "acton script scripts/l1/deposit_ton.tolk --net testnet --e
 l1-commit-testnet = "acton script scripts/l1/commit_batch.tolk --net testnet --explorer tonviewer"
 l1-finalize-testnet = "acton script scripts/l1/finalize_batch.tolk --net testnet --explorer tonviewer"
 l1-claim-testnet = "acton script scripts/l1/claim_withdrawal.tolk --net testnet --explorer tonviewer"
+l1-stake-bond-testnet = "acton script scripts/l1/stake_sequencer_bond.tolk --net testnet --explorer tonviewer"
+l1-challenge-testnet = "acton script scripts/l1/challenge_batch.tolk --net testnet --explorer tonviewer"
+l1-resolve-challenge-testnet = "acton script scripts/l1/resolve_challenge.tolk --net testnet --explorer tonviewer"
 
 [import-mappings]
 acton = ".acton"

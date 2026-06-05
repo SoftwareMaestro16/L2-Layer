@@ -49,9 +49,9 @@ flowchart LR
 ```
 
 The sequencer is trusted in this MVP. Fraud proofs are not implemented on L1;
-the observer/challenger prototype is off-chain detection only. Public filesystem
-DA proves retrievability from the configured gateway, not censorship-resistant
-availability.
+the observer/challenger prototype produces off-chain evidence for a manual L1
+challenge/finality gate. Public filesystem DA proves retrievability from the
+configured gateway, not censorship-resistant availability.
 
 ## Dependencies
 
@@ -90,6 +90,7 @@ containing only public metadata:
 - deployer public address
 - sequencer public address
 - `challengeWindowSec`
+- current RollupRoot bond status
 - `tonAssetId` and decimals
 
 Never put mnemonic phrases, private keys, signer tokens, API keys, database URLs,
@@ -181,7 +182,7 @@ Use this matrix as the go/no-go checklist. A public demo is not ready until ever
 | Demo flow | Faucet, TON deposit, L2 transfer, commit, finalization, withdrawal proof, and claim/release complete once | SDK example plus Tonviewer/Toncenter hashes |
 | DA | Payload is retrievable by height and by `height + dataHash`; corrupted/missing DA is reported before signing | `/v1/da/batch/*`, relayer status |
 | Observer | Replay of supplied commitments from DA succeeds or reports first divergence without local block JSON trust | `/v1/operator/observer/replay` |
-| Security | Latest audit says no known open Critical/High issue for testnet prototype | `docs/security-audit-testnet-prototype-2026-06-04.md` |
+| Security | Latest audit says no known open Critical/High issue for testnet prototype and challenge gate status is understood | `docs/security-audit-testnet-prototype-2026-06-04.md`, `RollupRoot.bondStatus()` |
 | Evidence hygiene | Sign-off log contains only public addresses, hashes, heights, timestamps, and safe static reason codes | manual review |
 
 ## Clean Operator Rehearsal
@@ -333,14 +334,20 @@ Use SDK helpers from `sdk/README.md` and `sdk/examples/testnet-happy-path.ts`.
    GET /v1/operator/batch-relayer
    ```
 
-8. Wait at least `L2_CHALLENGE_WINDOW_SEC`, then confirm finalization:
+8. Optional challenge rehearsal before finalization: stake a sequencer bond,
+   open a challenge for the committed batch, confirm finalization is rejected
+   while the challenge is open, then resolve the challenge from the admin wallet.
+   Use `docs/testnet-l1-deployment.md` for exact Acton commands. Reject the
+   rehearsal challenge before continuing the normal demo finalization path.
+
+9. Wait at least `L2_CHALLENGE_WINDOW_SEC`, then confirm finalization:
 
    ```text
    GET /v1/operator/batch-finalizer
    GET /v1/explorer/withdrawal/{withdrawal_id_hex}
    ```
 
-9. Build an L2 withdrawal with `signWithdrawTransaction`. After finalization,
+10. Build an L2 withdrawal with `signWithdrawTransaction`. After finalization,
    fetch the proof:
 
    ```text
@@ -349,7 +356,7 @@ Use SDK helpers from `sdk/README.md` and `sdk/examples/testnet-happy-path.ts`.
 
    A `409` response before finalization is expected.
 
-10. Build the TON claim message with `claimWithdrawalTonConnectMessage`, submit
+11. Build the TON claim message with `claimWithdrawalTonConnectMessage`, submit
     it from a TON testnet wallet, and confirm the `AssetVault` release reaches
     the recipient.
 
@@ -476,7 +483,9 @@ Withdrawal retry procedures:
 - Testnet only. The node rejects mainnet endpoints and this document does not
   imply mainnet readiness.
 - Trusted sequencer. L1 fraud proofs are not implemented.
-- The observer/challenger is off-chain evidence generation only.
+- The observer/challenger is off-chain evidence generation. RollupRoot can gate
+  finality and account for testnet bond slashing, but `ResolveChallenge` is still
+  admin/testnet controlled and not a mainnet-grade fraud proof verifier.
 - Filesystem public DA is a gateway, not a decentralized DA layer.
 - `CallContract` remains fail-closed until the real TVM adapter is integrated.
 - ENT faucet is admin-only and intended for demos.

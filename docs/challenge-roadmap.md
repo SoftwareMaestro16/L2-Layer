@@ -1,9 +1,9 @@
 # Fraud and Challenge Roadmap
 
 This document defines the first-class challenge model for Entropis as an
-optimistic TON L2. It is a design milestone, not an enabled bridge feature.
-Current testnet MVP remains trusted-sequencer until challenge verification and
-resolution are implemented on L1.
+optimistic TON L2. Current testnet MVP has an L1 challenge/finality gate and
+sequencer bond accounting, but it remains trusted-sequencer for mainnet purposes
+until challenge resolution is driven by objective L1-verifiable fraud proofs.
 
 ## Current Scope
 
@@ -18,14 +18,25 @@ Implemented today:
 - The off-chain observer replay prototype accepts RollupRoot-shaped commitments,
   fetches DA by `dataHash`, replays canonical batch bytes from a trusted
   checkpoint, reports the first divergence, and stores observer checkpoints.
+- `RollupRoot` accepts `StakeSequencerBond`, `ChallengeBatch`, and
+  `ResolveChallenge` in the testnet MVP.
+- One bonded challenge can be opened per unfinalized batch with a non-zero
+  evidence hash.
+- `FinalizeBatch` is rejected while a batch challenge is open or upheld; only a
+  rejected challenge unblocks finalization.
+- Admin/testnet resolution can uphold a challenge and slash sequencer bond
+  accounting, or reject it without slashing.
 - Rust tests cover deterministic batch roots, consensus golden vectors,
   sequencer replay-like flows, observer golden replay, tampered roots, and DA
   missing/corruption failures.
+- Acton tests cover bonded challenge opening, finality gating, unauthorized
+  resolution rejection, slashing accounting, and invalid challenge rejection.
 
 Not implemented today:
 
 - On-chain fraud proof verification in Tolk.
-- Sequencer bonds and slashing.
+- Automatic non-admin challenge resolution.
+- Sequencer unbonding and challenger reward payout.
 - Forced inclusion for censored transactions.
 - Real TVM step proofs for `CallContract`.
 - Permissionless L1 challenger service.
@@ -98,13 +109,41 @@ block linearly for smaller batches. The proof target becomes:
 - expected receipt,
 - claimed root values.
 
-## Future L1 Message Sketch
+## Current Testnet L1 Messages
 
-These messages are intentionally not implemented yet. Names and fields are the
-public interface target for future Tolk work.
+These messages are implemented in `RollupRoot` for testnet rehearsal:
 
 ```tolk
 struct (0x4c324348) ChallengeBatch {
+    batchNo: uint64
+    reason: uint8
+    evidenceHash: uint256
+    challengerBond: coins
+}
+
+struct (0x4c32530b) StakeSequencerBond {
+    amount: coins
+}
+
+struct (0x4c325243) ResolveChallenge {
+    batchNo: uint64
+    uphold: bool
+    slashAmount: coins
+}
+```
+
+Current resolution is admin/testnet controlled. Treat it as a finality gate and
+bond custody rehearsal, not as automatic fraud proof verification. Upholding a
+challenge slashes bond accounting and leaves the disputed batch unfinalizable;
+rejecting a challenge unlocks finalization.
+
+## Future L1 Proof Message Sketch
+
+These messages extend the current testnet challenge gate with objective proof
+material and response deadlines.
+
+```tolk
+struct OpenProofChallenge {
     batchNo: uint64
     challengeKind: uint8  // 1 = missing_da, 2 = invalid_transition
     disputedTxIndex: uint32
@@ -113,20 +152,20 @@ struct (0x4c324348) ChallengeBatch {
     evidenceHash: uint256
 }
 
-struct (0x4c325245) RespondChallenge {
+struct RespondProofChallenge {
     batchNo: uint64
     challengeId: uint256
     responseHash: uint256
     responseData: cell
 }
 
-struct (0x4c32524c) ResolveChallenge {
+struct ResolveProofChallenge {
     batchNo: uint64
     challengeId: uint256
     resolutionProof: cell
 }
 
-struct (0x4c324649) ForceInclude {
+struct ForceInclude {
     queueId: uint64
     txHash: uint256
     txDataHash: uint256
@@ -227,15 +266,17 @@ Next Rust tests before enabling L1 challenges:
 
 ## MVP Limitations
 
-- Challenge messages are not deployed in Tolk.
 - Withdrawals rely on delayed finalization but not fraud proof enforcement.
+- Testnet `ResolveChallenge` is admin controlled; it is not a cryptographic proof
+  verifier and must not be represented as mainnet-grade slashing.
+- Challenger bonds and slashed sequencer bond are accounted on L1 but do not yet
+  include unbonding, automatic challenger payout, or burn/treasury routing.
 - DA retrievability is checked by the relayer backend and can use the filesystem
   public gateway, but it is not yet proven by TON Storage.
 - `CallContract` remains fail-closed, so fraud proofs for TVM execution are
   blocked on the real deterministic TVM adapter.
 - The observer endpoint does not yet poll RollupRoot directly; an operator or
   future L1 getter client supplies commitments to replay.
-- No sequencer bond exists yet, so slashing is a future design item.
 
 ## References
 

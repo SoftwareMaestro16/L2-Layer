@@ -272,6 +272,74 @@ export const BatchCommitment = {
 }
 
 /**
+ > struct BatchChallenge {
+ >     batchNo: uint64
+ >     challenger: address
+ >     reason: uint8
+ >     evidenceHash: uint256
+ >     openedAt: uint32
+ >     status: uint8
+ >     challengerBond: coins
+ >     slashedAmount: coins
+ > }
+ */
+export interface BatchChallenge {
+    readonly $: 'BatchChallenge'
+    batchNo: uint64
+    challenger: c.Address
+    reason: uint8
+    evidenceHash: uint256
+    openedAt: uint32
+    status: uint8
+    challengerBond: coins
+    slashedAmount: coins
+}
+
+export const BatchChallenge = {
+    create(args: {
+        batchNo: uint64
+        challenger: c.Address
+        reason: uint8
+        evidenceHash: uint256
+        openedAt: uint32
+        status: uint8
+        challengerBond: coins
+        slashedAmount: coins
+    }): BatchChallenge {
+        return {
+            $: 'BatchChallenge',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): BatchChallenge {
+        return {
+            $: 'BatchChallenge',
+            batchNo: s.loadUintBig(64),
+            challenger: s.loadAddress(),
+            reason: s.loadUintBig(8),
+            evidenceHash: s.loadUintBig(256),
+            openedAt: s.loadUintBig(32),
+            status: s.loadUintBig(8),
+            challengerBond: s.loadCoins(),
+            slashedAmount: s.loadCoins(),
+        }
+    },
+    store(self: BatchChallenge, b: c.Builder): void {
+        b.storeUint(self.batchNo, 64);
+        b.storeAddress(self.challenger);
+        b.storeUint(self.reason, 8);
+        b.storeUint(self.evidenceHash, 256);
+        b.storeUint(self.openedAt, 32);
+        b.storeUint(self.status, 8);
+        b.storeCoins(self.challengerBond);
+        b.storeCoins(self.slashedAmount);
+    },
+    toCell(self: BatchChallenge): c.Cell {
+        return makeCellFrom<BatchChallenge>(self, BatchChallenge.store);
+    }
+}
+
+/**
  > struct (0x4c324301) CommitBatch {
  >     batchNo: uint64
  >     rootsA: Cell<BatchRootsA>
@@ -482,6 +550,142 @@ export const RetryWithdrawal = {
 }
 
 /**
+ > struct (0x4c32530b) StakeSequencerBond {
+ >     amount: coins
+ > }
+ */
+export interface StakeSequencerBond {
+    readonly $: 'StakeSequencerBond'
+    amount: coins
+}
+
+export const StakeSequencerBond = {
+    PREFIX: 0x4c32530b,
+
+    create(args: {
+        amount: coins
+    }): StakeSequencerBond {
+        return {
+            $: 'StakeSequencerBond',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): StakeSequencerBond {
+        loadAndCheckPrefix32(s, 0x4c32530b, 'StakeSequencerBond');
+        return {
+            $: 'StakeSequencerBond',
+            amount: s.loadCoins(),
+        }
+    },
+    store(self: StakeSequencerBond, b: c.Builder): void {
+        b.storeUint(0x4c32530b, 32);
+        b.storeCoins(self.amount);
+    },
+    toCell(self: StakeSequencerBond): c.Cell {
+        return makeCellFrom<StakeSequencerBond>(self, StakeSequencerBond.store);
+    }
+}
+
+/**
+ > struct (0x4c324348) ChallengeBatch {
+ >     batchNo: uint64
+ >     reason: uint8
+ >     evidenceHash: uint256
+ >     challengerBond: coins
+ > }
+ */
+export interface ChallengeBatch {
+    readonly $: 'ChallengeBatch'
+    batchNo: uint64
+    reason: uint8
+    evidenceHash: uint256
+    challengerBond: coins
+}
+
+export const ChallengeBatch = {
+    PREFIX: 0x4c324348,
+
+    create(args: {
+        batchNo: uint64
+        reason: uint8
+        evidenceHash: uint256
+        challengerBond: coins
+    }): ChallengeBatch {
+        return {
+            $: 'ChallengeBatch',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): ChallengeBatch {
+        loadAndCheckPrefix32(s, 0x4c324348, 'ChallengeBatch');
+        return {
+            $: 'ChallengeBatch',
+            batchNo: s.loadUintBig(64),
+            reason: s.loadUintBig(8),
+            evidenceHash: s.loadUintBig(256),
+            challengerBond: s.loadCoins(),
+        }
+    },
+    store(self: ChallengeBatch, b: c.Builder): void {
+        b.storeUint(0x4c324348, 32);
+        b.storeUint(self.batchNo, 64);
+        b.storeUint(self.reason, 8);
+        b.storeUint(self.evidenceHash, 256);
+        b.storeCoins(self.challengerBond);
+    },
+    toCell(self: ChallengeBatch): c.Cell {
+        return makeCellFrom<ChallengeBatch>(self, ChallengeBatch.store);
+    }
+}
+
+/**
+ > struct (0x4c325243) ResolveChallenge {
+ >     batchNo: uint64
+ >     uphold: bool
+ >     slashAmount: coins
+ > }
+ */
+export interface ResolveChallenge {
+    readonly $: 'ResolveChallenge'
+    batchNo: uint64
+    uphold: boolean
+    slashAmount: coins
+}
+
+export const ResolveChallenge = {
+    PREFIX: 0x4c325243,
+
+    create(args: {
+        batchNo: uint64
+        uphold: boolean
+        slashAmount: coins
+    }): ResolveChallenge {
+        return {
+            $: 'ResolveChallenge',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): ResolveChallenge {
+        loadAndCheckPrefix32(s, 0x4c325243, 'ResolveChallenge');
+        return {
+            $: 'ResolveChallenge',
+            batchNo: s.loadUintBig(64),
+            uphold: s.loadBoolean(),
+            slashAmount: s.loadCoins(),
+        }
+    },
+    store(self: ResolveChallenge, b: c.Builder): void {
+        b.storeUint(0x4c325243, 32);
+        b.storeUint(self.batchNo, 64);
+        b.storeBit(self.uphold);
+        b.storeCoins(self.slashAmount);
+    },
+    toCell(self: ResolveChallenge): c.Cell {
+        return makeCellFrom<ResolveChallenge>(self, ResolveChallenge.store);
+    }
+}
+
+/**
  > struct (0x4c325206) ReleaseAuthorized {
  >     withdrawalId: uint256
  >     assetId: uint32
@@ -605,6 +809,7 @@ export const ReleaseFailure = {
  >     lastCommitted: uint64
  >     lastFinalized: uint64
  >     paused: bool
+ >     security: Cell<RollupSecurityState>
  >     commitments: map<uint64, Cell<BatchCommitment>>
  >     claimedWithdrawals: map<uint256, bool>
  >     failedWithdrawals: map<uint256, Cell<ReleaseFailure>>
@@ -619,6 +824,7 @@ export interface RollupStorage {
     lastCommitted: uint64
     lastFinalized: uint64
     paused: boolean
+    security: CellRef<RollupSecurityState>
     commitments: c.Dictionary<uint64, CellRef<BatchCommitment>>
     claimedWithdrawals: c.Dictionary<uint256, boolean>
     failedWithdrawals: c.Dictionary<uint256, CellRef<ReleaseFailure>>
@@ -633,6 +839,7 @@ export const RollupStorage = {
         lastCommitted: uint64
         lastFinalized: uint64
         paused: boolean
+        security: CellRef<RollupSecurityState>
         commitments: c.Dictionary<uint64, CellRef<BatchCommitment>>
         claimedWithdrawals: c.Dictionary<uint256, boolean>
         failedWithdrawals: c.Dictionary<uint256, CellRef<ReleaseFailure>>
@@ -652,6 +859,7 @@ export const RollupStorage = {
             lastCommitted: s.loadUintBig(64),
             lastFinalized: s.loadUintBig(64),
             paused: s.loadBoolean(),
+            security: loadCellRef<RollupSecurityState>(s, RollupSecurityState.fromSlice),
             commitments: c.Dictionary.load<uint64, CellRef<BatchCommitment>>(c.Dictionary.Keys.BigUint(64), createDictionaryValue<CellRef<BatchCommitment>>(
                 (s) => loadCellRef<BatchCommitment>(s, BatchCommitment.fromSlice),
                 (v,b) => storeCellRef<BatchCommitment>(v, b, BatchCommitment.store)
@@ -671,6 +879,7 @@ export const RollupStorage = {
         b.storeUint(self.lastCommitted, 64);
         b.storeUint(self.lastFinalized, 64);
         b.storeBit(self.paused);
+        storeCellRef<RollupSecurityState>(self.security, b, RollupSecurityState.store);
         b.storeDict<uint64, CellRef<BatchCommitment>>(self.commitments, c.Dictionary.Keys.BigUint(64), createDictionaryValue<CellRef<BatchCommitment>>(
             (s) => loadCellRef<BatchCommitment>(s, BatchCommitment.fromSlice),
             (v,b) => storeCellRef<BatchCommitment>(v, b, BatchCommitment.store)
@@ -683,6 +892,55 @@ export const RollupStorage = {
     },
     toCell(self: RollupStorage): c.Cell {
         return makeCellFrom<RollupStorage>(self, RollupStorage.store);
+    }
+}
+
+/**
+ > struct RollupSecurityState {
+ >     sequencerBond: coins
+ >     slashedBond: coins
+ >     challenges: map<uint64, Cell<BatchChallenge>>
+ > }
+ */
+export interface RollupSecurityState {
+    readonly $: 'RollupSecurityState'
+    sequencerBond: coins
+    slashedBond: coins
+    challenges: c.Dictionary<uint64, CellRef<BatchChallenge>>
+}
+
+export const RollupSecurityState = {
+    create(args: {
+        sequencerBond: coins
+        slashedBond: coins
+        challenges: c.Dictionary<uint64, CellRef<BatchChallenge>>
+    }): RollupSecurityState {
+        return {
+            $: 'RollupSecurityState',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): RollupSecurityState {
+        return {
+            $: 'RollupSecurityState',
+            sequencerBond: s.loadCoins(),
+            slashedBond: s.loadCoins(),
+            challenges: c.Dictionary.load<uint64, CellRef<BatchChallenge>>(c.Dictionary.Keys.BigUint(64), createDictionaryValue<CellRef<BatchChallenge>>(
+                (s) => loadCellRef<BatchChallenge>(s, BatchChallenge.fromSlice),
+                (v,b) => storeCellRef<BatchChallenge>(v, b, BatchChallenge.store)
+            ), s),
+        }
+    },
+    store(self: RollupSecurityState, b: c.Builder): void {
+        b.storeCoins(self.sequencerBond);
+        b.storeCoins(self.slashedBond);
+        b.storeDict<uint64, CellRef<BatchChallenge>>(self.challenges, c.Dictionary.Keys.BigUint(64), createDictionaryValue<CellRef<BatchChallenge>>(
+            (s) => loadCellRef<BatchChallenge>(s, BatchChallenge.fromSlice),
+            (v,b) => storeCellRef<BatchChallenge>(v, b, BatchChallenge.store)
+        ));
+    },
+    toCell(self: RollupSecurityState): c.Cell {
+        return makeCellFrom<RollupSecurityState>(self, RollupSecurityState.store);
     }
 }
 
@@ -783,6 +1041,87 @@ export const CommitmentReply = {
 }
 
 /**
+ > struct BondStatusReply {
+ >     sequencer: address
+ >     sequencerBond: coins
+ >     slashedBond: coins
+ > }
+ */
+export interface BondStatusReply {
+    readonly $: 'BondStatusReply'
+    sequencer: c.Address
+    sequencerBond: coins
+    slashedBond: coins
+}
+
+export const BondStatusReply = {
+    create(args: {
+        sequencer: c.Address
+        sequencerBond: coins
+        slashedBond: coins
+    }): BondStatusReply {
+        return {
+            $: 'BondStatusReply',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): BondStatusReply {
+        return {
+            $: 'BondStatusReply',
+            sequencer: s.loadAddress(),
+            sequencerBond: s.loadCoins(),
+            slashedBond: s.loadCoins(),
+        }
+    },
+    store(self: BondStatusReply, b: c.Builder): void {
+        b.storeAddress(self.sequencer);
+        b.storeCoins(self.sequencerBond);
+        b.storeCoins(self.slashedBond);
+    },
+    toCell(self: BondStatusReply): c.Cell {
+        return makeCellFrom<BondStatusReply>(self, BondStatusReply.store);
+    }
+}
+
+/**
+ > struct ChallengeReply {
+ >     exists: bool
+ >     challenge: Cell<BatchChallenge>
+ > }
+ */
+export interface ChallengeReply {
+    readonly $: 'ChallengeReply'
+    exists: boolean
+    challenge: CellRef<BatchChallenge>
+}
+
+export const ChallengeReply = {
+    create(args: {
+        exists: boolean
+        challenge: CellRef<BatchChallenge>
+    }): ChallengeReply {
+        return {
+            $: 'ChallengeReply',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): ChallengeReply {
+        return {
+            $: 'ChallengeReply',
+            exists: s.loadBoolean(),
+            challenge: loadCellRef<BatchChallenge>(s, BatchChallenge.fromSlice),
+        }
+    },
+    store(self: ChallengeReply, b: c.Builder): void {
+        b.storeBit(self.exists);
+        storeCellRef<BatchChallenge>(self.challenge, b, BatchChallenge.store);
+    },
+    toCell(self: ChallengeReply): c.Cell {
+        return makeCellFrom<ChallengeReply>(self, ChallengeReply.store);
+    }
+}
+
+/**
  > struct ReleaseFailureReply {
  >     exists: bool
  >     failure: Cell<ReleaseFailure>
@@ -859,7 +1198,7 @@ function calculateDeployedAddress(code: c.Cell, data: c.Cell, options: DeployedA
 }
 
 export class RollupRoot implements c.Contract {
-    static CodeCell = c.Cell.fromBase64('te6ccgECHQEABWgAART/APSkE/S88sgLAQIBYgIDAgLOBAUCAVgYGQIBIAYHAgEgFRYEaz4kY6W1ywn////9PK/10zQ1ywiYZKQNOMCMOAg1ywiYZIYDOMC1ywiYZJgTOMC1ywiYZIwFIAgJCgsAKSpOACYAcjL/8v/+RbhyMv/y//5FoAH80//TH/pI+gAw+JLtRND6SPpI+kjTH9M/0z/SAPQE9AT0BYEQAVG4xwUb8vRT0IMH9A5voYEQCjLy9FR4dlR4dlR4dlYSVhfwA/gjL8jL/x/LHx36UlAL+gLPhAYcyx8ayx/JQLeDB/QXBMj6UhP6UvpSyx8Syz8Vyz8SygASDAH+MdM/1NdM+JLtRND6SPpI+kjWH9M/1j/SAPQEgRACI7Py9IEQAVGoxwUa8vSBEAMkpC268vQjjjdRM4BA9A5voYEQBQHy9IEQBAHU0dDU1DHTHzHSADHR0NP/MdP/0/8x0SvQ0//T/zHT/zHRuvL0kTPi+CMKyMwZzBnLH8+ByQ0ApDH6SDD4ku1E0PpI+kj6SCDTHzHTP9cLP4EQAVF2xwUX8vSBEBSLAhTHBRPy9IEQE4sCJ8cFs/L0gRAUWPLygRAUUATy8gHI+lL6UhL6Us7J7VQC/o57MdcLP+1E0PpI+kj6SNMf1j/TP9IA9ASBEAIjs/L0U5GAQPQOb6GBEAUB8vTU0dDU1NMf0gDRgRAHAbPy9IEQBvgjUyqgvvL0AsjMzMsfz4PJVCCjgED0F1OTvJMzECiROeIHyPpSFvpSFPpSEssfzss/ygAS9ADOye1U4IkODwAS9AD0APQAye1UADxSkoBA9BcEyPpSE/pS+lLOFcs/E87KABL0AM7J7VQACEwyVwQCKtcn4wLXLCJhkrgs4wIwhA8BxwDy9BARAf4x0z/T/9TXTO1E0PpI+kj6SNaf0gD0BPQEgRACJLPy9FGygED0Dm+hgRAFAfL01NHQ1DHU0x8x0gDRgRAIAfL0U6GDB/QOb6GBEAkys/L0gRAKAdDT/zHT/9P/MdFUIKrwAhjy9AfQ1ywiYZKQNPK/0//TH/pI+gAwgRAKUUy6EgL8MdcL/+1E0PpI+kj6SNaf0gD0BPQE9AWBEAIks/L0U4CDB/QOb6GBEA0B8vTU0dDT/9Mf+kj6ANMHMdMfMdMfMdFTxYMH9A5voYEQCjLy9FDEgwf0Zm+hWwrI+lIZ+lJScPpSFs4UygAS9AD0ABX0AMntVIIQBMS0AMiJzxYSExQAsBTy9MjPg1QguoMH9EMHyPpSFvpSUkD6UhPOygAW9AAT9AAWzsntVIIQBMS0AMjPkTDJSBoVy/8Vyx/6UgH6AsnIz4WIE/pSAfoCz4Fz+gJxzwtlzMlw+wAACEwyUgYASMv/E8sfFPpSWPoCycjPhYgT+lIB+gLPgXP6AnHPC2XMyXD7AAFhO2i7fvQ0z/TD/QE0QP5ACGcbCEBbpO6wwCSW3Di4ZMhwgCK6GwhAW6TusMAkltw4oBcAURQml8Jgwf0Dm+hjhnU0dDT/zHTHzH6SDH6ADHTBzHTHzHTH9Gk4DBwgAOIjbpVfBXDbMeAD0NMH0//T/9P/9ATRJJUkwgPDAJF/4pF/lVNFvMMA4pVfCXDbMeBwJcIAnTBUFzbwAQWrAAUGcQORNOIkwgGeVBcm8AEFqwACpBBWQBWRMuIDwgKcVBUk8AEDqwAEpBA0kTLiEqFQAwFFud5u1E0PpIMfpIMfpIMdOgMfQFgED0Dm+hlH8B1NHgMHCIgcAgEgGhsAK7RJfaiaH0kGP0kfSRpj+mf6Z/rhQBABTbbaHaiaH0kGP0kGP0kGOnQGPoA+gD6AsGD+gc30Mo/gOpo8Bg4REBwAAA==');
+    static CodeCell = c.Cell.fromBase64('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');
 
     static Errors = {
         'Errors.Unauthorized': 4097,
@@ -875,6 +1214,11 @@ export class RollupRoot implements c.Contract {
         'Errors.NoFailedWithdrawal': 4109,
         'Errors.BadAssetConfig': 4115,
         'Errors.AlreadyConfigured': 4116,
+        'Errors.BadChallenge': 4118,
+        'Errors.ChallengeOpen': 4119,
+        'Errors.ChallengeNotFound': 4120,
+        'Errors.InsufficientBond': 4121,
+        'Errors.ChallengeAlreadyExists': 4122,
         'Errors.UnknownOpcode': 65535,
     }
 
@@ -898,6 +1242,7 @@ export class RollupRoot implements c.Contract {
         lastCommitted: uint64
         lastFinalized: uint64
         paused: boolean
+        security: CellRef<RollupSecurityState>
         commitments: c.Dictionary<uint64, CellRef<BatchCommitment>>
         claimedWithdrawals: c.Dictionary<uint256, boolean>
         failedWithdrawals: c.Dictionary<uint256, CellRef<ReleaseFailure>>
@@ -943,6 +1288,29 @@ export class RollupRoot implements c.Contract {
         withdrawalId: uint256
     }) {
         return RetryWithdrawal.toCell(RetryWithdrawal.create(body));
+    }
+
+    static createCellOfStakeSequencerBond(body: {
+        amount: coins
+    }) {
+        return StakeSequencerBond.toCell(StakeSequencerBond.create(body));
+    }
+
+    static createCellOfChallengeBatch(body: {
+        batchNo: uint64
+        reason: uint8
+        evidenceHash: uint256
+        challengerBond: coins
+    }) {
+        return ChallengeBatch.toCell(ChallengeBatch.create(body));
+    }
+
+    static createCellOfResolveChallenge(body: {
+        batchNo: uint64
+        uphold: boolean
+        slashAmount: coins
+    }) {
+        return ResolveChallenge.toCell(ResolveChallenge.create(body));
     }
 
     async sendDeploy(provider: ContractProvider, via: Sender, msgValue: coins, extraOptions?: ExtraSendOptions) {
@@ -1008,6 +1376,41 @@ export class RollupRoot implements c.Contract {
         });
     }
 
+    async sendStakeSequencerBond(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        amount: coins
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: StakeSequencerBond.toCell(StakeSequencerBond.create(body)),
+            ...extraOptions
+        });
+    }
+
+    async sendChallengeBatch(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        batchNo: uint64
+        reason: uint8
+        evidenceHash: uint256
+        challengerBond: coins
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: ChallengeBatch.toCell(ChallengeBatch.create(body)),
+            ...extraOptions
+        });
+    }
+
+    async sendResolveChallenge(provider: ContractProvider, via: Sender, msgValue: coins, body: {
+        batchNo: uint64
+        uphold: boolean
+        slashAmount: coins
+    }, extraOptions?: ExtraSendOptions) {
+        return provider.internal(via, {
+            value: msgValue,
+            body: ResolveChallenge.toCell(ResolveChallenge.create(body)),
+            ...extraOptions
+        });
+    }
+
     async getRollupStatus(provider: ContractProvider): Promise<RollupStatusReply> {
         const r = StackReader.fromGetMethod(6, await provider.get('rollupStatus', []));
         return ({
@@ -1029,6 +1432,27 @@ export class RollupRoot implements c.Contract {
             $: 'CommitmentReply',
             exists: r.readBoolean(),
             commitment: r.readCellRef<BatchCommitment>(BatchCommitment.fromSlice),
+        });
+    }
+
+    async getBondStatus(provider: ContractProvider): Promise<BondStatusReply> {
+        const r = StackReader.fromGetMethod(3, await provider.get('bondStatus', []));
+        return ({
+            $: 'BondStatusReply',
+            sequencer: r.readSlice().loadAddress(),
+            sequencerBond: r.readBigInt(),
+            slashedBond: r.readBigInt(),
+        });
+    }
+
+    async getBatchChallenge(provider: ContractProvider, batchNo: uint64): Promise<ChallengeReply> {
+        const r = StackReader.fromGetMethod(2, await provider.get('batchChallenge', [
+            { type: 'int', value: batchNo },
+        ]));
+        return ({
+            $: 'ChallengeReply',
+            exists: r.readBoolean(),
+            challenge: r.readCellRef<BatchChallenge>(BatchChallenge.fromSlice),
         });
     }
 

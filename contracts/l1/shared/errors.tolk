@@ -20,4 +20,9 @@ enum Errors {
     BadAssetConfig = 0x1013
     AlreadyConfigured = 0x1014
     BadJettonQueryId = 0x1015
+    BadChallenge = 0x1016
+    ChallengeOpen = 0x1017
+    ChallengeNotFound = 0x1018
+    InsufficientBond = 0x1019
+    ChallengeAlreadyExists = 0x101a
 }

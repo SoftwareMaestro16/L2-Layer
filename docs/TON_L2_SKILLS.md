@@ -87,8 +87,9 @@ TON_L2_SKILLS = {
     "Public DA retrieval endpoints serve application/octet-stream payload bytes by block height or by height+dataHash and must re-hash the body before returning it.",
     "DA can start as external/Ton Storage-backed data referenced by dataHash, but production fraud proofs require reliable retrievability and challenge rules.",
     "Challenge design separates DA retrieval, deterministic replay, witness/proof generation, and L1 challenge submission; missing DA is an availability challenge, not a state-transition proof.",
-    "Entropis observer replay is currently off-chain: it accepts RollupRoot-shaped commitments, fetches canonical DA bytes by dataHash, replays from a trusted checkpoint, stores observer checkpoints, and reports missing_da/corrupt_da/invalid without submitting an L1 challenge.",
-    "The MVP is optimistic/trusted-sequencer until challenge verification is implemented."
+    "Entropis observer replay is currently off-chain: it accepts RollupRoot-shaped commitments, fetches canonical DA bytes by dataHash, replays from a trusted checkpoint, stores observer checkpoints, and reports missing_da/corrupt_da/invalid. Operators can manually translate the evidence hash into a RollupRoot ChallengeBatch in the testnet challenge MVP.",
+    "RollupRoot testnet challenge MVP stores sequencer bond accounting in a referenced RollupSecurityState cell, accepts StakeSequencerBond from the sequencer, accepts one bonded ChallengeBatch per unfinalized batch, blocks FinalizeBatch while the challenge is open or upheld, and lets the admin/testnet resolver uphold with sequencer-bond slashing or reject with no slashing. Only rejected challenges unblock finalization.",
+    "The MVP is still optimistic/trusted-sequencer for mainnet purposes until challenge resolution is driven by objective L1-verifiable fraud proofs rather than admin/testnet resolution."
   ],
   sequencer_logic: [
     "Sequencer owns ordering in the MVP: ingest deposits, validate L2 txs, sort/canonicalize, execute deterministically, produce receipts and state root.",
@@ -145,7 +146,8 @@ TON_L2_SKILLS = {
     "L2 credits only indexer-confirmed vault events with canonical deposit ids and replay protection; the Rust indexer accepts only configured L1_DEPOSIT_ASSET_IDS.",
     "The L1 batch relayer persists pending/submitted/confirmed/failed status, uses bounded retries, submits signed external BoCs through Toncenter v3 `/message`, and observes confirmation through `/transactionsByMessage`.",
     "The L1 batch finalizer persists a separate pending/submitted/finalized/failed queue; it creates finalization work only after local commit confirmation and waits local confirmation time + challengeWindowSec before signing.",
-    "Manual Acton operator scripts may commit and finalize testnet batches from persisted L2 block headers before the external signer service is wired, but they must still use the configured sequencer wallet for CommitBatch and respect the challenge window.",
+    "Manual Acton operator scripts may commit and finalize testnet batches from persisted L2 block headers before the external signer service is wired, but they must still use the configured sequencer wallet for CommitBatch, respect the challenge window, and check RollupRoot.batchChallenge(batchNo) before finalization.",
+    "Testnet challenge operator scripts are l1-stake-bond-testnet, l1-challenge-testnet, and l1-resolve-challenge-testnet. They are for rehearsing L1 bond/finality gating; they are not automatic fraud-proof verification.",
     "After manual Acton L1 batch operations, local proof gating must be reconciled explicitly with an operator-only local helper; do not mark batches confirmed/finalized before checking RollupRoot on testnet.",
     "Relayer/operator visibility should expose failed batch records with safe static reason codes and no raw provider payloads or signer secrets.",
     "The node should not hold raw TON wallet credentials for relaying/finalization; use a separate typed signer service and verify returned signer address, expiry, and BoC shape before broadcasting.",
@@ -182,6 +184,7 @@ TON_L2_SKILLS = {
     "Use `py -3 scripts\\ci\\tsa_install_check.py` as the local/CI TSA availability gate. It invokes `npm exec --yes --package tsa-installer -- tsa-installer install`, which avoids the legacy `npx tsa-installer install` `cb.apply` failure observed on this Windows/npm setup.",
     "Root-to-vault deployment linking must be admin-only, reject the zero sentinel, reject replay after first link, and happen before any batch commitment.",
     "RollupRoot must reject CommitBatch while the AssetVault address is still the zero sentinel, because linking is intentionally disabled after the first committed batch.",
+    "RollupRoot must reject FinalizeBatch for a batch with CHALLENGE_STATUS_OPEN, so a submitted challenge actually gates finality instead of being only an operator log.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",
     "Bind ClaimWithdrawal.withdrawalId to the decoded ReleaseAuthorized.withdrawalId before marking claims or sending vault release messages.",
     "Do not clear claimedWithdrawals on root-to-vault bounce; store a failed release and retry from stored fields to avoid reopening proof claims.",

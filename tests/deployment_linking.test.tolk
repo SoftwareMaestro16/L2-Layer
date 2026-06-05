@@ -107,6 +107,7 @@ fun deployLinkablePair(): (RollupRoot, AssetVault, Treasury, Treasury) {
         lastCommitted: 0,
         lastFinalized: 0,
         paused: false,
+        security: emptyRollupSecurityState().toCell(),
         commitments: [],
         claimedWithdrawals: [],
         failedWithdrawals: [],

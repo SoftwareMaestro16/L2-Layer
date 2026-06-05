@@ -47,6 +47,7 @@ fun handleFinalizeBatch(msg: FinalizeBatch) {
 
     val found = storage.commitments.get(msg.batchNo);
     assert (found.isFound) throw Errors.BatchNotFound;
+    assert (!storage.challengeBlocksFinality(msg.batchNo)) throw Errors.ChallengeOpen;
 
     var commitment = found.loadValue().load();
     assert (!commitment.finalized) throw Errors.AlreadyFinalized;
