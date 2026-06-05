@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   accountTransactionsPath,
+  getAccount,
   getBlocks,
   getExplorerSummary,
   normalizeApiBase,
 } from "@/lib/api";
+import { operatorResources } from "@/lib/operator-proxy";
 
 describe("api helpers", () => {
   it("normalizes api base", () => {
@@ -67,5 +69,32 @@ describe("api helpers", () => {
     } finally {
       globalThis.fetch = previousFetch;
     }
+  });
+
+  it("hides raw upstream error text from public clients", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response("stack trace with provider internals", { status: 502 })) as typeof fetch;
+
+    try {
+      await expect(getAccount("http://node.local", "0:abc")).rejects.toMatchObject({
+        message: "request failed",
+        status: 502,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  it("exposes operator proxy resources without browser admin tokens", () => {
+    expect(Object.keys(operatorResources)).toEqual([
+      "readiness",
+      "metrics",
+      "failures",
+      "relayer",
+      "finalizer",
+      "signer",
+      "faucet",
+    ]);
   });
 });

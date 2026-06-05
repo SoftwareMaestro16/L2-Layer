@@ -5,11 +5,13 @@ const COOKIE_NAME = "enwatcher_operator";
 const COOKIE_MAX_AGE = 60 * 60 * 8;
 
 export const operatorResources = {
-  readiness: "/readyz",
-  metrics: "/v1/operator/metrics",
-  failures: "/v1/operator/failures",
-  relayer: "/v1/operator/batch-relayer",
-  finalizer: "/v1/operator/batch-finalizer",
+  readiness: { kind: "node", path: "/readyz" },
+  metrics: { kind: "node", path: "/v1/operator/metrics" },
+  failures: { kind: "node", path: "/v1/operator/failures" },
+  relayer: { kind: "node", path: "/v1/operator/batch-relayer" },
+  finalizer: { kind: "node", path: "/v1/operator/batch-finalizer" },
+  signer: { kind: "signer" },
+  faucet: { kind: "faucet" },
 } as const;
 
 export type OperatorResource = keyof typeof operatorResources;
@@ -60,11 +62,18 @@ export async function fetchOperatorResource(resource: OperatorResource) {
   if (!auth.ok) {
     return auth;
   }
+  const descriptor = operatorResources[resource];
+  if (descriptor.kind === "signer") {
+    return fetchSignerStatus();
+  }
+  if (descriptor.kind === "faucet") {
+    return fetchFaucetStatus();
+  }
   const adminToken = process.env.L2_ADMIN_TOKEN ?? process.env.ENTROPIS_ADMIN_TOKEN;
   if (!adminToken) {
     return { ok: false as const, status: 503, error: "node admin token is not configured" };
   }
-  const response = await fetch(`${normalizeApiBase()}${operatorResources[resource]}`, {
+  const response = await fetch(`${normalizeApiBase()}${descriptor.path}`, {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${adminToken}`,
@@ -77,10 +86,62 @@ export async function fetchOperatorResource(resource: OperatorResource) {
     return {
       ok: false as const,
       status: response.status,
-      error: safeError(body, text),
+      error: safeError(body, "operator upstream request failed"),
     };
   }
   return { ok: true as const, body };
+}
+
+async function fetchSignerStatus() {
+  const healthUrl = process.env.ENWATCHER_SIGNER_HEALTH_URL;
+  if (!healthUrl) {
+    return {
+      ok: true as const,
+      body: { status: "not_configured", configured: false },
+    };
+  }
+  const response = await fetch(healthUrl, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(5_000),
+  });
+  const text = await response.text();
+  const body = text ? safeJson(text) : null;
+  return {
+    ok: true as const,
+    body: {
+      status: response.ok ? "healthy" : "degraded",
+      configured: true,
+      http_status: response.status,
+      detail: response.ok ? body : safeError(body, "signer health request failed"),
+    },
+  };
+}
+
+async function fetchFaucetStatus() {
+  const faucetApi = process.env.FAUCET_API_URL?.replace(/\/+$/u, "");
+  if (!faucetApi) {
+    return {
+      ok: true as const,
+      body: { status: "not_configured", configured: false },
+    };
+  }
+  const response = await fetch(`${faucetApi}/api/faucet/status`, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(5_000),
+  });
+  const text = await response.text();
+  const body = text ? safeJson(text) : null;
+  return {
+    ok: true as const,
+    body: {
+      status: response.ok ? "available" : "degraded",
+      configured: true,
+      http_status: response.status,
+      detail: response.ok ? body : safeError(body, "faucet status request failed"),
+    },
+  };
 }
 
 function operatorPassword(): string | undefined {
@@ -109,5 +170,5 @@ function safeError(body: unknown, fallback: string): string {
   if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
     return body.error;
   }
-  return fallback || "operator request failed";
+  return fallback;
 }

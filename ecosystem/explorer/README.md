@@ -21,12 +21,16 @@ Optional server-side operator and faucet settings:
 ENTROPIS_API_URL=http://127.0.0.1:8080
 L2_ADMIN_TOKEN=<node-admin-token>
 ENWATCHER_OPERATOR_PASSWORD=<operator-dashboard-password>
+ENWATCHER_SIGNER_HEALTH_URL=http://127.0.0.1:8091/healthz
 FAUCET_API_URL=http://127.0.0.1:8090
 ```
 
 `L2_ADMIN_TOKEN` is only read by Next route handlers under `/api/operator/*`.
 It must not use a `NEXT_PUBLIC_` prefix and is never included in the browser
 bundle.
+`ENWATCHER_SIGNER_HEALTH_URL` and `FAUCET_API_URL` are optional server-side
+URLs. They are used only by authenticated operator routes and are not exposed in
+public browser code.
 
 ## Checks
 
@@ -60,5 +64,6 @@ npm run build
 - Operator pages require `ENWATCHER_OPERATOR_PASSWORD`.
 - Browser code never receives `L2_ADMIN_TOKEN`.
 - EnWatcher does not read Postgres or Redis directly.
+- Upstream non-JSON errors are mapped to static messages before reaching the UI.
 - Hashes, addresses, reasons, and JSON payloads are rendered as escaped React
   text, not injected HTML.

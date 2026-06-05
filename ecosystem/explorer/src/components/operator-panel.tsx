@@ -11,7 +11,15 @@ import { fetchAppJson } from "@/lib/api";
 
 type OperatorPayload = Record<string, unknown>;
 
-const resources = ["readiness", "metrics", "failures", "relayer", "finalizer"] as const;
+const resources = [
+  "readiness",
+  "metrics",
+  "failures",
+  "relayer",
+  "finalizer",
+  "signer",
+  "faucet",
+] as const;
 
 export function OperatorPanel() {
   const queryClient = useQueryClient();
@@ -99,7 +107,7 @@ export function OperatorPanel() {
           </form>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {summaries.map((item) => (
             <OperatorCard
               data={item.data}

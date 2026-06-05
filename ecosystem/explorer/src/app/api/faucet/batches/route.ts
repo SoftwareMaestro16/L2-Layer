@@ -12,7 +12,7 @@ export async function GET() {
   const text = await response.text();
   const body = text ? safeJson(text) : null;
   if (!response.ok) {
-    return NextResponse.json({ error: safeError(body, text) }, { status: response.status });
+    return NextResponse.json({ error: safeError(body) }, { status: response.status });
   }
   return NextResponse.json(body);
 }
@@ -25,9 +25,9 @@ function safeJson(text: string): unknown {
   }
 }
 
-function safeError(body: unknown, fallback: string): string {
+function safeError(body: unknown): string {
   if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
     return body.error;
   }
-  return fallback || "faucet request failed";
+  return "faucet request failed";
 }

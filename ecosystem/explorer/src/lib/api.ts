@@ -51,7 +51,7 @@ export async function fetchJson<T>(
   if (!response.ok) {
     throw {
       status: response.status,
-      message: safeErrorMessage(body, text),
+      message: safeErrorMessage(body),
     } satisfies ApiErrorPayload;
   }
   return schema.parse(body);
@@ -159,7 +159,7 @@ export async function fetchAppJson<T>(path: string, init?: RequestInit): Promise
   if (!response.ok) {
     throw {
       status: response.status,
-      message: safeErrorMessage(body, text),
+      message: safeErrorMessage(body),
     } satisfies ApiErrorPayload;
   }
   return body as T;
@@ -173,7 +173,7 @@ function safeJson(text: string): unknown {
   }
 }
 
-function safeErrorMessage(body: unknown, fallback: string): string {
+function safeErrorMessage(body: unknown): string {
   if (
     body &&
     typeof body === "object" &&
@@ -190,5 +190,5 @@ function safeErrorMessage(body: unknown, fallback: string): string {
   ) {
     return body.message;
   }
-  return fallback || "request failed";
+  return "request failed";
 }
