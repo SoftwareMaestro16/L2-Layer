@@ -56,6 +56,14 @@ impl NodeConfig {
             ),
             "ENT_FAUCET_AMOUNT",
         )?;
+        let ent_faucet_max_amount = parse_u128(
+            &optional(
+                &mut lookup,
+                "ENT_FAUCET_MAX_AMOUNT",
+                &ent_faucet_amount.to_string(),
+            ),
+            "ENT_FAUCET_MAX_AMOUNT",
+        )?;
         let ent_decimals = parse_u8(
             &optional(
                 &mut lookup,
@@ -563,6 +571,7 @@ impl NodeConfig {
             admin_token: SecretString::new(required(&mut lookup, "L2_ADMIN_TOKEN")?)?,
             challenge_window_sec,
             ent_faucet_amount,
+            ent_faucet_max_amount,
             ent_decimals,
             ent_logo_path,
             ent_faucet_require_admin,

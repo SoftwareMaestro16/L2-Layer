@@ -5,8 +5,9 @@ use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
-    EntFaucetClaimSave, InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage,
-    StorageError, StoredBatchPayload, StoredContractState, StoredTransaction,
+    EntFaucetClaimGrantSave, EntFaucetClaimSave, InternalQueueSnapshotRecord, L1Cursor,
+    ObserverCheckpoint, Storage, StorageError, StoredBatchPayload, StoredContractState,
+    StoredTransaction,
 };
 use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
 use crate::storage::{
@@ -351,6 +352,65 @@ impl Storage for PostgresStorage {
         Err(StorageError::Conflict {
             resource: "ent_faucet_claim",
         })
+    }
+
+    async fn save_ent_faucet_claim_grant(
+        &self,
+        claim_id: Hash32,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<EntFaucetClaimGrantSave, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        let inserted_claim = sqlx::query_scalar::<_, String>(
+            r#"
+            INSERT INTO ent_faucet_claims (claim_id, account_id, asset_id, amount)
+            VALUES ($1, $2, 0, $3::numeric)
+            ON CONFLICT (claim_id) DO NOTHING
+            RETURNING claim_id
+            "#,
+        )
+        .bind(claim_id.to_hex())
+        .bind(account_id.to_hex())
+        .bind(amount.to_string())
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if inserted_claim.is_none() {
+            let row =
+                sqlx::query("SELECT account_id, amount FROM ent_faucet_claims WHERE claim_id = $1")
+                    .bind(claim_id.to_hex())
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let stored_account: String = row.try_get("account_id")?;
+            let stored_amount: String = row.try_get("amount")?;
+            tx.commit().await?;
+            if stored_account == account_id.to_hex() && stored_amount == amount.to_string() {
+                return Ok(EntFaucetClaimGrantSave::DuplicateClaim);
+            }
+            return Err(StorageError::Conflict {
+                resource: "ent_faucet_claim",
+            });
+        }
+
+        let inserted_grant = sqlx::query_scalar::<_, String>(
+            r#"
+            INSERT INTO ent_faucet_grants (account_id, asset_id, amount)
+            VALUES ($1, 0, $2::numeric)
+            ON CONFLICT (account_id) DO NOTHING
+            RETURNING account_id
+            "#,
+        )
+        .bind(account_id.to_hex())
+        .bind(amount.to_string())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        if inserted_grant.is_some() {
+            Ok(EntFaucetClaimGrantSave::Inserted)
+        } else {
+            Ok(EntFaucetClaimGrantSave::DuplicateAccount)
+        }
     }
 
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {

@@ -52,6 +52,8 @@ fn valid_entropis_testnet_config_loads() {
     assert_eq!(config.chain_id, "entropis-testnet");
     assert_eq!(config.native_token_symbol, "ENT");
     assert_eq!(config.ton_network, TonNetwork::Testnet);
+    assert_eq!(config.ent_faucet_amount, DEFAULT_ENT_FAUCET_AMOUNT);
+    assert_eq!(config.ent_faucet_max_amount, DEFAULT_ENT_FAUCET_AMOUNT);
     assert_eq!(config.ent_decimals, 9);
     assert_eq!(config.ent_logo_path, PathBuf::from("assets/entropis.png"));
     assert!(config.ent_faucet_require_admin);
@@ -144,6 +146,15 @@ fn config_rejects_invalid_ent_metadata() {
         "ENT_LOGO_PATH".to_owned(),
         "assets/missing-ent.png".to_owned(),
     );
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("ENT_FAUCET_MAX_AMOUNT".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("ENT_FAUCET_AMOUNT".to_owned(), "1001".to_owned());
+    env.insert("ENT_FAUCET_MAX_AMOUNT".to_owned(), "1000".to_owned());
     assert!(load_from(&env).is_err());
 
     let mut env = valid_env();

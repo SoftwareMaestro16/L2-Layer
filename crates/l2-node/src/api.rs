@@ -648,6 +648,9 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
 }
 
 #[cfg(test)]
+#[path = "api/admin_faucet_tests.rs"]
+mod admin_faucet_tests;
+#[cfg(test)]
 #[path = "api_contract_tests.rs"]
 mod contract_tests;
 #[cfg(test)]

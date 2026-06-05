@@ -76,6 +76,34 @@ async fn memory_storage_ent_faucet_claim_is_idempotent_by_claim_id() {
 }
 
 #[tokio::test]
+async fn memory_storage_ent_faucet_claim_grant_tracks_duplicate_accounts() {
+    let storage = InMemoryStorage::default();
+    let account = sha256_bytes(b"account");
+
+    assert_eq!(
+        storage
+            .save_ent_faucet_claim_grant(sha256_bytes(b"claim-a"), account, 1_000)
+            .await
+            .unwrap(),
+        EntFaucetClaimGrantSave::Inserted
+    );
+    assert_eq!(
+        storage
+            .save_ent_faucet_claim_grant(sha256_bytes(b"claim-a"), account, 1_000)
+            .await
+            .unwrap(),
+        EntFaucetClaimGrantSave::DuplicateClaim
+    );
+    assert_eq!(
+        storage
+            .save_ent_faucet_claim_grant(sha256_bytes(b"claim-b"), account, 1_000)
+            .await
+            .unwrap(),
+        EntFaucetClaimGrantSave::DuplicateAccount
+    );
+}
+
+#[tokio::test]
 async fn memory_storage_batch_payload_is_idempotent_and_rejects_conflict() {
     let storage = InMemoryStorage::default();
     let payload = StoredBatchPayload {

@@ -128,6 +128,9 @@ impl From<FaucetError> for ApiError {
             | FaucetError::InvalidClaimId
             | FaucetError::ZeroAccountId => Self::bad_request(error.to_string()),
             FaucetError::ClaimConflict => Self::conflict(error.to_string()),
+            FaucetError::InvalidAmount | FaucetError::AmountTooHigh => {
+                Self::bad_request(error.to_string())
+            }
             FaucetError::Storage(storage_error) => storage_error.into(),
             FaucetError::AmountOverflow => Self::internal(error.to_string()),
         }

@@ -20,6 +20,7 @@ impl fmt::Debug for NodeConfig {
             .field("admin_token", &self.admin_token)
             .field("challenge_window_sec", &self.challenge_window_sec)
             .field("ent_faucet_amount", &self.ent_faucet_amount)
+            .field("ent_faucet_max_amount", &self.ent_faucet_max_amount)
             .field("ent_decimals", &self.ent_decimals)
             .field("ent_logo_path", &self.ent_logo_path)
             .field("ent_faucet_require_admin", &self.ent_faucet_require_admin)

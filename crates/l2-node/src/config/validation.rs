@@ -33,6 +33,14 @@ impl NodeConfig {
         if self.ent_faucet_amount == 0 {
             return Err(anyhow!("ENT_FAUCET_AMOUNT must be non-zero"));
         }
+        if self.ent_faucet_max_amount == 0 {
+            return Err(anyhow!("ENT_FAUCET_MAX_AMOUNT must be non-zero"));
+        }
+        if self.ent_faucet_amount > self.ent_faucet_max_amount {
+            return Err(anyhow!(
+                "ENT_FAUCET_AMOUNT must not exceed ENT_FAUCET_MAX_AMOUNT"
+            ));
+        }
         if self.ent_decimals != super::DEFAULT_ENT_DECIMALS {
             return Err(anyhow!(
                 "ENT_DECIMALS must be {}",

@@ -172,6 +172,33 @@ test("node client uses batch endpoint and maps missing claim as failure", async 
   assert.equal(results[1]?.error, "node_batch_missing_claim");
 });
 
+test("node client maps explicit batch statuses from node", async () => {
+  const client = new EntropisNodeClient(
+    loadConfig({ ENTROPIS_API_URL: "http://node.test", L2_ADMIN_TOKEN: "admin-token" }),
+    async () =>
+      jsonResponse({
+        claims: [
+          { claim_id: "claim-a", status: "granted", deposit_id: "deposit-a", error_code: null },
+          {
+            claim_id: "claim-b",
+            status: "duplicate_account",
+            deposit_id: null,
+            error_code: "duplicate_account",
+          },
+        ],
+      }),
+  );
+
+  const results = await client.submitClaims([
+    { claimId: "claim-a", accountId: ACCOUNT_A },
+    { claimId: "claim-b", accountId: ACCOUNT_B },
+  ]);
+
+  assert.equal(results[0]?.status, "granted");
+  assert.equal(results[1]?.status, "duplicate");
+  assert.equal(results[1]?.error, "duplicate_account");
+});
+
 test("node client falls back to single faucet endpoint on missing batch route", async () => {
   const calls: string[] = [];
   const client = new EntropisNodeClient(

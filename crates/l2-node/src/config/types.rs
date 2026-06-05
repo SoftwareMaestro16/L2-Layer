@@ -26,6 +26,7 @@ pub struct NodeConfig {
     pub admin_token: SecretString,
     pub challenge_window_sec: u32,
     pub ent_faucet_amount: u128,
+    pub ent_faucet_max_amount: u128,
     pub ent_decimals: u8,
     pub ent_logo_path: PathBuf,
     pub ent_faucet_require_admin: bool,

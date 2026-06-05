@@ -148,6 +148,13 @@ pub enum EntFaucetClaimSave {
     Duplicate,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntFaucetClaimGrantSave {
+    Inserted,
+    DuplicateClaim,
+    DuplicateAccount,
+}
+
 impl BatchCommitRecord {
     pub fn pending(block: &L2Block) -> Option<Self> {
         Some(Self {
@@ -238,6 +245,12 @@ pub trait Storage: Send + Sync {
         account_id: Hash32,
         amount: u128,
     ) -> Result<EntFaucetClaimSave, StorageError>;
+    async fn save_ent_faucet_claim_grant(
+        &self,
+        claim_id: Hash32,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<EntFaucetClaimGrantSave, StorageError>;
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError>;
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError>;
     async fn get_batch_commit(
@@ -473,6 +486,37 @@ impl Storage for InMemoryStorage {
                 claims.insert(claim_id, (account_id, amount));
                 Ok(EntFaucetClaimSave::Inserted)
             }
+        }
+    }
+
+    async fn save_ent_faucet_claim_grant(
+        &self,
+        claim_id: Hash32,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<EntFaucetClaimGrantSave, StorageError> {
+        let mut claims = self.ent_faucet_claims.write().await;
+        match claims.get(&claim_id) {
+            Some((stored_account, stored_amount))
+                if *stored_account == account_id && *stored_amount == amount =>
+            {
+                return Ok(EntFaucetClaimGrantSave::DuplicateClaim);
+            }
+            Some(_) => {
+                return Err(StorageError::Conflict {
+                    resource: "ent_faucet_claim",
+                });
+            }
+            None => {}
+        }
+
+        claims.insert(claim_id, (account_id, amount));
+        let mut grants = self.ent_faucet_grants.write().await;
+        if grants.contains_key(&account_id) {
+            Ok(EntFaucetClaimGrantSave::DuplicateAccount)
+        } else {
+            grants.insert(account_id, amount);
+            Ok(EntFaucetClaimGrantSave::Inserted)
         }
     }
 

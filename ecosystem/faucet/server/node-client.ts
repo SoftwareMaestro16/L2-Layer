@@ -5,6 +5,9 @@ import type { NodeClaimInput, NodeClaimResult } from "./types.js";
 type BatchResponse = {
   claims?: Array<{
     claim_id?: string;
+    status?: string;
+    error_code?: string | null;
+    deposit_id?: string | null;
     faucet?: {
       deposit_id?: string;
       granted?: boolean;
@@ -64,7 +67,15 @@ export class EntropisNodeClient {
     return claims.map((claim) => {
       const result = byClaim.get(claim.claimId);
       if (!result?.faucet) {
-        return failedResult(claim, "node_batch_missing_claim");
+        if (!result) {
+          return failedResult(claim, "node_batch_missing_claim");
+        }
+        return {
+          claimId: claim.claimId,
+          status: statusFromNode(result.status),
+          depositId: result.deposit_id ?? null,
+          error: result.error_code ?? null,
+        };
       }
       return {
         claimId: claim.claimId,
@@ -130,4 +141,14 @@ function safeNodeError(status: number): string {
     return "node_rate_limited";
   }
   return "node_unavailable";
+}
+
+function statusFromNode(status: string | undefined): NodeClaimResult["status"] {
+  if (status === "granted") {
+    return "granted";
+  }
+  if (status === "duplicate_claim" || status === "duplicate_account") {
+    return "duplicate";
+  }
+  return "failed";
 }
