@@ -22,11 +22,6 @@ display-name = "Sample L2 Counter"
 src = "examples/l2-counter/counter.tolk"
 depends = []
 
-[contracts.EnWalletV5]
-display-name = "EnWallet V5 R1"
-src = "examples/l2-wallet-v5/EnWalletV5.tolk"
-depends = []
-
 [fmt]
 width = 100
 ignore = []

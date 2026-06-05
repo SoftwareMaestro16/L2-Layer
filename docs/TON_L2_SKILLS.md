@@ -130,7 +130,7 @@ TON_L2_SKILLS = {
     "Contract storage proof compatibility is hash-first: account leaves commit code_hash, data_hash, and storage_root; registry BoCs are validated against those hashes so future proofs can bind account leaves to code/data cells and deeper storage witnesses without changing the account leaf shape.",
     "DeployContract may initialize a prefunded but still uninitialized account whose nonce/code/data/storage are empty, preserving balances. This supports TON-style wallet addresses that can receive deposits before the first deploy/init transaction.",
     "DeployContract must not overwrite a claimed user account: once active_public_key, nonce, code/data/storage, disabled/system flags, or recovery lock are present, deployment to that account must reject as contract_already_exists.",
-    "EnWallet V5 R1 is included under examples/l2-wallet-v5 as a Tolk smart-contract wallet based on the TON Wallet V5 interface; explorer metadata identifies code hash 9afaeff10bb834d0cfc32f7b230cdef530e65044352fc1f196fb0ccb6324c5c8 as org.ton.wallet.v5.r1 / Wallet Signed External V5 R1.",
+    "EnWallet V5 R1 source is not vendored in this L2 repository. Entropis keeps compatibility through the SDK generated compiled artifact, deterministic init data helpers, and explorer metadata for code hash 9afaeff10bb834d0cfc32f7b230cdef530e65044352fc1f196fb0ccb6324c5c8 as org.ton.wallet.v5.r1 / Wallet Signed External V5 R1.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."
   ],
   bridge_design: [

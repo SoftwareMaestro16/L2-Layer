@@ -6,12 +6,9 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tonlib_core::cell::BagOfCells;
 
-#[path = "tvm/cells.rs"]
 mod cells;
 pub mod emulator;
-#[path = "tvm/getter.rs"]
 mod getter;
-#[path = "tvm/sample_counter.rs"]
 mod sample_counter;
 
 pub use cells::{

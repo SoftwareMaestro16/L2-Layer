@@ -14,9 +14,7 @@ use crate::withdrawal::validate_release_parts;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[path = "executor/tvm_call.rs"]
 mod tvm_call;
-#[path = "executor/validation.rs"]
 mod validation;
 
 use validation::{
@@ -409,9 +407,9 @@ impl DeterministicExecutor {
 }
 
 #[cfg(test)]
-#[path = "executor_tests.rs"]
+#[path = "../executor_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "executor_tvm_tests.rs"]
+#[path = "../executor_tvm_tests.rs"]
 mod tvm_tests;

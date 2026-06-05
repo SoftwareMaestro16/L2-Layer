@@ -31,7 +31,6 @@ flowchart TB
 - `crates/l2-core`: Rust L2 state model, Merkle hashing, sequencer, mempool, executor boundary, and tests.
 - `crates/l2-node`: Axum HTTP/WebSocket node exposing the planned L2 API.
 - `contracts/l1`: Tolk contract sources for `RollupRoot` and `AssetVault`.
-- `examples/l2-wallet-v5`: Tolk EnWallet V5 R1-compatible smart-contract wallet.
 - `examples/l2-counter`: sample L2 Tolk counter contract.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
 - `docs`: Architecture, local operation notes, CI quality gates, operator runbooks,
@@ -150,8 +149,10 @@ npm exec --yes node examples/l2-counter-sample.mjs
 Set-Location ..
 ```
 
-Create an EnWallet V5 R1 init transaction from a 24-word seed-backed keypair in
-SDK code:
+Create an EnWallet V5 R1-compatible init transaction from a 24-word seed-backed
+keypair in SDK code. The wallet source is not vendored in this L2 repository;
+the SDK uses the generated compiled artifact and deterministic data-cell helpers
+so apps can create the smart-wallet account without rebuilding wallet source:
 
 ```ts
 import {
@@ -187,9 +188,10 @@ Set-Location ..
 `wallet.wallet_account_id` is the smart-contract wallet address and can be shown
 as `EX...` through `l2UserFriendlyAddress`. The account may receive deposits
 before initialization; the first `DeployContract` init transaction installs the
-W5 code/data and preserves any prefunded balance. Explorer account responses
-mark the interface as `org.ton.wallet.v5.r1` / `Wallet Signed External V5 R1`,
-and wallet init transactions are marked with `operation: "wallet_init"`.
+compiled W5-compatible code/data and preserves any prefunded balance. Explorer
+account responses mark the interface as `org.ton.wallet.v5.r1` /
+`Wallet Signed External V5 R1`, and wallet init transactions are marked with
+`operation: "wallet_init"`.
 
 Deploy code compiled from any Tolk source when you already have the initial data
 cell BoC:
