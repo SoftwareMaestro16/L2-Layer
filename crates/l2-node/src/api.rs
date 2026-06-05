@@ -34,6 +34,7 @@ mod error;
 mod explorer;
 mod mempool_ingress;
 mod operator;
+mod operator_da;
 mod receipt;
 mod sample;
 mod stream;
@@ -55,6 +56,7 @@ use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
+use operator_da::operator_da_payload;
 use receipt::{get_block_finality, get_receipt, get_tx_receipt};
 use sample::post_contract_get_method;
 use sample::{get_contract_method, get_sample_counter};
@@ -217,6 +219,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/operator/metrics", get(operator_metrics))
         .route("/v1/operator/failures", get(operator_failures))
         .route("/v1/operator/batch-relayer", get(operator_batch_relayer))
+        .route(
+            "/v1/operator/da/batch/:height/:data_hash",
+            get(operator_da_payload),
+        )
         .route(
             "/v1/operator/batch-finalizer",
             get(operator_batch_finalizer),

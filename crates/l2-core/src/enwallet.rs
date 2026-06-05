@@ -7,6 +7,11 @@ use num_bigint::BigUint;
 use tonlib_core::cell::dict::predefined_readers::{key_reader_256bit, val_reader_uint};
 use tonlib_core::cell::BagOfCells;
 
+#[path = "enwallet/execute.rs"]
+mod execute;
+
+pub use execute::execute_enwallet_v5r1;
+
 pub const ENWALLET_V5R1_INTERFACE: &str = "org.ton.wallet.v5.r1";
 pub const ENWALLET_V5R1_LABEL: &str = "Wallet Signed External V5 R1";
 pub const ENWALLET_V5R1_TESTNET_WALLET_ID: u32 = 0x7fff_fffd;
@@ -179,3 +184,7 @@ mod tests {
         BASE64_STANDARD.encode(boc)
     }
 }
+
+#[cfg(test)]
+#[path = "enwallet/execute_tests.rs"]
+mod execute_tests;

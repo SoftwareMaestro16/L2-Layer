@@ -1,0 +1,32 @@
+{
+  "$schema": "./entropis.schema.json",
+  "schemaVersion": 1,
+  "network": "testnet",
+  "chainId": "entropis-testnet",
+  "status": "draft",
+  "activeDeploymentId": null,
+  "deployments": [],
+  "nextDeploymentRequirements": {
+    "contracts": ["RollupRoot", "AssetVault"],
+    "requiredChecks": [
+      "acton build",
+      "acton test",
+      "acton check",
+      "acton fmt --check",
+      "acton run l1-verify-testnet"
+    ],
+    "publicEvidence": [
+      "rollupRoot address",
+      "assetVault address",
+      "code hashes",
+      "deploy transaction hashes",
+      "challengeWindowSec",
+      "sequencer address",
+      "verified getter readback"
+    ]
+  },
+  "notes": [
+    "Draft means no public live L1 deployment has been verified in this branch.",
+    "Only public testnet addresses, hashes, transaction hashes and getter values belong here."
+  ]
+}

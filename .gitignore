@@ -8,7 +8,9 @@ desktop.ini
 
 # Local planning / agent workspace outside the L2 product
 /.codex/
-/ecosystem/
+/ecosystem/*
+!/ecosystem/wallet/
+!/ecosystem/wallet/**
 
 # Logs and local diagnostics
 *.log
@@ -48,6 +50,10 @@ libraries.toml
 /build/
 /gen/
 /deployments/
+!/deployments/
+!/deployments/testnet/
+!/deployments/testnet/entropis.json
+!/deployments/testnet/entropis.schema.json
 wallets.toml
 global.wallets.toml
 libraries.toml
@@ -70,6 +76,7 @@ node_modules/
 /ecosystem/**/.next/
 /ecosystem/**/out/
 /ecosystem/**/dist/
+/ecosystem/**/dist-server/
 /ecosystem/**/coverage/
 /ecosystem/**/.env.local
 /ecosystem/**/.env.*.local

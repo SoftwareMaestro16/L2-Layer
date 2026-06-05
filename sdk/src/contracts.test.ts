@@ -10,11 +10,13 @@ import {
   enwalletV5InitialState,
   enwalletV5SignedExternalBodyBase64,
   enwalletV5SignedInternalBodyBase64,
+  parseEnWalletV5GetterResult,
   readSampleCounterFromAccount,
   sampleCounterIncrementBodyBase64,
   sampleCounterInitialState,
   sampleCounterStorageRoot,
   signEnWalletV5InitTransaction,
+  signEnWalletV5CallTransaction,
   signCallContractTransaction,
   signDeployContractTransaction,
   TonL2Client,
@@ -193,6 +195,24 @@ test("EnWallet V5 helpers derive init state and signed wallet body", () => {
   assert.equal(initTx.kind.DeployContract.code_boc_base64, initial.code_boc_base64);
   assert.equal(initTx.kind.DeployContract.data_boc_base64, initial.data_boc_base64);
 
+  const callTx = signEnWalletV5CallTransaction({
+    chainId: "entropis-testnet",
+    from: initial.owner_account_id,
+    nonce: 1,
+    gasLimit: 50,
+    maxGasPrice: "1",
+    keyPair,
+    walletSeqno: 0,
+    walletValidUntil: 4_294_967_295,
+  });
+  assert.equal("CallContract" in callTx.kind, true);
+  if (!("CallContract" in callTx.kind)) {
+    throw new Error("expected call transaction");
+  }
+  assert.equal(callTx.kind.CallContract.contract, initial.wallet_account_id);
+  assert.equal(callTx.tx_version, 2);
+  assert.equal(callTx.fee_asset_id, 0);
+
   const internalBody = Cell.fromBoc(
     Buffer.from(
       enwalletV5SignedInternalBodyBase64({
@@ -241,6 +261,30 @@ test("EnWallet V5 helpers derive init state and signed wallet body", () => {
   assert.equal(
     nacl.sign.detached.verify(unsignedExternal.hash(), signature, keyPair.publicKey),
     true,
+  );
+
+  const parsedSeqno = parseEnWalletV5GetterResult({
+    method: "seqno",
+    result: {
+      interface: ENWALLET_V5R1_INTERFACE,
+      interface_label: ENWALLET_V5R1_LABEL,
+      result: { type: "uint32", value: "1" },
+    },
+  });
+  assert.deepEqual(parsedSeqno, {
+    interface: ENWALLET_V5R1_INTERFACE,
+    interface_label: ENWALLET_V5R1_LABEL,
+    method: "seqno",
+    type: "uint32",
+    value: "1",
+  });
+  assert.throws(
+    () =>
+      parseEnWalletV5GetterResult({
+        method: "seqno",
+        result: { type: "uint32", value: "1" },
+      }),
+    /not an EnWallet V5 getter result/,
   );
 });
 

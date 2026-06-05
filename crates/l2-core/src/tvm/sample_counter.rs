@@ -3,6 +3,7 @@ use super::{
     TvmExecutionStatus, TvmStateDelta,
 };
 use crate::crypto::Hash32;
+use crate::enwallet::execute_enwallet_v5r1;
 use crate::state::Account;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -28,6 +29,9 @@ pub struct PrototypeTvmAdapter;
 
 impl TvmExecutionAdapter for PrototypeTvmAdapter {
     fn execute(&self, input: &TvmExecutionInput) -> Result<TvmExecutionOutput, TvmAdapterError> {
+        if let Some(output) = execute_enwallet_v5r1(input)? {
+            return Ok(output);
+        }
         if input.contract_state.code_hash != sample_counter_code_hash() {
             return Err(TvmAdapterError::Unsupported);
         }

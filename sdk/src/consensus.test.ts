@@ -417,6 +417,48 @@ test("Jetton deposit transfer helper rejects unsafe amounts and recipients", () 
       }),
     /reserved zero address/,
   );
+  assert.throws(
+    () =>
+      encodeJettonDepositTransferBody({
+        jettonWalletAddress: TON_RECIPIENT,
+        vaultAddress: TON_RECIPIENT,
+        responseAddress: TON_RECIPIENT,
+        queryId: (1n << 64n).toString(10),
+        jettonAmount: "123456",
+        forwardTonAmount: "1",
+        tonAmount: "100000000",
+        l2Recipient: hash(0x77),
+      }),
+    /queryId exceeds uint64/,
+  );
+  assert.throws(
+    () =>
+      encodeJettonDepositTransferBody({
+        jettonWalletAddress: TON_RECIPIENT,
+        vaultAddress: TON_RECIPIENT,
+        responseAddress: TON_RECIPIENT,
+        queryId: 8,
+        jettonAmount: (1n << 120n).toString(10),
+        forwardTonAmount: "1",
+        tonAmount: "100000000",
+        l2Recipient: hash(0x77),
+      }),
+    /jettonAmount exceeds uint120/,
+  );
+  assert.throws(
+    () =>
+      depositJettonTonConnectMessage({
+        jettonWalletAddress: "not-a-ton-address",
+        vaultAddress: TON_RECIPIENT,
+        responseAddress: TON_RECIPIENT,
+        queryId: 8,
+        jettonAmount: "123456",
+        forwardTonAmount: "1",
+        tonAmount: "100000000",
+        l2Recipient: hash(0x77),
+      }),
+    /address/i,
+  );
 });
 
 test("transfer helper signs chain-id-bound L2 transactions", () => {

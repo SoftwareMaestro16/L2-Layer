@@ -95,13 +95,22 @@ export {
   enwalletV5SignedExternalBodyBase64,
   enwalletV5SignedInternalBodyBase64,
   enwalletV5StateInitCell,
-  signEnWalletV5InitTransaction,
   validateEnWalletMnemonic,
   ENWALLET_V5R1_INTERFACE,
   ENWALLET_V5R1_LABEL,
   ENWALLET_V5R1_TESTNET_WALLET_ID,
 } from "./enwallet.js";
-export type { EnWalletV5DeployParams, EnWalletV5InitialState, EnWalletV5InitParams } from "./enwallet.js";
+export type {
+  EnWalletV5InitialState,
+  EnWalletV5InitParams,
+} from "./enwallet.js";
+export { parseEnWalletV5GetterResult } from "./enwallet-getters.js";
+export type { EnWalletV5GetterResult } from "./enwallet-getters.js";
+export {
+  signEnWalletV5CallTransaction,
+  signEnWalletV5InitTransaction,
+} from "./enwallet-tx.js";
+export type { EnWalletV5CallParams, EnWalletV5DeployParams } from "./enwallet-tx.js";
 export {
   accountLeafHash,
   blockHeaderHash,

@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Entropis public testnet deployment registry",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "network",
+    "chainId",
+    "status",
+    "activeDeploymentId",
+    "deployments"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "network": { "const": "testnet" },
+    "chainId": { "const": "entropis-testnet" },
+    "status": { "enum": ["draft", "deployed", "verified", "deprecated"] },
+    "activeDeploymentId": { "type": ["string", "null"], "minLength": 1 },
+    "deployments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/deployment" }
+    },
+    "nextDeploymentRequirements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "deployment": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "deployedAt",
+        "deployerAddress",
+        "sequencerAddress",
+        "challengeWindowSec",
+        "tonAsset",
+        "contracts",
+        "wrapperVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["deployed", "verified", "deprecated"] },
+        "deployedAt": { "type": "string", "format": "date-time" },
+        "deployerAddress": { "type": "string", "minLength": 1 },
+        "sequencerAddress": { "type": "string", "minLength": 1 },
+        "challengeWindowSec": { "type": "integer", "minimum": 1 },
+        "tonAsset": {
+          "type": "object",
+          "required": ["assetId", "decimals"],
+          "additionalProperties": false,
+          "properties": {
+            "assetId": { "type": "integer", "minimum": 1 },
+            "decimals": { "type": "integer", "minimum": 0, "maximum": 18 }
+          }
+        },
+        "contracts": {
+          "type": "object",
+          "required": ["RollupRoot", "AssetVault"],
+          "additionalProperties": false,
+          "properties": {
+            "RollupRoot": { "$ref": "#/$defs/contract" },
+            "AssetVault": { "$ref": "#/$defs/contract" }
+          }
+        },
+        "wrapperVersion": {
+          "type": "object",
+          "required": ["source", "commit"],
+          "additionalProperties": false,
+          "properties": {
+            "source": { "type": "string", "minLength": 1 },
+            "commit": { "type": "string", "minLength": 7 }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "integer", "boolean", "null"]
+          }
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "required": ["address", "codeHash", "dataHash", "deployTxHash"],
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string", "minLength": 1 },
+        "codeHash": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+        "dataHash": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+        "deployTxHash": { "type": "string", "minLength": 1 },
+        "getters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "integer", "boolean", "null"]
+          }
+        }
+      }
+    }
+  }
+}

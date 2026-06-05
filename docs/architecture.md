@@ -60,9 +60,11 @@ BoC. Missing data, block-hash mismatch, data-hash mismatch, corrupted partial
 payloads, unavailable filesystem payloads, or payloads above `DA_MAX_PAYLOAD_BYTES`
 fail closed and do not reach the signer or Toncenter provider. Public payload
 bytes are also available through `GET /v1/da/batch/{height}` and
-`GET /v1/da/batch/{height}/{data_hash_hex}`. This MVP proves retrievability from
-the configured public gateway; it does not yet prove availability from TON
-Storage.
+`GET /v1/da/batch/{height}/{data_hash_hex}`. Operators can run the same
+verification path through `GET /v1/operator/da/batch/{height}/{data_hash_hex}`,
+which returns safe status, reason, latency, and public reference metadata without
+serving the bytes. This MVP proves retrievability from the configured public
+gateway; it does not yet prove availability from TON Storage.
 
 ## Gas Coin
 

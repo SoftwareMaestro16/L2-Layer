@@ -8,12 +8,7 @@ import {
 import nacl from "tweetnacl";
 import { type Hash32 } from "./address.js";
 import { deriveAccountId, hashDomain } from "./consensus.js";
-import {
-  contractCellHash,
-  signDeployContractTransaction,
-  type DeployContractTransactionParams,
-  type SignedL2Transaction,
-} from "./contracts.js";
+import { contractCellHash } from "./contracts.js";
 import {
   EnWalletV5,
   ExternalSignedRequest,
@@ -44,12 +39,6 @@ export interface EnWalletV5InitialState {
 export interface EnWalletV5InitParams {
   publicKey: Uint8Array | string;
   walletId?: UIntLike;
-}
-
-export interface EnWalletV5DeployParams
-  extends Omit<DeployContractTransactionParams, "contract" | "codeBocBase64" | "dataBocBase64"> {
-  walletId?: UIntLike;
-  keyPair: nacl.SignKeyPair;
 }
 
 export async function createEnWalletMnemonic(): Promise<string[]> {
@@ -130,21 +119,6 @@ export function enwalletV5InitialState(params: EnWalletV5InitParams): EnWalletV5
     code_boc_base64: enwalletV5CodeBocBase64(),
     data_boc_base64,
   };
-}
-
-export function signEnWalletV5InitTransaction(
-  params: EnWalletV5DeployParams,
-): SignedL2Transaction {
-  const initial = enwalletV5InitialState({
-    publicKey: params.keyPair.publicKey,
-    walletId: params.walletId,
-  });
-  return signDeployContractTransaction({
-    ...params,
-    contract: initial.wallet_account_id,
-    codeBocBase64: initial.code_boc_base64,
-    dataBocBase64: initial.data_boc_base64,
-  });
 }
 
 export function enwalletV5SignedInternalBodyBase64(params: {

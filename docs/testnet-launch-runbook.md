@@ -15,6 +15,11 @@ The launch goal is to connect the existing Entropis components end to end:
 4. Demo faucet ENT, TON deposit, L2 transfer, L1 commit, finalization, and TON
    withdrawal claim.
 
+The feature rollout order that leads into this launch checklist is tracked in
+`docs/l2-rollout-order.md`. Do not treat later rollout phases such as staking,
+full arbitrary TVM support, or Jetton hardening as required for the default TON
+deposit/transfer/commit/finalize/withdraw demo unless that document is updated.
+
 ## Architecture
 
 ```mermaid
@@ -74,10 +79,16 @@ The public registry reference for docs and operator tooling is:
 deployments/testnet/entropis.json
 ```
 
-The current guard policy treats `deployments/` as local artifact space. If the
-registry is promoted to tracked source later, first update the artifact guard and
-document the policy change. Until then, operators can serve a local copy
-containing only public metadata:
+The artifact guard allows only this public testnet manifest and its schema under
+`deployments/`. Other deployment outputs remain ignored artifacts. Validate the
+manifest before publishing evidence:
+
+```powershell
+python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json
+```
+
+The registry starts as `draft`. Promote it to `deployed` or `verified` only with
+public metadata:
 
 - `rollupRoot` and `assetVault`
 - deployed code hashes
@@ -89,6 +100,9 @@ containing only public metadata:
 
 Never put mnemonic phrases, private keys, signer tokens, API keys, database URLs,
 Redis URLs, wallet exports, or signed BoCs in registry JSON.
+
+For the exact deposit-to-withdrawal rehearsal gate, follow
+`docs/testnet-live-bridge-e2e.md`.
 
 ## Non-Secret Environment Checklist
 
@@ -392,6 +406,7 @@ Admin/operator endpoints:
 - `GET /v1/mempool/metrics`
 - `GET /v1/operator/metrics`
 - `GET /v1/operator/failures`
+- `GET /v1/operator/da/batch/{height}/{data_hash}`
 - `GET /v1/operator/batch-relayer`
 - `GET /v1/operator/batch-finalizer`
 - `GET /v1/operator/observer/checkpoint`
@@ -417,6 +432,8 @@ Suggested testnet alert thresholds:
 - Pending finalizations remain unfinalized past `challengeWindowSec` plus two
   finalizer poll intervals.
 - DA write latency or storage save latency exceeds 1000 ms.
+- `GET /v1/operator/da/batch/{height}/{data_hash}` reports `missing`,
+  `corrupt`, or `unavailable`.
 - Signer returns `unauthorized`, `rate_limited`, `rollup_root_mismatch`,
   `signer_address_mismatch`, `expired_request`, or `malformed_boc`.
 - Toncenter testnet readiness fails or send-message errors persist after retry

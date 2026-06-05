@@ -407,8 +407,17 @@ The response body is `application/octet-stream` and includes
 `x-entropis-block-height`, `x-entropis-block-hash`, `x-entropis-data-hash`, and
 when configured `x-entropis-da-ref` / `x-entropis-da-uri`. The hash-specific route
 is the safer replay path because it binds the payload request to the L1
-`dataHash`. Future TON Storage support should implement the same `DaWriter`,
-`DaReader`, and `DaVerifier` boundaries.
+`dataHash`. Operators can check retrievability without downloading bytes through:
+
+```text
+GET /v1/operator/da/batch/{height}/{data_hash_hex}
+```
+
+The authenticated visibility response is public-safe status metadata:
+`available`, `missing`, `corrupt`, or `unavailable`, plus payload size, public
+reference/URI when present, a download path, latency in milliseconds, and a
+static reason code for failures. Future TON Storage support should implement the
+same `DaWriter`, `DaReader`, and `DaVerifier` boundaries.
 
 ## Observer replay
 

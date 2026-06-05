@@ -140,6 +140,8 @@ Symptoms:
 - `/v1/operator/failures.relayer_failed_batches` is non-empty.
 - `node.relayer.failed` increases.
 - `l1_batch_commits.status = failed`.
+- `GET /v1/operator/da/batch/{height}/{data_hash}` returns `missing`,
+  `corrupt`, or `unavailable`.
 
 Actions:
 
@@ -148,6 +150,8 @@ Actions:
   `DA_PUBLIC_BACKEND=filesystem`, the public payload at
   `DA_PUBLIC_FS_DIR/blocks/{height}/{block_hash}-{data_hash}.el2batch` before
   retry.
+- Check `GET /v1/operator/da/batch/{height}/{data_hash}` for a safe status,
+  static reason code, and latency without downloading the payload.
 - If `commit signer failed`, check signer service health and sender address.
 - If `commit signer response expired`, check signer clock sync and valid-until
   policy before retry.

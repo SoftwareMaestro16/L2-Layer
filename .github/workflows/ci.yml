@@ -25,6 +25,8 @@ jobs:
         run: python3 scripts/ci/secret_scan.py
       - name: Artifact guard
         run: python3 scripts/ci/artifact_guard.py
+      - name: Public deployment registry
+        run: python3 scripts/ci/validate_deployment_registry.py
       - name: Hidden local Codex skill guard
         run: |
           if git ls-files --error-unmatch .codex/skills/cosmos-vulnerability-scanner >/dev/null 2>&1; then
