@@ -126,7 +126,7 @@ export {
   withdrawalId,
   withdrawalLeafHash,
 } from "./consensus.js";
-export type { AccountLeaf, L2BlockHeader, Receipt, WithdrawalLeaf } from "./consensus.js";
+export type { AccountLeaf, L2BlockHeader, L2Event, Receipt, WithdrawalLeaf } from "./consensus.js";
 
 export const L2_NATIVE_GAS_ASSET = 0;
 export const L2_NATIVE_GAS_TOKEN_SYMBOL = "ENT";
@@ -209,6 +209,7 @@ export interface TxReceiptDetail {
   gas_charged: string;
   reason: string | null;
   withdrawal_id: Hash32 | null;
+  events: import("./consensus.js").L2Event[];
   contract_logs: TxContractLog[];
 }
 
@@ -474,6 +475,7 @@ export interface ExplorerTransactionSummary {
   gas_charged: string | null;
   reason: string | null;
   withdrawal_id: Hash32 | null;
+  event_count: number;
 }
 
 export interface ExplorerAccountTransactionsResponse {

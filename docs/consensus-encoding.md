@@ -46,11 +46,17 @@ vector<T>   uint32 item count + items
 Unsigned transaction:
 
 ```text
+tx_version:uint16
+domain_separator:string
 chain_id:string
 from:optional<Hash32>
 nonce:uint64
+valid_until_block:uint64
 gas_limit:uint64
 max_gas_price:uint128
+fee_asset_id:uint32
+memo_hash:optional<Hash32>
+transaction_kind_version:uint16
 kind:uint8 + kind fields
 ```
 
@@ -74,7 +80,23 @@ status:uint8        # 0x01 applied, 0x02 rejected
 gas_charged:uint128 # gas coin base units charged by the executor
 reason:optional<string>
 withdrawal_id:optional<Hash32>
+events:vector<L2Event>
 ```
+
+L2 event tags:
+
+```text
+0x01 ContractDeployed(contract:Hash32, deployer:Hash32, code_hash:Hash32, data_hash:Hash32)
+0x02 ContractCalled(contract:Hash32, caller:Hash32, body_hash:Hash32)
+0x03 WithdrawalCreated(withdrawal_id:Hash32, asset_id:uint32, amount:uint128, l2_sender:Hash32, l1_recipient:string)
+```
+
+The event vector is ordered exactly as emitted by deterministic execution and is
+part of `receipt_leaf_hash`, `receipt_root`, and batch DA. The MVP does not add a
+separate `event_root` field to `L2BlockHeader` because the current TON
+`RollupRoot` commitment schema already commits to events through `receipt_root`.
+A future header version may split events into a dedicated root after an L1 schema
+upgrade.
 
 Withdrawal leaf:
 
@@ -171,19 +193,22 @@ Fixture transaction:
 chain_id       entropis-testnet
 from           aa..aa
 nonce          7
+valid_until    99
 gas_limit      500
 max_gas_price  42
+fee_asset_id   0
+memo_hash      dd..dd
 kind           Transfer(to=bb..bb, asset_id=0, amount=1000)
 ```
 
 Expected hashes:
 
 ```text
-tx_hash          c1a6de1d5b776bdd51ab0fcba6bf4ccb62fd3e317b1a3b485cb7f470d9f3a8ac
-receipt_leaf     536c7264a2bc9e0659287068183431b452c614df614bc82f0f25d37b001b8d43
-withdrawal_leaf  00164447b3c4fb77bf5a9c2bf179782ef7cc6074ce3057ee6d68feb9d6f5c75e
-block_header     9ee765a283d11084ffb5f0819afbf866f70a3e44ca981048c5705f7dbb1417ba
-account_leaf     191eda257e6182c35676db70e20e54180e2a7f9eec6cddd4ae5c72a2882f97e9
+tx_hash          039718f82070163d8d92c41fea4e14baf42be6b5ceb0d10a0d66d095eee77590
+receipt_leaf     002b7a3abb022a944ab4060db65f6df449f2875528dbf4cd7047e7ee64281bb0
+withdrawal_leaf  978ae37e92dca1a024d86eb82b37cf474766d26c448460de0f247ffe140cd5d0
+block_header     dbc739765aaba3517b6ffe7cea1e5f7f6ab5711e677cc95a3f440be6ac2b425d
+account_leaf     2b283b553c4d56e5ee8054b55601397d27c9ce00b4620a7001f2f44c538e9331
 ```
 
 Withdrawal proof vector:

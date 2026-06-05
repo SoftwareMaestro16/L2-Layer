@@ -3,13 +3,13 @@ use super::{
     rejected_attempt, ExecutionConfig, ExecutionOutcome,
 };
 use crate::address::is_l2_zero_address;
-use crate::crypto::Hash32;
+use crate::crypto::{sha256_bytes, Hash32};
 use crate::state::{AccountType, State};
 use crate::tvm::{
     decode_call_body_boc_base64, validate_tvm_output, TvmBoundaryError, TvmExecutionAdapter,
     TvmExecutionContext, TvmExecutionInput, TvmExecutionStatus, TvmInternalMessage, TvmStateDelta,
 };
-use crate::types::{Receipt, SignedL2Transaction};
+use crate::types::{L2Event, Receipt, SignedL2Transaction};
 use tonlib_core::cell::{BagOfCells, CellBuilder};
 
 pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
@@ -38,6 +38,7 @@ pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
         Ok(input_boc) => input_boc,
         Err(error) => return rejected_attempt(state, tx, from, config, error.rejection_reason()),
     };
+    let body_hash = sha256_bytes(&input_boc);
     let Some(contract_account) = state.account(contract) else {
         return rejected_attempt(
             state,
@@ -110,7 +111,13 @@ pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
                 apply_tvm_state_delta(state, contract, delta, config.block_height);
             }
             ExecutionOutcome {
-                receipt: Receipt::applied(tx_hash, gas_charged, None),
+                receipt: Receipt::applied(tx_hash, gas_charged, None).with_events(vec![
+                    L2Event::ContractCalled {
+                        contract,
+                        caller: from,
+                        body_hash,
+                    },
+                ]),
                 withdrawals: vec![],
                 internal_messages: output.emitted_internal_messages,
             }
@@ -151,6 +158,7 @@ pub(super) fn execute_internal_message<A: TvmExecutionAdapter + ?Sized>(
             );
         }
     };
+    let body_hash = sha256_bytes(&body_boc);
     let original = TvmInternalMessage {
         from,
         to,
@@ -240,7 +248,13 @@ pub(super) fn execute_internal_message<A: TvmExecutionAdapter + ?Sized>(
                 apply_tvm_state_delta(state, to, delta, config.block_height);
             }
             ExecutionOutcome {
-                receipt: Receipt::applied(tx_hash, 0, None),
+                receipt: Receipt::applied(tx_hash, 0, None).with_events(vec![
+                    L2Event::ContractCalled {
+                        contract: to,
+                        caller: from,
+                        body_hash,
+                    },
+                ]),
                 withdrawals: vec![],
                 internal_messages: output.emitted_internal_messages,
             }

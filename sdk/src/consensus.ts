@@ -26,7 +26,37 @@ const KIND_INTERNAL_MESSAGE = 0x07;
 const STATUS_APPLIED = 0x01;
 const STATUS_REJECTED = 0x02;
 
+const EVENT_CONTRACT_DEPLOYED = 0x01;
+const EVENT_CONTRACT_CALLED = 0x02;
+const EVENT_WITHDRAWAL_CREATED = 0x03;
+
 export type ReceiptStatus = "Applied" | "Rejected";
+
+export type L2Event =
+  | {
+      ContractDeployed: {
+        contract: Hash32;
+        deployer: Hash32;
+        code_hash: Hash32;
+        data_hash: Hash32;
+      };
+    }
+  | {
+      ContractCalled: {
+        contract: Hash32;
+        caller: Hash32;
+        body_hash: Hash32;
+      };
+    }
+  | {
+      WithdrawalCreated: {
+        withdrawal_id: Hash32;
+        asset_id: number;
+        amount: string;
+        l2_sender: Hash32;
+        l1_recipient: string;
+      };
+    };
 
 export interface Receipt {
   tx_hash: Hash32;
@@ -34,6 +64,7 @@ export interface Receipt {
   gas_charged: string;
   reason: string | null;
   withdrawal_id: Hash32 | null;
+  events?: L2Event[];
 }
 
 export interface WithdrawalLeaf {
@@ -134,6 +165,11 @@ export function encodeReceipt(receipt: Receipt): Uint8Array {
   out.u128(receipt.gas_charged);
   writeOptionalString(out, receipt.reason);
   writeOptionalHash(out, receipt.withdrawal_id);
+  const events = receipt.events ?? [];
+  out.len(events.length);
+  for (const event of events) {
+    writeL2Event(out, event);
+  }
   return out.bytes();
 }
 
@@ -289,6 +325,31 @@ function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transact
     out.string(tx.kind.InternalMessage.body_boc_base64);
     out.u8(tx.kind.InternalMessage.bounce ? 1 : 0);
     out.u8(tx.kind.InternalMessage.bounced ? 1 : 0);
+  }
+}
+
+function writeL2Event(out: ConsensusWriter, event: L2Event) {
+  if ("ContractDeployed" in event) {
+    out.u8(EVENT_CONTRACT_DEPLOYED);
+    out.hash(event.ContractDeployed.contract);
+    out.hash(event.ContractDeployed.deployer);
+    out.hash(event.ContractDeployed.code_hash);
+    out.hash(event.ContractDeployed.data_hash);
+  } else if ("ContractCalled" in event) {
+    out.u8(EVENT_CONTRACT_CALLED);
+    out.hash(event.ContractCalled.contract);
+    out.hash(event.ContractCalled.caller);
+    out.hash(event.ContractCalled.body_hash);
+  } else if ("WithdrawalCreated" in event) {
+    out.u8(EVENT_WITHDRAWAL_CREATED);
+    out.hash(event.WithdrawalCreated.withdrawal_id);
+    out.u32(event.WithdrawalCreated.asset_id);
+    out.u128(event.WithdrawalCreated.amount);
+    out.hash(event.WithdrawalCreated.l2_sender);
+    out.string(event.WithdrawalCreated.l1_recipient);
+  } else {
+    const exhaustive: never = event;
+    throw new Error(`unsupported L2 event ${JSON.stringify(exhaustive)}`);
   }
 }
 

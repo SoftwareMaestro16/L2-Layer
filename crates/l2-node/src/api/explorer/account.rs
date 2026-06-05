@@ -77,6 +77,7 @@ pub(in crate::api) struct ExplorerTransactionSummary {
     pub(in crate::api) gas_charged: Option<String>,
     pub(in crate::api) reason: Option<String>,
     pub(in crate::api) withdrawal_id: Option<Hash32>,
+    pub(in crate::api) event_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -227,6 +228,10 @@ fn transaction_summary(
     account_filter: Option<Hash32>,
 ) -> ExplorerTransactionSummary {
     let tx_hash = record.transaction.tx_hash();
+    let event_count = record
+        .receipt
+        .as_ref()
+        .map_or(0, |receipt| receipt.events.len());
     ExplorerTransactionSummary {
         block_height: record.block_height,
         tx_index: record.tx_index,
@@ -251,6 +256,7 @@ fn transaction_summary(
             .as_ref()
             .and_then(|receipt| receipt.reason.clone()),
         withdrawal_id: record.receipt.and_then(|receipt| receipt.withdrawal_id),
+        event_count,
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::crypto::{hash_domain, Hash32};
 use crate::state::Account;
 use crate::types::{
-    L2BlockHeader, L2TransactionKind, Receipt, ReceiptStatus, SignedL2Transaction,
+    L2BlockHeader, L2Event, L2TransactionKind, Receipt, ReceiptStatus, SignedL2Transaction,
     UnsignedL2Transaction, WithdrawalLeaf,
 };
 use std::collections::BTreeMap;
@@ -27,6 +27,10 @@ const KIND_INTERNAL_MESSAGE: u8 = 0x07;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
+
+const EVENT_CONTRACT_DEPLOYED: u8 = 0x01;
+const EVENT_CONTRACT_CALLED: u8 = 0x02;
+const EVENT_WITHDRAWAL_CREATED: u8 = 0x03;
 
 pub fn encode_unsigned_transaction(tx: &UnsignedL2Transaction) -> Vec<u8> {
     let mut out = with_header(TYPE_UNSIGNED_TX);
@@ -60,6 +64,10 @@ pub fn encode_receipt(receipt: &Receipt) -> Vec<u8> {
     write_u128(&mut out, receipt.gas_charged);
     write_optional_string(&mut out, receipt.reason.as_deref());
     write_optional_hash(&mut out, receipt.withdrawal_id);
+    write_len(&mut out, receipt.events.len());
+    for event in &receipt.events {
+        encode_l2_event(&mut out, event);
+    }
     out
 }
 
@@ -251,6 +259,47 @@ fn encode_transaction_kind(out: &mut Vec<u8>, kind: &L2TransactionKind) {
     }
 }
 
+fn encode_l2_event(out: &mut Vec<u8>, event: &L2Event) {
+    match event {
+        L2Event::ContractDeployed {
+            contract,
+            deployer,
+            code_hash,
+            data_hash,
+        } => {
+            out.push(EVENT_CONTRACT_DEPLOYED);
+            write_hash(out, *contract);
+            write_hash(out, *deployer);
+            write_hash(out, *code_hash);
+            write_hash(out, *data_hash);
+        }
+        L2Event::ContractCalled {
+            contract,
+            caller,
+            body_hash,
+        } => {
+            out.push(EVENT_CONTRACT_CALLED);
+            write_hash(out, *contract);
+            write_hash(out, *caller);
+            write_hash(out, *body_hash);
+        }
+        L2Event::WithdrawalCreated {
+            withdrawal_id,
+            asset_id,
+            amount,
+            l2_sender,
+            l1_recipient,
+        } => {
+            out.push(EVENT_WITHDRAWAL_CREATED);
+            write_hash(out, *withdrawal_id);
+            write_u32(out, *asset_id);
+            write_u128(out, *amount);
+            write_hash(out, *l2_sender);
+            write_string(out, l1_recipient);
+        }
+    }
+}
+
 fn write_balances(out: &mut Vec<u8>, balances: &BTreeMap<u32, u128>) {
     write_len(out, balances.len());
     for (asset_id, balance) in balances {
@@ -385,7 +434,7 @@ mod tests {
         );
         assert_eq!(
             receipt.leaf_hash().to_hex(),
-            "bfe5c29bd52eb16667ccdb3132f1a62c081332c379ba6eb39ed4730b5d6ce244"
+            "002b7a3abb022a944ab4060db65f6df449f2875528dbf4cd7047e7ee64281bb0"
         );
         assert_eq!(
             withdrawal.leaf_hash().to_hex(),
@@ -393,7 +442,7 @@ mod tests {
         );
         assert_eq!(
             header.block_hash().to_hex(),
-            "576f1d143005485c2011b0fa55f03b1d055e913f6b1a9389f06ce9c0eecaecb3"
+            "dbc739765aaba3517b6ffe7cea1e5f7f6ab5711e677cc95a3f440be6ac2b425d"
         );
         assert_eq!(
             account_leaf_hash(hash(0xaa), &account).to_hex(),
@@ -449,6 +498,21 @@ mod tests {
             encode_signed_transaction(&first),
             encode_signed_transaction(&second)
         );
+    }
+
+    #[test]
+    fn receipt_events_are_part_of_leaf_hash() {
+        let tx_hash = hash(0xaa);
+        let plain = Receipt::applied(tx_hash, 10, None);
+        let with_event =
+            Receipt::applied(tx_hash, 10, None).with_events(vec![L2Event::ContractCalled {
+                contract: hash(0x01),
+                caller: hash(0x02),
+                body_hash: hash(0x03),
+            }]);
+
+        assert_ne!(plain.leaf_hash(), with_event.leaf_hash());
+        assert!(encode_receipt(&with_event).len() > encode_receipt(&plain).len());
     }
 
     fn vector_transaction() -> SignedL2Transaction {

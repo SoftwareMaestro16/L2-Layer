@@ -1,11 +1,14 @@
 use super::*;
 use crate::crypto::{sha256_bytes, Hash32};
 use crate::state::State;
-use crate::types::{L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET};
+use crate::types::{
+    L2Event, L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
+};
 use crate::{
-    read_sample_counter_value, sample_counter_initial_state, sample_counter_storage_root,
-    GasSchedule, TvmAdapterError, TvmExecutionAdapter, TvmExecutionInput, TvmExecutionOutput,
-    TvmExecutionStatus, TvmInternalMessage, TvmStateDelta, SAMPLE_COUNTER_INCREMENT_OPCODE,
+    read_sample_counter_value, sample_counter_code_hash, sample_counter_data_hash,
+    sample_counter_initial_state, sample_counter_storage_root, GasSchedule, TvmAdapterError,
+    TvmExecutionAdapter, TvmExecutionInput, TvmExecutionOutput, TvmExecutionStatus,
+    TvmInternalMessage, TvmStateDelta, SAMPLE_COUNTER_INCREMENT_OPCODE,
 };
 use crate::{L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -322,6 +325,15 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
     assert_eq!(deploy.receipt.status, ReceiptStatus::Applied);
     assert_eq!(deploy.receipt.gas_charged, 100);
     assert_eq!(
+        deploy.receipt.events,
+        vec![L2Event::ContractDeployed {
+            contract,
+            deployer: sender,
+            code_hash: sample_counter_code_hash(),
+            data_hash: sample_counter_data_hash(0),
+        }]
+    );
+    assert_eq!(
         state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),
         870
     );
@@ -342,6 +354,15 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
     );
     assert_eq!(call.receipt.status, ReceiptStatus::Applied);
     assert_eq!(call.receipt.gas_charged, 100);
+    assert_eq!(call.receipt.events.len(), 1);
+    assert!(matches!(
+        call.receipt.events[0],
+        L2Event::ContractCalled {
+            contract: called_contract,
+            caller,
+            ..
+        } if called_contract == contract && caller == sender
+    ));
     assert_eq!(
         state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),
         770

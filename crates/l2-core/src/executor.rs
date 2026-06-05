@@ -8,7 +8,7 @@ use crate::tvm::{
     DEFAULT_MAX_TVM_BOC_BYTES,
 };
 use crate::types::{
-    L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
+    L2Event, L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
     L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use crate::withdrawal::validate_release_parts;
@@ -254,7 +254,14 @@ impl DeterministicExecutor {
                 }
 
                 ExecutionOutcome {
-                    receipt: Receipt::applied(tx_hash, fee.amount, Some(withdrawal.withdrawal_id)),
+                    receipt: Receipt::applied(tx_hash, fee.amount, Some(withdrawal.withdrawal_id))
+                        .with_events(vec![L2Event::WithdrawalCreated {
+                            withdrawal_id: withdrawal.withdrawal_id,
+                            asset_id: withdrawal.asset_id,
+                            amount: withdrawal.amount,
+                            l2_sender: withdrawal.l2_sender,
+                            l1_recipient: withdrawal.l1_recipient.clone(),
+                        }]),
                     withdrawals: vec![withdrawal],
                     internal_messages: vec![],
                 }
@@ -339,7 +346,14 @@ impl DeterministicExecutor {
                 deployed.last_lt = config.block_height;
 
                 ExecutionOutcome {
-                    receipt: Receipt::applied(tx_hash, fee.amount, None),
+                    receipt: Receipt::applied(tx_hash, fee.amount, None).with_events(vec![
+                        L2Event::ContractDeployed {
+                            contract: *contract,
+                            deployer: from,
+                            code_hash: code_cell.cell_hash,
+                            data_hash: data_cell.cell_hash,
+                        },
+                    ]),
                     withdrawals: vec![],
                     internal_messages: vec![],
                 }

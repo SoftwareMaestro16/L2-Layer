@@ -8,8 +8,9 @@ use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_bytes, canonical_batch_data_hash, l2_raw_address,
-    l2_user_friendly_address, AccountType, L2Block, L2TransactionKind, Receipt, WithdrawalLeaf,
-    L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+    l2_user_friendly_address, AccountType, L2Block, L2Event, L2TransactionKind, Receipt,
+    WithdrawalLeaf, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR,
+    L2_TX_VERSION_V2,
 };
 use rand_core::OsRng;
 
@@ -621,7 +622,56 @@ async fn tx_receipt_reports_rejected_reason_and_gas() {
     assert_eq!(receipt.status, "rejected");
     assert_eq!(receipt.gas_charged, 7);
     assert_eq!(receipt.reason.as_deref(), Some("insufficient_balance"));
+    assert!(receipt.events.is_empty());
     assert!(receipt.contract_logs.is_empty());
+}
+
+#[tokio::test]
+async fn tx_receipt_reports_committed_events_and_logs() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let contract = sha256_bytes(b"receipt-event-contract");
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::CallContract {
+            contract,
+            body_boc_base64: "te6ccgEBAQEAAgAAAA==".to_owned(),
+        },
+    );
+    let event = L2Event::ContractCalled {
+        contract,
+        caller: account_id,
+        body_hash: sha256_bytes(b"body"),
+    };
+    let receipt = Receipt::applied(tx.tx_hash(), 5, None).with_events(vec![event.clone()]);
+    let data_hash =
+        canonical_batch_data_hash(std::slice::from_ref(&tx), std::slice::from_ref(&receipt));
+    let block = L2Block::new(
+        0,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"receipt-event-state"),
+        vec![tx.clone()],
+        vec![receipt],
+        vec![],
+        data_hash,
+        10,
+    );
+    state.storage.save_block(block).await.unwrap();
+
+    let response = get_receipt(State(state), Path(tx.tx_hash().to_hex()))
+        .await
+        .expect("event receipt")
+        .0;
+
+    let receipt = response.receipt.expect("receipt detail");
+    assert_eq!(receipt.events, vec![event]);
+    assert_eq!(receipt.contract_logs.len(), 1);
+    assert_eq!(receipt.contract_logs[0].contract, Some(contract));
+    assert_eq!(receipt.contract_logs[0].message, "contract_called");
 }
 
 #[tokio::test]

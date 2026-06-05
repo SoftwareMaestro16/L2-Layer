@@ -4,7 +4,7 @@ use crate::storage::{
 };
 use axum::extract::{Path, State};
 use axum::Json;
-use l2_core::{Hash32, Receipt, ReceiptStatus, SignedL2Transaction};
+use l2_core::{Hash32, L2Event, Receipt, ReceiptStatus, SignedL2Transaction};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -24,6 +24,7 @@ pub(in crate::api) struct TxReceiptDetail {
     pub(in crate::api) gas_charged: u128,
     pub(in crate::api) reason: Option<String>,
     pub(in crate::api) withdrawal_id: Option<Hash32>,
+    pub(in crate::api) events: Vec<L2Event>,
     pub(in crate::api) contract_logs: Vec<ContractLogDto>,
 }
 
@@ -182,7 +183,16 @@ fn receipt_detail(receipt: &Receipt) -> TxReceiptDetail {
         gas_charged: receipt.gas_charged,
         reason: receipt.reason.clone(),
         withdrawal_id: receipt.withdrawal_id,
-        contract_logs: vec![],
+        events: receipt.events.clone(),
+        contract_logs: receipt.events.iter().map(contract_log).collect(),
+    }
+}
+
+fn contract_log(event: &L2Event) -> ContractLogDto {
+    ContractLogDto {
+        contract: event.contract(),
+        level: "info",
+        message: event.kind().to_owned(),
     }
 }
 

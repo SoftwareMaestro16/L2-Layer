@@ -561,6 +561,8 @@ impl SafeReason for BatchDataDecodeError {
             BatchDataDecodeError::InvalidOption => "batch data option invalid",
             BatchDataDecodeError::InvalidTag => "batch data tag invalid",
             BatchDataDecodeError::InvalidUtf8 => "batch data utf8 invalid",
+            BatchDataDecodeError::TooManyEvents => "batch data has too many receipt events",
+            BatchDataDecodeError::InvalidEvent => "batch data receipt event invalid",
         }
     }
 }

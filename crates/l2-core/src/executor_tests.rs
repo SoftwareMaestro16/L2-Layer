@@ -2,7 +2,7 @@ use super::*;
 use crate::crypto::{sha256_bytes, Hash32};
 use crate::state::{AccountFlags, AccountType, State};
 use crate::types::{
-    L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
+    L2Event, L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
     L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use crate::{sample_counter_initial_state, GasSchedule};
@@ -521,6 +521,44 @@ fn multi_asset_transfer_debits_asset_and_gas_separately() {
     assert_eq!(state.account(sender).unwrap().balance(0), 80);
     assert_eq!(state.account(sender).unwrap().balance(2), 50);
     assert_eq!(state.account(recipient).unwrap().balance(2), 40);
+}
+
+#[test]
+fn withdraw_emits_deterministic_receipt_event() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let l1_recipient = "EQDk2VTvn04SUKJrW7rXahzdF8_Qi6utb0wj43InCu9vdjrR".to_owned();
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            20,
+            1,
+            L2TransactionKind::Withdraw {
+                asset_id: L2_NATIVE_GAS_ASSET,
+                amount: 100,
+                l1_recipient: l1_recipient.clone(),
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Applied);
+    let withdrawal = outcome.withdrawals.first().expect("withdrawal leaf");
+    assert_eq!(
+        outcome.receipt.events,
+        vec![L2Event::WithdrawalCreated {
+            withdrawal_id: withdrawal.withdrawal_id,
+            asset_id: L2_NATIVE_GAS_ASSET,
+            amount: 100,
+            l2_sender: sender,
+            l1_recipient,
+        }]
+    );
 }
 
 #[test]

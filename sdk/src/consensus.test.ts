@@ -17,6 +17,7 @@ import {
   depositJettonTonConnectMessage,
   depositTonTonConnectMessage,
   encodeJettonDepositTransferBody,
+  encodeReceipt,
   deriveAccountId,
   encodeSignedTransaction,
   encodeUnsignedTransaction,
@@ -99,7 +100,7 @@ test("consensus hashes match Rust golden vectors", () => {
   assert.equal(txHash(tx), "039718f82070163d8d92c41fea4e14baf42be6b5ceb0d10a0d66d095eee77590");
   assert.equal(
     receiptLeafHash(receipt),
-    "bfe5c29bd52eb16667ccdb3132f1a62c081332c379ba6eb39ed4730b5d6ce244",
+    "002b7a3abb022a944ab4060db65f6df449f2875528dbf4cd7047e7ee64281bb0",
   );
   assert.equal(
     withdrawalLeafHash(withdrawal),
@@ -117,7 +118,7 @@ test("consensus hashes match Rust golden vectors", () => {
       data_hash: dataHash,
       timestamp: 777,
     }),
-    "576f1d143005485c2011b0fa55f03b1d055e913f6b1a9389f06ce9c0eecaecb3",
+    "dbc739765aaba3517b6ffe7cea1e5f7f6ab5711e677cc95a3f440be6ac2b425d",
   );
   assert.equal(
     accountLeafHash(hash(0xaa), account),
@@ -139,6 +140,32 @@ test("signed auth fields are canonical but excluded from tx hash", () => {
 
   assert.equal(txHash(first), txHash(second));
   assert.notDeepEqual(encodeSignedTransaction(first), encodeSignedTransaction(second));
+});
+
+test("receipt events are consensus encoded", () => {
+  const tx_hash = hash(0xaa);
+  const plain: Receipt = {
+    tx_hash,
+    status: "Applied",
+    gas_charged: "10",
+    reason: null,
+    withdrawal_id: null,
+  };
+  const withEvent: Receipt = {
+    ...plain,
+    events: [
+      {
+        ContractCalled: {
+          contract: hash(0x01),
+          caller: hash(0x02),
+          body_hash: hash(0x03),
+        },
+      },
+    ],
+  };
+
+  assert.notEqual(receiptLeafHash(plain), receiptLeafHash(withEvent));
+  assert.ok(encodeReceipt(withEvent).length > encodeReceipt(plain).length);
 });
 
 test("account helpers derive the same account id from key pair and public key", () => {
@@ -666,6 +693,7 @@ test("Entropis client polls transaction receipt lifecycle", async () => {
           gas_charged: "10",
           reason: null,
           withdrawal_id: null,
+          events: [],
           contract_logs: [],
         },
         block: {

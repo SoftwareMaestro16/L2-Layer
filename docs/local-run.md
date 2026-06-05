@@ -82,8 +82,10 @@ Use `GET /v1/receipt/{tx_hash_hex}` or
 `GET /v1/tx/{tx_hash_hex}/receipt` for explorer-grade transaction status.
 The response reports one of `pending`, `included`, `rejected`, `committed`, or
 `finalized`, includes gas charged, safe rejection reason, withdrawal id when
-present, and an empty `contract_logs` array until contract log capture is added
-to consensus receipts.
+present, deterministic typed `events`, and event-derived `contract_logs` for UI
+display. Current consensus events include contract deploy, contract call, and
+withdrawal creation; future contract-defined logs should remain bounded and
+deterministic before becoming receipt data.
 
 `GET /v1/block/{height}/finality` reports the L1 batch number, sanitized commit
 status, sanitized finalization status, message hashes, and attempt counts. Raw
