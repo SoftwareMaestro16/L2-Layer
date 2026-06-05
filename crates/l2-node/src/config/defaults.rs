@@ -29,6 +29,7 @@ pub(crate) const DEFAULT_L1_BATCH_FINALIZER_MAX_ATTEMPTS: u32 = 8;
 pub(crate) const DEFAULT_DA_MAX_PAYLOAD_BYTES: usize = crate::da::DEFAULT_DA_MAX_PAYLOAD_BYTES;
 pub(crate) const DEFAULT_DA_PUBLIC_BACKEND: &str = crate::da::DEFAULT_DA_PUBLIC_BACKEND;
 pub(crate) const DEFAULT_DA_PUBLIC_FS_DIR: &str = crate::da::DEFAULT_DA_PUBLIC_FS_DIR;
+pub(crate) const DEFAULT_TVM_ADAPTER: &str = "real";
 pub(crate) const DEFAULT_MEMPOOL_REPLAY_TTL_SECS: u64 = 86_400;
 pub(crate) const DEFAULT_MEMPOOL_NONCE_LOCK_TTL_SECS: u64 = 300;
 pub(crate) const DEFAULT_MEMPOOL_LEADER_TTL_SECS: u64 = 10;

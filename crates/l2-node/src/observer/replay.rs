@@ -228,6 +228,8 @@ fn replay_transactions(
                 gas_coin_asset: config.gas_coin_asset,
                 gas_schedule: config.gas_schedule,
                 max_internal_messages: config.max_internal_messages,
+                tvm_adapter_mode: config.tvm_adapter_mode.clone(),
+                tvm_tonlib_library_path: config.tvm_tonlib_library_path.clone(),
                 ..ExecutionConfig::default()
             },
         );

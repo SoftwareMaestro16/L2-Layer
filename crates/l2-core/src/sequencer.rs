@@ -1,7 +1,7 @@
 use crate::address::is_l2_zero_address;
 use crate::batch::{BatchBuildInput, BatchBuilder};
 use crate::crypto::{decode_public_key, derive_account_id, verify_signature, Hash32};
-use crate::executor::{DeterministicExecutor, ExecutionConfig};
+use crate::executor::{DeterministicExecutor, ExecutionConfig, TvmAdapterMode};
 use crate::gas::GasSchedule;
 use crate::state::{Account, AccountType, State};
 use crate::types::{
@@ -10,6 +10,7 @@ use crate::types::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SequencerConfig {
@@ -19,6 +20,8 @@ pub struct SequencerConfig {
     pub gas_coin_asset: u32,
     pub gas_schedule: GasSchedule,
     pub max_internal_messages: u32,
+    pub tvm_adapter_mode: TvmAdapterMode,
+    pub tvm_tonlib_library_path: Option<PathBuf>,
 }
 
 impl Default for SequencerConfig {
@@ -30,6 +33,8 @@ impl Default for SequencerConfig {
             gas_coin_asset: crate::types::L2_NATIVE_GAS_ASSET,
             gas_schedule: GasSchedule::default(),
             max_internal_messages: 1024,
+            tvm_adapter_mode: TvmAdapterMode::Real,
+            tvm_tonlib_library_path: None,
         }
     }
 }
@@ -189,6 +194,8 @@ impl Sequencer {
                     gas_coin_asset: self.config.gas_coin_asset,
                     gas_schedule: self.config.gas_schedule,
                     max_internal_messages: self.config.max_internal_messages,
+                    tvm_adapter_mode: self.config.tvm_adapter_mode.clone(),
+                    tvm_tonlib_library_path: self.config.tvm_tonlib_library_path.clone(),
                     ..ExecutionConfig::default()
                 },
             );

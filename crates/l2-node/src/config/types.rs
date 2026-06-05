@@ -57,6 +57,8 @@ pub struct NodeConfig {
     pub da_public_backend: String,
     pub da_public_fs_dir: PathBuf,
     pub da_public_base_url: Option<String>,
+    pub tvm_adapter: l2_core::TvmAdapterMode,
+    pub tvm_tonlib_library_path: Option<PathBuf>,
     pub mempool_replay_ttl_secs: u64,
     pub mempool_nonce_lock_ttl_secs: u64,
     pub mempool_leader_ttl_secs: u64,

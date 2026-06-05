@@ -26,7 +26,6 @@ pub use sample_counter::{
     SampleCounterReadError, SAMPLE_COUNTER_INCREMENT_GAS, SAMPLE_COUNTER_INCREMENT_OPCODE,
 };
 
-#[cfg(feature = "tonlib-tvm")]
 pub use emulator::{RealTvmAdapter, TonlibTvmBackend};
 
 pub const DEFAULT_MAX_TVM_BOC_BYTES: usize = 16 * 1024;

@@ -161,6 +161,8 @@ EXECUTOR_WITHDRAW_GAS=20
 EXECUTOR_CALL_CONTRACT_GAS=50
 EXECUTOR_REJECTED_EXECUTION_GAS=1
 EXECUTOR_MIN_GAS_PRICE=1
+TVM_ADAPTER=real
+TVM_TONLIB_LIBRARY_PATH=
 ```
 
 For user transactions, the charged fee is `gas_used * max_gas_price` in the
@@ -179,14 +181,26 @@ account and uses the same configured gas units as `CallContract`. It rejects zer
 hashes and overwrites. `CallContract` requires `body_boc_base64` to decode into a
 valid single-root TON BoC.
 
-The default TVM adapter is a bounded prototype, not a full arbitrary-code TVM
-emulator. It recognizes only the sample counter code hash, decodes the
+`TVM_ADAPTER=real` is the default. In this mode `CallContract` routes stored
+code/data BoCs into the official TON `tonlibjson` TVM emulator through a
+runtime-loaded native library boundary. Set `TVM_TONLIB_LIBRARY_PATH` when the
+shared library is not discoverable from the platform library path. The adapter
+does not read `.env`, filesystem, network, or wall clock during execution; all
+deterministic C7/config fields come from the L2 execution context. Missing native
+libraries, unsupported emulator results, malformed outputs, and unsupported
+actions fail closed.
+
+For local sample-counter demos without a native TVM library, set:
+
+```text
+TVM_ADAPTER=prototype
+```
+
+The prototype recognizes only the sample counter code hash, decodes the
 Tolk-compatible `CounterIncrement` body, applies deterministic gas
 `SAMPLE_COUNTER_INCREMENT_GAS=25`, and updates the sample storage root. Other code
-hashes still fail closed with `tvm_adapter_not_implemented`; malformed BoCs are
-rejected earlier with `malformed_boc`. A full emulator must add code/data cell
-storage or an isolated deterministic worker boundary and must not call external
-networks from the sequencer path.
+hashes fail closed with `tvm_adapter_not_implemented`; malformed BoCs are rejected
+earlier with `malformed_boc`.
 
 ## L2 addresses
 
@@ -213,6 +227,9 @@ The script generates a throwaway key, requests the local ENT faucet when an admi
 token is present, deploys the sample counter hash state, submits an increment call,
 produces local blocks through the admin endpoint, and reads `GET
 /v1/sample-counter/{contract}`. It does not print the generated secret key.
+Run the node with `TVM_ADAPTER=prototype` for this sample unless a working
+`tonlibjson` emulator library is installed and `TVM_TONLIB_LIBRARY_PATH` points to
+it.
 
 ## Data availability
 

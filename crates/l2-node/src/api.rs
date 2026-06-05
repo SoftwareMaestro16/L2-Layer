@@ -89,6 +89,8 @@ impl AppState {
             sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
                 chain_id: config.chain_id.clone(),
                 gas_schedule: config.executor_gas_schedule,
+                tvm_adapter_mode: config.tvm_adapter.clone(),
+                tvm_tonlib_library_path: config.tvm_tonlib_library_path.clone(),
                 ..SequencerConfig::default()
             }))),
             storage,

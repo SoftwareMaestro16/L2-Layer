@@ -82,16 +82,22 @@ snapshot of the target contract account state. It returns gas used, applied or
 rejected status, optional target-contract state delta, and emitted internal
 messages.
 
-The default adapter is a bounded prototype. It recognizes only the sample L2
-counter code hash, decodes a Tolk-compatible `CounterIncrement` body, updates a
-deterministic sample storage root, and returns `tvm_adapter_not_implemented` for
-all other code hashes. Contract accounts store canonical code/data BoCs as well
-as hashes, so the optional `tonlib-tvm` feature can pass real cells into the
-emulator boundary. The executor validates adapter output before applying it:
-malformed BoCs are rejected before adapter entry, gas used must be in
-`1..=gas_limit`, internal messages are capped by `max_internal_messages`,
-internal message bodies are size-limited, and state deltas may only target the
-called contract.
+The default adapter mode is `real`. It uses the official TON `tonlibjson` TVM
+emulator through a runtime-loaded native library boundary instead of linking the
+library at Rust build time. Operators may set `TVM_TONLIB_LIBRARY_PATH` to an
+explicit `tonlibjson` shared library; otherwise the process searches the normal
+platform library path. If the library is missing or an unsupported emulator
+feature is hit, calls fail closed with `tvm_adapter_failed` or a stable TVM
+receipt reason and still follow deterministic rejection-gas rules.
+
+For local demo compatibility, `TVM_ADAPTER=prototype` keeps the old bounded
+sample adapter. It recognizes only the sample L2 counter code hash, decodes a
+Tolk-compatible `CounterIncrement` body, updates a deterministic sample storage
+root, and returns `tvm_adapter_not_implemented` for all other code hashes. The
+executor validates adapter output before applying it: malformed BoCs are
+rejected before adapter entry, gas used must be in `1..=gas_limit`, internal
+messages are capped by `max_internal_messages`, internal message bodies are
+size-limited, and state deltas may only target the called contract.
 
 ## Contract State Storage
 

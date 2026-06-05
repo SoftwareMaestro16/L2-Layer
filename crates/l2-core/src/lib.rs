@@ -29,7 +29,7 @@ pub use enwallet::{
     read_enwallet_v5_state, EnWalletReadError, EnWalletV5State, ENWALLET_V5R1_CODE_HASH,
     ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL, ENWALLET_V5R1_TESTNET_WALLET_ID,
 };
-pub use executor::{DeterministicExecutor, ExecutionConfig, ExecutionOutcome};
+pub use executor::{DeterministicExecutor, ExecutionConfig, ExecutionOutcome, TvmAdapterMode};
 pub use gas::{
     GasError, GasFee, GasSchedule, DEFAULT_CALL_CONTRACT_GAS, DEFAULT_MIN_GAS_PRICE,
     DEFAULT_REJECTED_EXECUTION_GAS, DEFAULT_TRANSFER_GAS, DEFAULT_WITHDRAW_GAS,
@@ -52,7 +52,6 @@ pub use tvm::{
     DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES, DEFAULT_MAX_TVM_BOC_BYTES, SAMPLE_COUNTER_INCREMENT_GAS,
     SAMPLE_COUNTER_INCREMENT_OPCODE,
 };
-#[cfg(feature = "tonlib-tvm")]
 pub use tvm::{RealTvmAdapter, TonlibTvmBackend};
 pub use types::*;
 pub use withdrawal::{

@@ -96,6 +96,8 @@ impl fmt::Debug for NodeConfig {
             .field("da_public_backend", &self.da_public_backend)
             .field("da_public_fs_dir", &self.da_public_fs_dir)
             .field("da_public_base_url", &self.da_public_base_url)
+            .field("tvm_adapter", &self.tvm_adapter)
+            .field("tvm_tonlib_library_path", &self.tvm_tonlib_library_path)
             .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
             .field(
                 "mempool_nonce_lock_ttl_secs",

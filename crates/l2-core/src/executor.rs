@@ -13,12 +13,18 @@ use crate::types::{
 };
 use crate::withdrawal::validate_release_parts;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[path = "executor/tvm_call.rs"]
 mod tvm_call;
 
-#[cfg(not(feature = "tonlib-tvm"))]
-use crate::tvm::PrototypeTvmAdapter;
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TvmAdapterMode {
+    #[default]
+    Real,
+    Prototype,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionConfig {
@@ -30,6 +36,8 @@ pub struct ExecutionConfig {
     pub max_tvm_boc_bytes: usize,
     pub max_contract_code_boc_bytes: usize,
     pub max_contract_data_boc_bytes: usize,
+    pub tvm_adapter_mode: TvmAdapterMode,
+    pub tvm_tonlib_library_path: Option<PathBuf>,
 }
 
 impl Default for ExecutionConfig {
@@ -43,6 +51,8 @@ impl Default for ExecutionConfig {
             max_tvm_boc_bytes: DEFAULT_MAX_TVM_BOC_BYTES,
             max_contract_code_boc_bytes: DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES,
             max_contract_data_boc_bytes: DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES,
+            tvm_adapter_mode: TvmAdapterMode::Real,
+            tvm_tonlib_library_path: None,
         }
     }
 }
@@ -64,11 +74,20 @@ impl DeterministicExecutor {
         tx: &SignedL2Transaction,
         config: &ExecutionConfig,
     ) -> ExecutionOutcome {
-        #[cfg(feature = "tonlib-tvm")]
-        let tvm_adapter = crate::tvm::RealTvmAdapter::new(crate::tvm::TonlibTvmBackend::default());
-        #[cfg(not(feature = "tonlib-tvm"))]
-        let tvm_adapter = PrototypeTvmAdapter;
-        self.apply_with_tvm_adapter(state, tx, config, &tvm_adapter)
+        match config.tvm_adapter_mode {
+            TvmAdapterMode::Real => {
+                let mut backend = crate::tvm::TonlibTvmBackend::default();
+                if let Some(path) = config.tvm_tonlib_library_path.as_ref() {
+                    backend = backend.with_library_path(path.clone());
+                }
+                let tvm_adapter = crate::tvm::RealTvmAdapter::new(backend);
+                self.apply_with_tvm_adapter(state, tx, config, &tvm_adapter)
+            }
+            TvmAdapterMode::Prototype => {
+                let tvm_adapter = crate::tvm::PrototypeTvmAdapter;
+                self.apply_with_tvm_adapter(state, tx, config, &tvm_adapter)
+            }
+        }
     }
 
     pub fn apply_with_tvm_adapter<A: TvmExecutionAdapter + ?Sized>(

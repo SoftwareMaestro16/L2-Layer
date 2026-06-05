@@ -19,6 +19,7 @@ base64 = "0.22.1"
 dotenvy = "0.15.7"
 ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 hex = "0.4.3"
+libloading = "0.8.9"
 num-bigint = "0.4.6"
 rand_core = "0.6.4"
 redis = { version = "0.27.6", features = ["tokio-comp", "connection-manager"] }
@@ -30,7 +31,6 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tonlib-core = "0.26.11"
-tonlib-sys = { version = "2026.5.0", default-features = false, features = ["cmake", "shared-tonlib"] }
 tower-http = { version = "0.6.6", features = ["cors", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

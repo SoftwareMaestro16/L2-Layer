@@ -47,6 +47,7 @@ fn config(gas_schedule: GasSchedule) -> ExecutionConfig {
     ExecutionConfig {
         block_height: 7,
         gas_schedule,
+        tvm_adapter_mode: TvmAdapterMode::Prototype,
         ..ExecutionConfig::default()
     }
 }
@@ -217,23 +218,27 @@ fn call_contract_rejects_oversized_encoded_boc_before_decode() {
 }
 
 #[test]
-fn call_contract_charges_rejection_fee_until_real_adapter_exists() {
+fn call_contract_real_adapter_missing_library_fails_closed() {
     let executor = DeterministicExecutor;
     let mut state = State::default();
     let sender = account(b"sender");
     let contract = account(b"contract");
     fund_sender_and_contract(&mut state, sender, contract, 100);
+    let config = ExecutionConfig {
+        tvm_tonlib_library_path: Some("__missing_tonlibjson_for_test__".into()),
+        ..ExecutionConfig::default()
+    };
 
     let outcome = executor.apply(
         &mut state,
         &call_tx(sender, contract, valid_boc_base64()),
-        &ExecutionConfig::default(),
+        &config,
     );
 
     assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
     assert_eq!(
         outcome.receipt.reason.as_deref(),
-        Some("tvm_adapter_not_implemented")
+        Some("tvm_adapter_failed")
     );
     assert_eq!(outcome.receipt.gas_charged, 2);
     assert_eq!(state.account(sender).unwrap().balance(0), 98);
@@ -333,7 +338,7 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
                 body_boc_base64: sample_increment_boc_base64(1),
             },
         ),
-        &ExecutionConfig::default(),
+        &config(GasSchedule::default()),
     );
     assert_eq!(call.receipt.status, ReceiptStatus::Applied);
     assert_eq!(call.receipt.gas_charged, 100);

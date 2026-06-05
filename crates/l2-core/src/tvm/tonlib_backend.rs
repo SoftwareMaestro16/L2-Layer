@@ -1,9 +1,46 @@
 use super::{TvmEmulatorBackend, TvmEmulatorBackendError, TvmEmulatorRequest, TvmEmulatorResult};
+use libloading::Library;
 use std::ffi::{CStr, CString};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+type EmulatorSetVerbosityLevel = unsafe extern "C" fn(u32) -> bool;
+type TvmEmulatorCreate = unsafe extern "C" fn(
+    *const std::os::raw::c_char,
+    *const std::os::raw::c_char,
+    u32,
+) -> *mut std::os::raw::c_void;
+type TvmEmulatorSetLibraries =
+    unsafe extern "C" fn(*mut std::os::raw::c_void, *const std::os::raw::c_char) -> bool;
+type TvmEmulatorSetC7 = unsafe extern "C" fn(
+    *mut std::os::raw::c_void,
+    *const std::os::raw::c_char,
+    u32,
+    u64,
+    *const std::os::raw::c_char,
+    *const std::os::raw::c_char,
+) -> bool;
+type TvmEmulatorSetGasLimit = unsafe extern "C" fn(*mut std::os::raw::c_void, u64) -> bool;
+type TvmEmulatorSetDebugEnabled =
+    unsafe extern "C" fn(*mut std::os::raw::c_void, std::os::raw::c_int) -> bool;
+type TvmEmulatorSendInternalMessage = unsafe extern "C" fn(
+    *mut std::os::raw::c_void,
+    *const std::os::raw::c_char,
+    u64,
+) -> *const std::os::raw::c_char;
+type TvmEmulatorDestroy = unsafe extern "C" fn(*mut std::os::raw::c_void);
 
 #[derive(Clone, Debug, Default)]
 pub struct TonlibTvmBackend {
     pub vm_log_verbosity: u32,
+    pub library_path: Option<PathBuf>,
+}
+
+impl TonlibTvmBackend {
+    pub fn with_library_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.library_path = Some(path.into());
+        self
+    }
 }
 
 impl TvmEmulatorBackend for TonlibTvmBackend {
@@ -11,11 +48,90 @@ impl TvmEmulatorBackend for TonlibTvmBackend {
         &self,
         request: &TvmEmulatorRequest,
     ) -> Result<TvmEmulatorResult, TvmEmulatorBackendError> {
-        run_tonlib_emulator(self.vm_log_verbosity, request)
+        let bindings = TonlibBindings::load(self.library_path.as_deref())?;
+        run_tonlib_emulator(&bindings, self.vm_log_verbosity, request)
     }
 }
 
+struct TonlibBindings {
+    _library: Library,
+    emulator_set_verbosity_level: EmulatorSetVerbosityLevel,
+    tvm_emulator_create: TvmEmulatorCreate,
+    tvm_emulator_set_libraries: TvmEmulatorSetLibraries,
+    tvm_emulator_set_c7: TvmEmulatorSetC7,
+    tvm_emulator_set_gas_limit: TvmEmulatorSetGasLimit,
+    tvm_emulator_set_debug_enabled: TvmEmulatorSetDebugEnabled,
+    tvm_emulator_send_internal_message: TvmEmulatorSendInternalMessage,
+    tvm_emulator_destroy: TvmEmulatorDestroy,
+}
+
+impl TonlibBindings {
+    fn load(path: Option<&Path>) -> Result<Arc<Self>, TvmEmulatorBackendError> {
+        let library = match path {
+            Some(path) => unsafe { Library::new(path) }
+                .map_err(|_| TvmEmulatorBackendError::new("library_not_found"))?,
+            None => load_default_library()?,
+        };
+        unsafe {
+            Ok(Arc::new(Self {
+                emulator_set_verbosity_level: *library
+                    .get(b"emulator_set_verbosity_level\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_create: *library
+                    .get(b"tvm_emulator_create\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_set_libraries: *library
+                    .get(b"tvm_emulator_set_libraries\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_set_c7: *library
+                    .get(b"tvm_emulator_set_c7\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_set_gas_limit: *library
+                    .get(b"tvm_emulator_set_gas_limit\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_set_debug_enabled: *library
+                    .get(b"tvm_emulator_set_debug_enabled\0")
+                    .map_err(|_| {
+                    TvmEmulatorBackendError::new("symbol_missing")
+                })?,
+                tvm_emulator_send_internal_message: *library
+                    .get(b"tvm_emulator_send_internal_message\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_destroy: *library
+                    .get(b"tvm_emulator_destroy\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                _library: library,
+            }))
+        }
+    }
+}
+
+fn load_default_library() -> Result<Library, TvmEmulatorBackendError> {
+    for candidate in default_library_names() {
+        if let Ok(library) = unsafe { Library::new(candidate) } {
+            return Ok(library);
+        }
+    }
+    Err(TvmEmulatorBackendError::new("library_not_found"))
+}
+
+#[cfg(target_os = "windows")]
+fn default_library_names() -> &'static [&'static str] {
+    &["tonlibjson.dll"]
+}
+
+#[cfg(target_os = "macos")]
+fn default_library_names() -> &'static [&'static str] {
+    &["libtonlibjson.dylib", "tonlibjson.dylib"]
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn default_library_names() -> &'static [&'static str] {
+    &["libtonlibjson.so", "tonlibjson.so"]
+}
+
 fn run_tonlib_emulator(
+    bindings: &TonlibBindings,
     vm_log_verbosity: u32,
     request: &TvmEmulatorRequest,
 ) -> Result<TvmEmulatorResult, TvmEmulatorBackendError> {
@@ -32,19 +148,22 @@ fn run_tonlib_emulator(
         .transpose()?;
 
     unsafe {
-        tonlib_sys::emulator_set_verbosity_level(0);
+        (bindings.emulator_set_verbosity_level)(0);
         let emulator =
-            tonlib_sys::tvm_emulator_create(code.as_ptr(), data.as_ptr(), vm_log_verbosity);
+            (bindings.tvm_emulator_create)(code.as_ptr(), data.as_ptr(), vm_log_verbosity);
         if emulator.is_null() {
             return Err(TvmEmulatorBackendError::new("create_failed"));
         }
-        let _guard = EmulatorGuard(emulator);
+        let _guard = EmulatorGuard {
+            emulator,
+            destroy: bindings.tvm_emulator_destroy,
+        };
         if let Some(libs) = libs.as_ref() {
-            if !tonlib_sys::tvm_emulator_set_libraries(emulator, libs.as_ptr()) {
+            if !(bindings.tvm_emulator_set_libraries)(emulator, libs.as_ptr()) {
                 return Err(TvmEmulatorBackendError::new("set_libraries_failed"));
             }
         }
-        if !tonlib_sys::tvm_emulator_set_c7(
+        if !(bindings.tvm_emulator_set_c7)(
             emulator,
             address.as_ptr(),
             request.unixtime,
@@ -54,11 +173,11 @@ fn run_tonlib_emulator(
         ) {
             return Err(TvmEmulatorBackendError::new("set_c7_failed"));
         }
-        if !tonlib_sys::tvm_emulator_set_gas_limit(emulator, request.gas_limit) {
+        if !(bindings.tvm_emulator_set_gas_limit)(emulator, request.gas_limit) {
             return Err(TvmEmulatorBackendError::new("set_gas_limit_failed"));
         }
-        tonlib_sys::tvm_emulator_set_debug_enabled(emulator, 0);
-        let raw = tonlib_sys::tvm_emulator_send_internal_message(emulator, body.as_ptr(), 0);
+        (bindings.tvm_emulator_set_debug_enabled)(emulator, 0);
+        let raw = (bindings.tvm_emulator_send_internal_message)(emulator, body.as_ptr(), 0);
         if raw.is_null() {
             return Err(TvmEmulatorBackendError::new("empty_result"));
         }
@@ -111,12 +230,15 @@ fn string_field(value: &serde_json::Value, field: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-struct EmulatorGuard(*mut std::os::raw::c_void);
+struct EmulatorGuard {
+    emulator: *mut std::os::raw::c_void,
+    destroy: TvmEmulatorDestroy,
+}
 
 impl Drop for EmulatorGuard {
     fn drop(&mut self) {
         unsafe {
-            tonlib_sys::tvm_emulator_destroy(self.0);
+            (self.destroy)(self.emulator);
         }
     }
 }

@@ -79,6 +79,8 @@ fn valid_entropis_testnet_config_loads() {
         config.executor_gas_schedule,
         l2_core::GasSchedule::default()
     );
+    assert_eq!(config.tvm_adapter, l2_core::TvmAdapterMode::Real);
+    assert_eq!(config.tvm_tonlib_library_path, None);
 }
 
 #[test]
@@ -388,6 +390,26 @@ fn config_validates_executor_gas_schedule() {
 
     let mut env = valid_env();
     env.insert("EXECUTOR_MIN_GAS_PRICE".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+}
+
+#[test]
+fn config_validates_tvm_adapter_settings() {
+    let mut env = valid_env();
+    env.insert("TVM_ADAPTER".to_owned(), "prototype".to_owned());
+    env.insert(
+        "TVM_TONLIB_LIBRARY_PATH".to_owned(),
+        "build/native/libtonlibjson.so".to_owned(),
+    );
+    let config = load_from(&env).expect("tvm config");
+    assert_eq!(config.tvm_adapter, l2_core::TvmAdapterMode::Prototype);
+    assert_eq!(
+        config.tvm_tonlib_library_path,
+        Some(PathBuf::from("build/native/libtonlibjson.so"))
+    );
+
+    let mut env = valid_env();
+    env.insert("TVM_ADAPTER".to_owned(), "sample-only".to_owned());
     assert!(load_from(&env).is_err());
 }
 

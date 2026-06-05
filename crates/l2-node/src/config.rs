@@ -248,6 +248,10 @@ impl NodeConfig {
             DEFAULT_DA_PUBLIC_FS_DIR,
         ));
         let da_public_base_url = optional_string(&mut lookup, "DA_PUBLIC_BASE_URL");
+        let tvm_adapter =
+            parse_tvm_adapter(&optional(&mut lookup, "TVM_ADAPTER", DEFAULT_TVM_ADAPTER))?;
+        let tvm_tonlib_library_path =
+            optional_string(&mut lookup, "TVM_TONLIB_LIBRARY_PATH").map(PathBuf::from);
         let mempool_replay_ttl_secs = parse_u64(
             &optional(
                 &mut lookup,
@@ -534,6 +538,8 @@ impl NodeConfig {
             da_public_backend,
             da_public_fs_dir,
             da_public_base_url,
+            tvm_adapter,
+            tvm_tonlib_library_path,
             mempool_replay_ttl_secs,
             mempool_nonce_lock_ttl_secs,
             mempool_leader_ttl_secs,
@@ -565,6 +571,14 @@ impl NodeConfig {
 
     pub fn ent_gas_asset_id(&self) -> u32 {
         l2_core::L2_NATIVE_GAS_ASSET
+    }
+}
+
+fn parse_tvm_adapter(value: &str) -> anyhow::Result<l2_core::TvmAdapterMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "real" => Ok(l2_core::TvmAdapterMode::Real),
+        "prototype" => Ok(l2_core::TvmAdapterMode::Prototype),
+        _ => anyhow::bail!("TVM_ADAPTER must be real or prototype"),
     }
 }
 
