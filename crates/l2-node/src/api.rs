@@ -46,7 +46,7 @@ use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
-use sample::get_sample_counter;
+use sample::{get_contract_method, get_sample_counter};
 use stream::stream;
 #[cfg(test)]
 use test_support::test_config;
@@ -152,6 +152,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
         .route("/v1/sample-counter/:id", get(get_sample_counter))
+        .route("/v1/contract/:id/get/:method", get(get_contract_method))
         .route("/v1/da/batch/:height", get(get_batch_da_payload))
         .route(
             "/v1/da/batch/:height/:data_hash",

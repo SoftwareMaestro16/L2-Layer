@@ -48,8 +48,11 @@ export type { Hash32 } from "./address.js";
 export {
   buildCallContractTransaction,
   buildDeployContractTransaction,
+  contractCellHash,
   readSampleCounterFromAccount,
+  sampleCounterCodeBocBase64,
   sampleCounterCodeHash,
+  sampleCounterDataBocBase64,
   sampleCounterDataHash,
   sampleCounterIncrementBody,
   sampleCounterIncrementBodyBase64,
@@ -111,9 +114,8 @@ export type L2TransactionKind =
   | {
       DeployContract: {
         contract: Hash32;
-        code_hash: Hash32;
-        data_hash: Hash32;
-        storage_root: Hash32;
+        code_boc_base64: string;
+        data_boc_base64: string;
       };
     }
   | { CallContract: { contract: Hash32; body_boc_base64: string } };
@@ -148,6 +150,8 @@ export interface L2Account {
   code_hash: Hash32;
   data_hash: Hash32;
   storage_root: Hash32;
+  code_boc_base64?: string;
+  data_boc_base64?: string;
   last_lt: number;
 }
 
@@ -215,6 +219,15 @@ export interface ClaimWithdrawalTonConnectMessageParams {
 
 export interface TonL2ClientOptions {
   adminToken?: string;
+}
+
+export interface ContractGetMethodResponse {
+  contract: Hash32;
+  contract_raw_address: string;
+  contract_friendly_address: string;
+  method: string;
+  result: unknown;
+  source: string;
 }
 
 export function signTransaction(
@@ -385,6 +398,14 @@ export class TonL2Client {
     return this.getJson(
       `/v1/sample-counter/${encodeURIComponent(l2RawAddress(parseL2Address(contractId)))}`,
     );
+  }
+
+  async getContractMethod(
+    contractId: Hash32,
+    method: string,
+  ): Promise<ContractGetMethodResponse> {
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(contractId)));
+    return this.getJson(`/v1/contract/${address}/get/${encodeURIComponent(method)}`);
   }
 
   async getBlock(height: number): Promise<unknown> {

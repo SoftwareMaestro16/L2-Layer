@@ -192,20 +192,44 @@ impl MempoolService {
                 max: self.config.max_tx_fee,
             });
         }
-        if let L2TransactionKind::CallContract {
-            body_boc_base64, ..
-        } = &tx.kind
-        {
-            if body_boc_base64.len() > self.config.max_call_body_boc_base64_bytes {
-                return Err(MempoolError::CallBodyTooLarge {
-                    bytes: body_boc_base64.len(),
-                    max: self.config.max_call_body_boc_base64_bytes,
-                });
+        match &tx.kind {
+            L2TransactionKind::CallContract {
+                body_boc_base64, ..
+            } => {
+                if body_boc_base64.len() > self.config.max_call_body_boc_base64_bytes {
+                    return Err(MempoolError::CallBodyTooLarge {
+                        bytes: body_boc_base64.len(),
+                        max: self.config.max_call_body_boc_base64_bytes,
+                    });
+                }
+                BASE64_STANDARD
+                    .decode(body_boc_base64.as_bytes())
+                    .map_err(|_| MempoolError::BadCallBodyBase64)?;
             }
-            BASE64_STANDARD
-                .decode(body_boc_base64.as_bytes())
-                .map_err(|_| MempoolError::BadCallBodyBase64)?;
+            L2TransactionKind::DeployContract {
+                code_boc_base64,
+                data_boc_base64,
+                ..
+            } => {
+                self.validate_deploy_boc("code_boc_base64", code_boc_base64)?;
+                self.validate_deploy_boc("data_boc_base64", data_boc_base64)?;
+            }
+            _ => {}
         }
+        Ok(())
+    }
+
+    fn validate_deploy_boc(&self, field: &'static str, value: &str) -> Result<(), MempoolError> {
+        if value.len() > self.config.max_call_body_boc_base64_bytes {
+            return Err(MempoolError::DeployBocTooLarge {
+                field,
+                bytes: value.len(),
+                max: self.config.max_call_body_boc_base64_bytes,
+            });
+        }
+        BASE64_STANDARD
+            .decode(value.as_bytes())
+            .map_err(|_| MempoolError::BadDeployBocBase64 { field })?;
         Ok(())
     }
 

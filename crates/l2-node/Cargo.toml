@@ -5,6 +5,10 @@ license.workspace = true
 version.workspace = true
 default-run = "l2-node"
 
+[features]
+default = []
+tonlib-tvm = ["l2-core/tonlib-tvm"]
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true

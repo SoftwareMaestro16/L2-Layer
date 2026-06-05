@@ -40,9 +40,8 @@ const deploy = signDeployContractTransaction({
   from: accountId,
   nonce: account.nonce,
   contract: contractId,
-  codeHash: initialState.code_hash,
-  dataHash: initialState.data_hash,
-  storageRoot: initialState.storage_root,
+  codeBocBase64: initialState.code_boc_base64,
+  dataBocBase64: initialState.data_boc_base64,
   gasLimit: 50,
   maxGasPrice: "1",
   keyPair,
@@ -71,6 +70,7 @@ console.log("Increment tx:", callResult.tx_hash);
 if (adminToken) {
   await client.adminProduceBlock();
   console.log("Counter state:", await client.getSampleCounter(contractId));
+  console.log("Get currentCounter:", await client.getContractMethod(contractId, "currentCounter"));
 } else {
   console.log("Set ENTROPIS_ADMIN_TOKEN to auto-produce local blocks and read the counter.");
 }

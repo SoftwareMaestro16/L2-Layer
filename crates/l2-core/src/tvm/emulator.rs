@@ -1,0 +1,464 @@
+use super::{
+    decode_contract_cell_boc_base64, ContractCellError, TvmAdapterError, TvmExecutionAdapter,
+    TvmExecutionInput, TvmExecutionOutput, TvmExecutionStatus, TvmInternalMessage, TvmStateDelta,
+    DEFAULT_MAX_TVM_BOC_BYTES,
+};
+use crate::crypto::{hash_domain, Hash32};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
+use tonlib_core::cell::{BagOfCells, CellBuilder};
+use tonlib_core::tlb_types::block::message::{CommonMsgInfo, Message};
+use tonlib_core::tlb_types::block::msg_address::{MsgAddress, MsgAddressExt, MsgAddressInt};
+use tonlib_core::tlb_types::block::out_action::{OutAction, OutList};
+use tonlib_core::tlb_types::tlb::TLB;
+
+const DEFAULT_TVM_WORKCHAIN: i32 = 0;
+const EMPTY_CONFIG_CELL_ERROR: &str = "empty config cell must be serializable";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TvmEmulatorConfig {
+    pub workchain: i32,
+    pub config_boc: Vec<u8>,
+    pub libraries_boc: Option<Vec<u8>>,
+}
+
+impl Default for TvmEmulatorConfig {
+    fn default() -> Self {
+        Self {
+            workchain: DEFAULT_TVM_WORKCHAIN,
+            config_boc: empty_cell_boc(),
+            libraries_boc: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmEmulatorRequest {
+    pub code_boc_base64: String,
+    pub data_boc_base64: String,
+    pub message_body_boc_base64: String,
+    pub gas_limit: u64,
+    pub address: String,
+    pub unixtime: u32,
+    pub balance_nanoton: u64,
+    pub rand_seed_hex: String,
+    pub config_boc_base64: String,
+    pub libraries_boc_base64: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TvmEmulatorResult {
+    pub accepted: bool,
+    pub vm_exit_code: i32,
+    pub gas_used: u64,
+    pub new_code_boc_base64: Option<String>,
+    pub new_data_boc_base64: Option<String>,
+    pub actions_boc_base64: Option<String>,
+    pub missing_library: Option<String>,
+}
+
+pub trait TvmEmulatorBackend {
+    fn execute(
+        &self,
+        request: &TvmEmulatorRequest,
+    ) -> Result<TvmEmulatorResult, TvmEmulatorBackendError>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("tvm emulator backend failed: {reason}")]
+pub struct TvmEmulatorBackendError {
+    pub reason: String,
+}
+
+impl TvmEmulatorBackendError {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TvmEmulatorAdapter<B> {
+    backend: B,
+    config: TvmEmulatorConfig,
+}
+
+impl<B> TvmEmulatorAdapter<B> {
+    pub fn new(backend: B) -> Self {
+        Self {
+            backend,
+            config: TvmEmulatorConfig::default(),
+        }
+    }
+
+    pub fn with_config(mut self, config: TvmEmulatorConfig) -> Self {
+        self.config = config;
+        self
+    }
+}
+
+impl<B: TvmEmulatorBackend> TvmExecutionAdapter for TvmEmulatorAdapter<B> {
+    fn execute(&self, input: &TvmExecutionInput) -> Result<TvmExecutionOutput, TvmAdapterError> {
+        let image = self.load_image(input)?;
+        let request = self.request_for(input, &image)?;
+        let result =
+            self.backend
+                .execute(&request)
+                .map_err(|error| TvmAdapterError::ExecutionFailed {
+                    reason: error.reason,
+                })?;
+        self.output_for(input, image, result)
+    }
+}
+
+struct AccountImage {
+    code_boc_base64: String,
+    data_boc_base64: String,
+    code_hash: Hash32,
+}
+
+impl<B> TvmEmulatorAdapter<B> {
+    fn load_image(&self, input: &TvmExecutionInput) -> Result<AccountImage, TvmAdapterError> {
+        if input.contract_state.data_hash != input.contract_state.storage_root {
+            return Err(TvmAdapterError::Rejected {
+                reason: "tvm_contract_state_hash_mismatch",
+            });
+        }
+        let code_boc =
+            input
+                .contract_state
+                .code_boc_base64
+                .as_deref()
+                .ok_or(TvmAdapterError::Rejected {
+                    reason: "tvm_contract_code_missing",
+                })?;
+        let data_boc =
+            input
+                .contract_state
+                .data_boc_base64
+                .as_deref()
+                .ok_or(TvmAdapterError::Rejected {
+                    reason: "tvm_contract_data_missing",
+                })?;
+        let code = decode_contract_cell_boc_base64(code_boc, DEFAULT_MAX_TVM_BOC_BYTES)
+            .map_err(contract_cell_rejection)?;
+        let data = decode_contract_cell_boc_base64(data_boc, DEFAULT_MAX_TVM_BOC_BYTES)
+            .map_err(contract_cell_rejection)?;
+        if code.cell_hash != input.contract_state.code_hash {
+            return Err(TvmAdapterError::Rejected {
+                reason: "tvm_contract_code_hash_mismatch",
+            });
+        }
+        if data.cell_hash != input.contract_state.data_hash {
+            return Err(TvmAdapterError::Rejected {
+                reason: "tvm_contract_data_hash_mismatch",
+            });
+        }
+        Ok(AccountImage {
+            code_boc_base64: code.boc_base64,
+            data_boc_base64: data.boc_base64,
+            code_hash: code.cell_hash,
+        })
+    }
+
+    fn request_for(
+        &self,
+        input: &TvmExecutionInput,
+        image: &AccountImage,
+    ) -> Result<TvmEmulatorRequest, TvmAdapterError> {
+        let unixtime =
+            u32::try_from(input.context.block_time).map_err(|_| TvmAdapterError::Rejected {
+                reason: "tvm_invalid_context",
+            })?;
+        let balance_nanoton =
+            u64::try_from(input.contract_state.balance_nanoton).map_err(|_| {
+                TvmAdapterError::Rejected {
+                    reason: "tvm_balance_overflow",
+                }
+            })?;
+        Ok(TvmEmulatorRequest {
+            code_boc_base64: image.code_boc_base64.clone(),
+            data_boc_base64: image.data_boc_base64.clone(),
+            message_body_boc_base64: BASE64_STANDARD.encode(&input.input_boc),
+            gas_limit: input.gas_limit,
+            address: raw_ton_address(self.config.workchain, input.contract),
+            unixtime,
+            balance_nanoton,
+            rand_seed_hex: deterministic_rand_seed(input).to_hex(),
+            config_boc_base64: BASE64_STANDARD.encode(&self.config.config_boc),
+            libraries_boc_base64: self
+                .config
+                .libraries_boc
+                .as_ref()
+                .map(|boc| BASE64_STANDARD.encode(boc)),
+        })
+    }
+
+    fn output_for(
+        &self,
+        input: &TvmExecutionInput,
+        image: AccountImage,
+        result: TvmEmulatorResult,
+    ) -> Result<TvmExecutionOutput, TvmAdapterError> {
+        if result.missing_library.is_some() {
+            return Ok(TvmExecutionOutput::rejected(
+                result.gas_used,
+                "tvm_missing_library",
+            ));
+        }
+        if !result.accepted {
+            return Ok(TvmExecutionOutput::rejected(
+                result.gas_used,
+                "tvm_message_not_accepted",
+            ));
+        }
+        if result.vm_exit_code != 0 && result.vm_exit_code != 1 {
+            return Ok(TvmExecutionOutput::rejected(
+                result.gas_used,
+                exit_code_reason(result.vm_exit_code),
+            ));
+        }
+
+        let new_data_boc_base64 =
+            result
+                .new_data_boc_base64
+                .as_deref()
+                .ok_or(TvmAdapterError::Rejected {
+                    reason: "tvm_missing_new_data",
+                })?;
+        let new_data =
+            decode_contract_cell_boc_base64(new_data_boc_base64, DEFAULT_MAX_TVM_BOC_BYTES)
+                .map_err(contract_cell_rejection)?;
+
+        let (code_boc_base64, code_hash) = match result.new_code_boc_base64.as_deref() {
+            Some(value) => {
+                let new_code = decode_contract_cell_boc_base64(value, DEFAULT_MAX_TVM_BOC_BYTES)
+                    .map_err(contract_cell_rejection)?;
+                if new_code.cell_hash == image.code_hash {
+                    (None, None)
+                } else {
+                    (Some(new_code.boc_base64), Some(new_code.cell_hash))
+                }
+            }
+            None => (None, None),
+        };
+        let emitted_internal_messages = parse_actions(
+            result.actions_boc_base64.as_deref(),
+            input.contract,
+            self.config.workchain,
+            input.context.max_internal_messages,
+        )?;
+
+        Ok(TvmExecutionOutput {
+            status: TvmExecutionStatus::Applied,
+            state_delta: Some(TvmStateDelta {
+                contract: input.contract,
+                code_hash,
+                code_boc_base64,
+                data_hash: Some(new_data.cell_hash),
+                data_boc_base64: Some(new_data.boc_base64),
+                storage_root: Some(new_data.cell_hash),
+            }),
+            emitted_internal_messages,
+            gas_used: result.gas_used,
+        })
+    }
+}
+
+fn contract_cell_rejection(error: ContractCellError) -> TvmAdapterError {
+    TvmAdapterError::Rejected {
+        reason: match error {
+            ContractCellError::BocTooLarge => "tvm_contract_boc_too_large",
+            ContractCellError::MalformedBoc => "tvm_contract_boc_malformed",
+        },
+    }
+}
+
+fn parse_actions(
+    actions_boc_base64: Option<&str>,
+    contract: Hash32,
+    workchain: i32,
+    max_messages: u32,
+) -> Result<Vec<TvmInternalMessage>, TvmAdapterError> {
+    let Some(actions_boc_base64) = actions_boc_base64.filter(|value| !value.is_empty()) else {
+        return Ok(vec![]);
+    };
+    let out_list =
+        OutList::from_boc_b64(actions_boc_base64).map_err(|_| TvmAdapterError::Rejected {
+            reason: "tvm_malformed_actions",
+        })?;
+    let mut messages = Vec::new();
+    collect_actions(&out_list, contract, workchain, max_messages, &mut messages)?;
+    Ok(messages)
+}
+
+fn collect_actions(
+    out_list: &OutList,
+    contract: Hash32,
+    workchain: i32,
+    max_messages: u32,
+    out: &mut Vec<TvmInternalMessage>,
+) -> Result<(), TvmAdapterError> {
+    match out_list {
+        OutList::Empty => Ok(()),
+        OutList::Some(node) => {
+            if out.len() >= max_messages as usize {
+                return Err(TvmAdapterError::Rejected {
+                    reason: "too_many_internal_messages",
+                });
+            }
+            match &node.action {
+                OutAction::SendMsg(action) => {
+                    let message = Message::from_cell(action.out_msg.as_ref()).map_err(|_| {
+                        TvmAdapterError::Rejected {
+                            reason: "tvm_malformed_out_message",
+                        }
+                    })?;
+                    out.push(convert_internal_message(message, contract, workchain)?);
+                }
+                _ => {
+                    return Err(TvmAdapterError::Rejected {
+                        reason: "tvm_unsupported_action",
+                    });
+                }
+            }
+            let prev = OutList::from_cell(node.prev.0.as_ref()).map_err(|_| {
+                TvmAdapterError::Rejected {
+                    reason: "tvm_malformed_actions",
+                }
+            })?;
+            collect_actions(&prev, contract, workchain, max_messages, out)
+        }
+    }
+}
+
+fn convert_internal_message(
+    message: Message,
+    contract: Hash32,
+    workchain: i32,
+) -> Result<TvmInternalMessage, TvmAdapterError> {
+    let CommonMsgInfo::Int(info) = message.info else {
+        return Err(TvmAdapterError::Rejected {
+            reason: "tvm_unsupported_out_message",
+        });
+    };
+    if let Some(source) = optional_l2_address(&info.src, workchain)? {
+        if source != contract {
+            return Err(TvmAdapterError::Rejected {
+                reason: "tvm_out_message_source_mismatch",
+            });
+        }
+    }
+    if info.value.other.is_some() {
+        return Err(TvmAdapterError::Rejected {
+            reason: "tvm_unsupported_currency",
+        });
+    }
+    let body_boc = BagOfCells::from_root(message.body.value.as_ref().clone())
+        .serialize(false)
+        .map_err(|_| TvmAdapterError::Rejected {
+            reason: "tvm_malformed_out_message",
+        })?;
+    Ok(TvmInternalMessage {
+        from: contract,
+        to: required_l2_address(&info.dest, workchain)?,
+        value: biguint_to_u128(&info.value.grams.amount)?,
+        body_boc,
+    })
+}
+
+fn required_l2_address(address: &MsgAddress, workchain: i32) -> Result<Hash32, TvmAdapterError> {
+    optional_l2_address(address, workchain)?.ok_or(TvmAdapterError::Rejected {
+        reason: "tvm_unsupported_out_message",
+    })
+}
+
+fn optional_l2_address(
+    address: &MsgAddress,
+    workchain: i32,
+) -> Result<Option<Hash32>, TvmAdapterError> {
+    match address {
+        MsgAddress::Int(MsgAddressInt::Std(address)) => {
+            if address.anycast.is_some() || address.workchain != workchain {
+                return Err(TvmAdapterError::Rejected {
+                    reason: "tvm_unsupported_out_message",
+                });
+            }
+            hash_from_slice(&address.address)
+                .map(Some)
+                .map_err(|_| TvmAdapterError::Rejected {
+                    reason: "tvm_unsupported_out_message",
+                })
+        }
+        MsgAddress::Ext(MsgAddressExt::None(_)) => Ok(None),
+        _ => Err(TvmAdapterError::Rejected {
+            reason: "tvm_unsupported_out_message",
+        }),
+    }
+}
+
+fn biguint_to_u128(value: &BigUint) -> Result<u128, TvmAdapterError> {
+    let bytes = value.to_bytes_be();
+    if bytes.len() > 16 {
+        return Err(TvmAdapterError::Rejected {
+            reason: "tvm_value_overflow",
+        });
+    }
+    let mut out = [0u8; 16];
+    out[16 - bytes.len()..].copy_from_slice(&bytes);
+    Ok(u128::from_be_bytes(out))
+}
+
+fn deterministic_rand_seed(input: &TvmExecutionInput) -> Hash32 {
+    let block_height = input.context.block_height.to_be_bytes();
+    let last_lt = input.contract_state.last_lt.to_be_bytes();
+    hash_domain(
+        "entropis:tvm-rand-seed:v1",
+        &[
+            input.caller.as_bytes(),
+            input.contract.as_bytes(),
+            &block_height,
+            &last_lt,
+            input.contract_state.code_hash.as_bytes(),
+            input.contract_state.data_hash.as_bytes(),
+            &input.input_boc,
+        ],
+    )
+}
+
+fn hash_from_slice(value: &[u8]) -> Result<Hash32, ()> {
+    let bytes: [u8; 32] = value.try_into().map_err(|_| ())?;
+    Ok(Hash32::new(bytes))
+}
+
+fn raw_ton_address(workchain: i32, address: Hash32) -> String {
+    format!("{workchain}:{}", address.to_hex())
+}
+
+fn exit_code_reason(exit_code: i32) -> String {
+    if exit_code < 0 {
+        format!("tvm_exit_code_neg{}", exit_code.unsigned_abs())
+    } else {
+        format!("tvm_exit_code_{exit_code}")
+    }
+}
+
+fn empty_cell_boc() -> Vec<u8> {
+    CellBuilder::new()
+        .build()
+        .and_then(|cell| BagOfCells::from_root(cell).serialize(false))
+        .expect(EMPTY_CONFIG_CELL_ERROR)
+}
+
+#[cfg(feature = "tonlib-tvm")]
+#[path = "tonlib_backend.rs"]
+mod tonlib_backend;
+
+#[cfg(feature = "tonlib-tvm")]
+pub use tonlib_backend::TonlibTvmBackend;
+
+#[cfg(feature = "tonlib-tvm")]
+pub type RealTvmAdapter = TvmEmulatorAdapter<TonlibTvmBackend>;

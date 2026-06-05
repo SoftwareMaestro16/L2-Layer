@@ -211,15 +211,13 @@ fn encode_transaction_kind(out: &mut Vec<u8>, kind: &L2TransactionKind) {
         }
         L2TransactionKind::DeployContract {
             contract,
-            code_hash,
-            data_hash,
-            storage_root,
+            code_boc_base64,
+            data_boc_base64,
         } => {
             out.push(KIND_DEPLOY_CONTRACT);
             write_hash(out, *contract);
-            write_hash(out, *code_hash);
-            write_hash(out, *data_hash);
-            write_hash(out, *storage_root);
+            write_string(out, code_boc_base64);
+            write_string(out, data_boc_base64);
         }
     }
 }

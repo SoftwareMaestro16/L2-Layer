@@ -94,9 +94,8 @@ fn decode_transaction_kind(
         },
         KIND_DEPLOY_CONTRACT => L2TransactionKind::DeployContract {
             contract: reader.read_hash()?,
-            code_hash: reader.read_hash()?,
-            data_hash: reader.read_hash()?,
-            storage_root: reader.read_hash()?,
+            code_boc_base64: reader.read_string()?,
+            data_boc_base64: reader.read_string()?,
         },
         _ => return Err(BatchDataDecodeError::InvalidTag),
     })

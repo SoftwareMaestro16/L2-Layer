@@ -28,9 +28,8 @@ pub enum L2TransactionKind {
     },
     DeployContract {
         contract: Hash32,
-        code_hash: Hash32,
-        data_hash: Hash32,
-        storage_root: Hash32,
+        code_boc_base64: String,
+        data_boc_base64: String,
     },
     CallContract {
         contract: Hash32,

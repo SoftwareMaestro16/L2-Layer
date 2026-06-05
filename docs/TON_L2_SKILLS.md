@@ -102,9 +102,9 @@ TON_L2_SKILLS = {
     "Observer/challenger nodes replay canonical DA bytes from a trusted state checkpoint, compare tx/receipt/withdrawal/state roots, and locate the first invalid transition before L1 challenge submission; they must not trust local sequencer block JSON as the commitment source.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Executor gas is versioned config: applied fees are gas_used * max_gas_price in ENT asset id 0; authenticated rejected execution advances nonce and charges only rejected_execution_gas when possible.",
-    "CallContract uses a TvmExecutionAdapter boundary: single-root BoC input, explicit deterministic context, contract-local state delta, bounded internal messages/body sizes, and gas_used validation.",
-    "The prototype adapter recognizes only the sample L2 counter code hash and fails closed with tvm_adapter_not_implemented for unsupported code hashes until code/data cell storage and a full TON TVM emulator are wired.",
-    "DeployContract installs code_hash, data_hash, and storage_root for new empty L2 contract accounts; it rejects zero hashes and overwrites, and uses the CallContract gas schedule.",
+    "CallContract uses a TvmExecutionAdapter boundary: single-root BoC input, explicit deterministic context, real contract code/data BoC from account state, contract-local state delta, bounded internal messages/body sizes, and gas_used validation.",
+    "The default prototype adapter recognizes only the sample L2 counter code cell and fails closed with tvm_adapter_not_implemented for unsupported code hashes. Building with the tonlib-tvm feature routes calls through tonlib's TVM emulator using stored code/data BoC cells.",
+    "DeployContract accepts code_boc_base64 and data_boc_base64, validates them as single-root TON BoC cells, computes code_hash/data_hash from TON cell hashes, stores the BoCs on the account, sets storage_root=data_hash, rejects overwrites, and uses the CallContract gas schedule.",
     "Future decentralization path: multiple sequencers, proposer bonds, forced inclusion, and observer/challenger nodes."
   ],
   bridge_design: [

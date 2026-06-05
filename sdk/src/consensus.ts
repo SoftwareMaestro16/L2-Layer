@@ -243,9 +243,8 @@ function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transact
   } else {
     out.u8(KIND_DEPLOY_CONTRACT);
     out.hash(tx.kind.DeployContract.contract);
-    out.hash(tx.kind.DeployContract.code_hash);
-    out.hash(tx.kind.DeployContract.data_hash);
-    out.hash(tx.kind.DeployContract.storage_root);
+    out.string(tx.kind.DeployContract.code_boc_base64);
+    out.string(tx.kind.DeployContract.data_boc_base64);
   }
 }
 

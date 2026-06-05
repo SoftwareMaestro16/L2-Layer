@@ -55,9 +55,8 @@ fn deploy_contract_sets_hashes_and_charges_call_gas() {
             2,
             L2TransactionKind::DeployContract {
                 contract,
-                code_hash: sample.code_hash,
-                data_hash: sample.data_hash,
-                storage_root: sample.storage_root,
+                code_boc_base64: sample.code_boc_base64.clone(),
+                data_boc_base64: sample.data_boc_base64.clone(),
             },
         ),
         &ExecutionConfig::default(),
@@ -87,6 +86,8 @@ fn deploy_contract_rejects_overwrite_without_corrupting_existing_contract() {
     state.account_mut(contract).code_hash = initial.code_hash;
     state.account_mut(contract).data_hash = initial.data_hash;
     state.account_mut(contract).storage_root = initial.storage_root;
+    state.account_mut(contract).code_boc_base64 = Some(initial.code_boc_base64);
+    state.account_mut(contract).data_boc_base64 = Some(initial.data_boc_base64);
 
     let outcome = executor.apply(
         &mut state,
@@ -97,9 +98,8 @@ fn deploy_contract_rejects_overwrite_without_corrupting_existing_contract() {
             1,
             L2TransactionKind::DeployContract {
                 contract,
-                code_hash: replacement.code_hash,
-                data_hash: replacement.data_hash,
-                storage_root: replacement.storage_root,
+                code_boc_base64: replacement.code_boc_base64,
+                data_boc_base64: replacement.data_boc_base64,
             },
         ),
         &ExecutionConfig::default(),

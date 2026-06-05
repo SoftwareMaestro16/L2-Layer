@@ -5,15 +5,29 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tonlib_core::cell::BagOfCells;
 
+#[path = "tvm/cells.rs"]
+mod cells;
+pub mod emulator;
 #[path = "tvm/sample_counter.rs"]
 mod sample_counter;
 
-pub use sample_counter::{
-    read_sample_counter_value, sample_counter_code_hash, sample_counter_data_hash,
-    sample_counter_initial_state, sample_counter_storage_root, PrototypeTvmAdapter,
-    SampleCounterContractState, SampleCounterReadError, SAMPLE_COUNTER_INCREMENT_GAS,
-    SAMPLE_COUNTER_INCREMENT_OPCODE,
+pub use cells::{
+    boc_single_root_hash, decode_contract_cell_boc_base64, ContractCell, ContractCellError,
+    ContractCellField,
 };
+pub use emulator::{
+    TvmEmulatorAdapter, TvmEmulatorBackend, TvmEmulatorBackendError, TvmEmulatorConfig,
+    TvmEmulatorRequest, TvmEmulatorResult,
+};
+pub use sample_counter::{
+    read_sample_counter_value, sample_counter_code_boc_base64, sample_counter_code_hash,
+    sample_counter_data_boc_base64, sample_counter_data_hash, sample_counter_initial_state,
+    sample_counter_storage_root, PrototypeTvmAdapter, SampleCounterContractState,
+    SampleCounterReadError, SAMPLE_COUNTER_INCREMENT_GAS, SAMPLE_COUNTER_INCREMENT_OPCODE,
+};
+
+#[cfg(feature = "tonlib-tvm")]
+pub use emulator::{RealTvmAdapter, TonlibTvmBackend};
 
 pub const DEFAULT_MAX_TVM_BOC_BYTES: usize = 16 * 1024;
 const MAX_TVM_REASON_BYTES: usize = 64;
@@ -52,6 +66,10 @@ pub struct TvmAccountState {
     pub code_hash: Hash32,
     pub data_hash: Hash32,
     pub storage_root: Hash32,
+    pub code_boc_base64: Option<String>,
+    pub data_boc_base64: Option<String>,
+    #[serde(with = "crate::types::serde_u128_string")]
+    pub balance_nanoton: u128,
     pub last_lt: u64,
 }
 
@@ -61,6 +79,9 @@ impl From<&Account> for TvmAccountState {
             code_hash: account.code_hash,
             data_hash: account.data_hash,
             storage_root: account.storage_root,
+            code_boc_base64: account.code_boc_base64.clone(),
+            data_boc_base64: account.data_boc_base64.clone(),
+            balance_nanoton: account.balance(crate::types::L2_NATIVE_GAS_ASSET),
             last_lt: account.last_lt,
         }
     }
@@ -73,7 +94,9 @@ impl From<&Account> for TvmAccountState {
 pub struct TvmStateDelta {
     pub contract: Hash32,
     pub code_hash: Option<Hash32>,
+    pub code_boc_base64: Option<String>,
     pub data_hash: Option<Hash32>,
+    pub data_boc_base64: Option<String>,
     pub storage_root: Option<Hash32>,
 }
 
@@ -151,6 +174,8 @@ impl TvmExecutionAdapter for NoopTvmAdapter {
 pub enum TvmAdapterError {
     #[error("tvm adapter is not implemented")]
     Unsupported,
+    #[error("tvm adapter rejected execution: {reason}")]
+    Rejected { reason: &'static str },
     #[error("tvm adapter execution failed: {reason}")]
     ExecutionFailed { reason: String },
 }
@@ -159,6 +184,7 @@ impl TvmAdapterError {
     pub fn rejection_reason(&self) -> &'static str {
         match self {
             Self::Unsupported => "tvm_adapter_not_implemented",
+            Self::Rejected { reason } => reason,
             Self::ExecutionFailed { .. } => "tvm_adapter_failed",
         }
     }
@@ -186,6 +212,14 @@ pub enum TvmBoundaryError {
     InvalidReceiptReason,
     #[error("adapter state delta targets another contract")]
     StateDeltaContractMismatch,
+    #[error("adapter state delta code BoC hash mismatch")]
+    StateDeltaCodeHashMismatch,
+    #[error("adapter state delta data BoC hash mismatch")]
+    StateDeltaDataHashMismatch,
+    #[error("adapter state delta cell BoC is malformed")]
+    StateDeltaMalformedCellBoc,
+    #[error("adapter state delta cell BoC exceeds max size")]
+    StateDeltaCellBocTooLarge,
 }
 
 impl TvmBoundaryError {
@@ -201,6 +235,10 @@ impl TvmBoundaryError {
             Self::InternalMessageBocTooLarge => "internal_message_boc_too_large",
             Self::InvalidReceiptReason => "invalid_tvm_receipt_reason",
             Self::StateDeltaContractMismatch => "tvm_state_delta_contract_mismatch",
+            Self::StateDeltaCodeHashMismatch => "tvm_state_delta_code_hash_mismatch",
+            Self::StateDeltaDataHashMismatch => "tvm_state_delta_data_hash_mismatch",
+            Self::StateDeltaMalformedCellBoc => "tvm_state_delta_malformed_cell_boc",
+            Self::StateDeltaCellBocTooLarge => "tvm_state_delta_cell_boc_too_large",
         }
     }
 }
@@ -267,9 +305,46 @@ pub fn validate_tvm_output(
         if delta.contract != contract {
             return Err(TvmBoundaryError::StateDeltaContractMismatch);
         }
+        validate_delta_cell(
+            delta.code_boc_base64.as_deref(),
+            delta.code_hash,
+            max_message_boc_bytes,
+            TvmBoundaryError::StateDeltaCodeHashMismatch,
+        )?;
+        validate_delta_cell(
+            delta.data_boc_base64.as_deref(),
+            delta.data_hash,
+            max_message_boc_bytes,
+            TvmBoundaryError::StateDeltaDataHashMismatch,
+        )?;
     }
     if let TvmExecutionStatus::Rejected { reason } = &output.status {
         validate_receipt_reason(reason)?;
+    }
+    Ok(())
+}
+
+fn validate_delta_cell(
+    boc_base64: Option<&str>,
+    expected_hash: Option<Hash32>,
+    max_boc_bytes: usize,
+    mismatch: TvmBoundaryError,
+) -> Result<(), TvmBoundaryError> {
+    let Some(boc_base64) = boc_base64 else {
+        return Ok(());
+    };
+    let Some(expected_hash) = expected_hash else {
+        return Err(mismatch);
+    };
+    let cell =
+        decode_contract_cell_boc_base64(boc_base64, max_boc_bytes).map_err(
+            |error| match error {
+                ContractCellError::BocTooLarge => TvmBoundaryError::StateDeltaCellBocTooLarge,
+                ContractCellError::MalformedBoc => TvmBoundaryError::StateDeltaMalformedCellBoc,
+            },
+        )?;
+    if expected_hash != cell.cell_hash {
+        return Err(mismatch);
     }
     Ok(())
 }

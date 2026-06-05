@@ -2,7 +2,8 @@ use crate::crypto::Hash32;
 use crate::gas::{GasFee, GasSchedule};
 use crate::state::State;
 use crate::tvm::{
-    PrototypeTvmAdapter, TvmExecutionAdapter, TvmInternalMessage, DEFAULT_MAX_TVM_BOC_BYTES,
+    decode_contract_cell_boc_base64, ContractCellField, TvmExecutionAdapter, TvmInternalMessage,
+    DEFAULT_MAX_TVM_BOC_BYTES,
 };
 use crate::types::{
     L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
@@ -12,6 +13,9 @@ use serde::{Deserialize, Serialize};
 
 #[path = "executor/tvm_call.rs"]
 mod tvm_call;
+
+#[cfg(not(feature = "tonlib-tvm"))]
+use crate::tvm::PrototypeTvmAdapter;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionConfig {
@@ -53,6 +57,9 @@ impl DeterministicExecutor {
         tx: &SignedL2Transaction,
         config: &ExecutionConfig,
     ) -> ExecutionOutcome {
+        #[cfg(feature = "tonlib-tvm")]
+        let tvm_adapter = crate::tvm::RealTvmAdapter::new(crate::tvm::TonlibTvmBackend::default());
+        #[cfg(not(feature = "tonlib-tvm"))]
         let tvm_adapter = PrototypeTvmAdapter;
         self.apply_with_tvm_adapter(state, tx, config, &tvm_adapter)
     }
@@ -188,9 +195,8 @@ impl DeterministicExecutor {
             }
             L2TransactionKind::DeployContract {
                 contract,
-                code_hash,
-                data_hash,
-                storage_root,
+                code_boc_base64,
+                data_boc_base64,
             } => {
                 let from = match authenticated_sender(state, tx) {
                     Ok(from) => from,
@@ -205,13 +211,39 @@ impl DeterministicExecutor {
                 if !can_increment_nonce(state, from) {
                     return rejected(tx_hash, "nonce_overflow");
                 }
-                if *contract == Hash32::ZERO
-                    || *code_hash == Hash32::ZERO
-                    || *data_hash == Hash32::ZERO
-                    || *storage_root == Hash32::ZERO
-                {
+                if *contract == Hash32::ZERO {
                     return rejected_attempt(state, tx, from, config, "invalid_contract_state");
                 }
+                let code_cell = match decode_contract_cell_boc_base64(
+                    code_boc_base64,
+                    config.max_tvm_boc_bytes,
+                ) {
+                    Ok(cell) => cell,
+                    Err(error) => {
+                        return rejected_attempt(
+                            state,
+                            tx,
+                            from,
+                            config,
+                            error.deploy_reason(ContractCellField::Code),
+                        );
+                    }
+                };
+                let data_cell = match decode_contract_cell_boc_base64(
+                    data_boc_base64,
+                    config.max_tvm_boc_bytes,
+                ) {
+                    Ok(cell) => cell,
+                    Err(error) => {
+                        return rejected_attempt(
+                            state,
+                            tx,
+                            from,
+                            config,
+                            error.deploy_reason(ContractCellField::Data),
+                        );
+                    }
+                };
                 if state
                     .account(*contract)
                     .is_some_and(|account| account != &crate::state::Account::default())
@@ -232,9 +264,11 @@ impl DeterministicExecutor {
                     mark_sender_attempt(sender, config.block_height);
                 }
                 let deployed = state.account_mut(*contract);
-                deployed.code_hash = *code_hash;
-                deployed.data_hash = *data_hash;
-                deployed.storage_root = *storage_root;
+                deployed.code_hash = code_cell.cell_hash;
+                deployed.data_hash = data_cell.cell_hash;
+                deployed.storage_root = data_cell.cell_hash;
+                deployed.code_boc_base64 = Some(code_cell.boc_base64);
+                deployed.data_boc_base64 = Some(data_cell.boc_base64);
                 deployed.last_lt = config.block_height;
 
                 ExecutionOutcome {

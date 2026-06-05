@@ -11,6 +11,10 @@ pub struct Account {
     pub code_hash: Hash32,
     pub data_hash: Hash32,
     pub storage_root: Hash32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_boc_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_boc_base64: Option<String>,
     pub last_lt: u64,
 }
 
@@ -22,6 +26,8 @@ impl Default for Account {
             code_hash: Hash32::ZERO,
             data_hash: Hash32::ZERO,
             storage_root: Hash32::ZERO,
+            code_boc_base64: None,
+            data_boc_base64: None,
             last_lt: 0,
         }
     }

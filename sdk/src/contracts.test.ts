@@ -6,7 +6,6 @@ import {
   buildCallContractTransaction,
   buildDeployContractTransaction,
   readSampleCounterFromAccount,
-  sampleCounterCodeHash,
   sampleCounterIncrementBodyBase64,
   sampleCounterInitialState,
   sampleCounterStorageRoot,
@@ -29,9 +28,8 @@ test("deploy and call contract helpers encode canonical L2 transactions", () => 
     from,
     nonce: 0,
     contract,
-    codeHash: sample.code_hash,
-    dataHash: sample.data_hash,
-    storageRoot: sample.storage_root,
+    codeBocBase64: sample.code_boc_base64,
+    dataBocBase64: sample.data_boc_base64,
     gasLimit: 50,
     maxGasPrice: "1",
     keyPair,
@@ -41,9 +39,8 @@ test("deploy and call contract helpers encode canonical L2 transactions", () => 
     from,
     nonce: 0,
     contract,
-    codeHash: sample.code_hash,
-    dataHash: sample.data_hash,
-    storageRoot: sample.storage_root,
+    codeBocBase64: sample.code_boc_base64,
+    dataBocBase64: sample.data_boc_base64,
     gasLimit: 50,
     maxGasPrice: "1",
   });
@@ -54,7 +51,7 @@ test("deploy and call contract helpers encode canonical L2 transactions", () => 
     throw new Error("expected deploy transaction");
   }
   assert.equal(deploy.kind.DeployContract.contract, contract);
-  assert.equal(deploy.kind.DeployContract.code_hash, sampleCounterCodeHash());
+  assert.equal(deploy.kind.DeployContract.code_boc_base64, sample.code_boc_base64);
   assert.equal(typeof deploy.signature, "string");
 
   const bodyBocBase64 = sampleCounterIncrementBodyBase64(3);
@@ -92,6 +89,8 @@ test("sample counter storage helpers decode account state and reject mismatches"
       code_hash: sample.code_hash,
       data_hash: sample.data_hash,
       storage_root: sample.storage_root,
+      code_boc_base64: sample.code_boc_base64,
+      data_boc_base64: sample.data_boc_base64,
       last_lt: 0,
     }),
     12,
@@ -104,6 +103,8 @@ test("sample counter storage helpers decode account state and reject mismatches"
         code_hash: sample.code_hash,
         data_hash: hash(0x44),
         storage_root: sample.storage_root,
+        code_boc_base64: sample.code_boc_base64,
+        data_boc_base64: sample.data_boc_base64,
         last_lt: 0,
       }),
     /data hash mismatch/,

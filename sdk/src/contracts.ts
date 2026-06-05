@@ -1,14 +1,15 @@
 import { beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
 import { normalizeHash32, parseL2Address } from "./address.js";
-import { hashDomain, signingPayload } from "./consensus.js";
+import { signingPayload } from "./consensus.js";
 
 export type Hash32 = string;
 type UIntLike = bigint | number | string;
 
 export const SAMPLE_COUNTER_INCREMENT_OPCODE = 0x534c3201;
 export const SAMPLE_COUNTER_INCREMENT_GAS = 25;
-const SAMPLE_COUNTER_STORAGE_PREFIX = Buffer.from("L2CNTR01", "ascii");
+const SAMPLE_COUNTER_CODE_MAGIC = 0x4c324343;
+const SAMPLE_COUNTER_DATA_MAGIC = 0x4c324344;
 
 export interface SignedL2Transaction {
   chain_id: string;
@@ -20,9 +21,8 @@ export interface SignedL2Transaction {
     | {
         DeployContract: {
           contract: Hash32;
-          code_hash: Hash32;
-          data_hash: Hash32;
-          storage_root: Hash32;
+          code_boc_base64: string;
+          data_boc_base64: string;
         };
       }
     | { CallContract: { contract: Hash32; body_boc_base64: string } };
@@ -40,6 +40,8 @@ export interface L2Account {
   code_hash: Hash32;
   data_hash: Hash32;
   storage_root: Hash32;
+  code_boc_base64?: string;
+  data_boc_base64?: string;
   last_lt: number;
 }
 
@@ -48,9 +50,8 @@ export interface DeployContractTransactionParams {
   from: Hash32;
   nonce: UIntLike;
   contract: Hash32;
-  codeHash: Hash32;
-  dataHash: Hash32;
-  storageRoot: Hash32;
+  codeBocBase64: string;
+  dataBocBase64: string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
 }
@@ -69,6 +70,8 @@ export interface SampleCounterState {
   code_hash: Hash32;
   data_hash: Hash32;
   storage_root: Hash32;
+  code_boc_base64: string;
+  data_boc_base64: string;
 }
 
 export interface SampleCounterReadResponse extends SampleCounterState {
@@ -82,14 +85,16 @@ export function buildDeployContractTransaction(
   params: DeployContractTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
   const contract = parseL2Address(params.contract);
-  const codeHash = normalizeHash32(params.codeHash);
-  const dataHash = normalizeHash32(params.dataHash);
-  const storageRoot = normalizeHash32(params.storageRoot);
-  if (contract === zeroHash32() || codeHash === zeroHash32() || dataHash === zeroHash32()) {
-    throw new Error("contract, codeHash, and dataHash must be non-zero");
+  const codeBocBase64 = normalizeSingleRootBocBase64(params.codeBocBase64, "codeBocBase64");
+  const dataBocBase64 = normalizeSingleRootBocBase64(params.dataBocBase64, "dataBocBase64");
+  if (contract === zeroHash32()) {
+    throw new Error("contract must be non-zero");
   }
-  if (storageRoot === zeroHash32()) {
-    throw new Error("storageRoot must be non-zero");
+  if (contractCellHash(codeBocBase64) === zeroHash32()) {
+    throw new Error("codeBocBase64 hash must be non-zero");
+  }
+  if (contractCellHash(dataBocBase64) === zeroHash32()) {
+    throw new Error("dataBocBase64 hash must be non-zero");
   }
   return {
     chain_id: params.chainId,
@@ -100,9 +105,8 @@ export function buildDeployContractTransaction(
     kind: {
       DeployContract: {
         contract,
-        code_hash: codeHash,
-        data_hash: dataHash,
-        storage_root: storageRoot,
+        code_boc_base64: codeBocBase64,
+        data_boc_base64: dataBocBase64,
       },
     },
   };
@@ -140,25 +144,40 @@ export function signCallContractTransaction(
 }
 
 export function sampleCounterCodeHash(): Hash32 {
-  return hashDomain("l2.sample.counter.code.v1", []);
+  return contractCellHash(sampleCounterCodeBocBase64());
+}
+
+export function sampleCounterCodeBocBase64(): string {
+  return beginCell().storeUint(SAMPLE_COUNTER_CODE_MAGIC, 32).endCell().toBoc().toString("base64");
 }
 
 export function sampleCounterDataHash(counter: UIntLike): Hash32 {
-  return hashDomain("l2.sample.counter.data.v1", [uint64Bytes(counter, "counter")]);
+  return contractCellHash(sampleCounterDataBocBase64(counter));
 }
 
 export function sampleCounterStorageRoot(counter: UIntLike): Hash32 {
-  const out = Buffer.alloc(32);
-  SAMPLE_COUNTER_STORAGE_PREFIX.copy(out, 0);
-  uint64Bytes(counter, "counter").copy(out, 8);
-  return out.toString("hex");
+  return sampleCounterDataHash(counter);
+}
+
+export function sampleCounterDataBocBase64(counter: UIntLike): string {
+  return beginCell()
+    .storeUint(SAMPLE_COUNTER_DATA_MAGIC, 32)
+    .storeUint(toUint(counter, "counter", 64), 64)
+    .endCell()
+    .toBoc()
+    .toString("base64");
 }
 
 export function sampleCounterInitialState(counter: UIntLike = 0): SampleCounterState {
+  const code_boc_base64 = sampleCounterCodeBocBase64();
+  const data_boc_base64 = sampleCounterDataBocBase64(counter);
+  const data_hash = contractCellHash(data_boc_base64);
   return {
-    code_hash: sampleCounterCodeHash(),
-    data_hash: sampleCounterDataHash(counter),
-    storage_root: sampleCounterStorageRoot(counter),
+    code_hash: contractCellHash(code_boc_base64),
+    data_hash,
+    storage_root: data_hash,
+    code_boc_base64,
+    data_boc_base64,
   };
 }
 
@@ -166,20 +185,22 @@ export function readSampleCounterFromAccount(account: L2Account): number {
   if (normalizeHash32(account.code_hash) !== sampleCounterCodeHash()) {
     throw new Error("account is not a sample counter contract");
   }
-  const storage = Buffer.from(normalizeHash32(account.storage_root), "hex");
-  if (
-    !storage.subarray(0, SAMPLE_COUNTER_STORAGE_PREFIX.length).equals(SAMPLE_COUNTER_STORAGE_PREFIX)
-  ) {
-    throw new Error("sample counter storage root is malformed");
+  if (!account.data_boc_base64) {
+    throw new Error("account has no sample counter data BoC");
   }
-  if (storage.subarray(16).some((byte) => byte !== 0)) {
-    throw new Error("sample counter storage root is malformed");
-  }
-  const counter = storage.readBigUInt64BE(8);
+  const counter = decodeSampleCounterDataBoc(account.data_boc_base64);
   if (normalizeHash32(account.data_hash) !== sampleCounterDataHash(counter)) {
     throw new Error("sample counter data hash mismatch");
   }
+  if (normalizeHash32(account.storage_root) !== sampleCounterStorageRoot(counter)) {
+    throw new Error("sample counter storage root mismatch");
+  }
   return toSafeNumber(counter, "counter");
+}
+
+export function contractCellHash(bocBase64: string): Hash32 {
+  const cell = singleRootCell(bocBase64, "bocBase64");
+  return cell.hash().toString("hex");
 }
 
 export function sampleCounterIncrementBody(increment: UIntLike): Cell {
@@ -255,24 +276,35 @@ function toDecimalString(value: bigint): string {
   return value.toString(10);
 }
 
-function uint64Bytes(value: UIntLike, field: string): Buffer {
-  const parsed = toUint(value, field, 64);
-  const out = Buffer.alloc(8);
-  out.writeBigUInt64BE(parsed);
-  return out;
-}
-
 function zeroHash32(): Hash32 {
   return "0".repeat(64);
 }
 
-function normalizeSingleRootBocBase64(value: string, field: string): void {
+function normalizeSingleRootBocBase64(value: string, field: string): string {
+  const cell = singleRootCell(value, field);
+  return cell.toBoc().toString("base64");
+}
+
+function singleRootCell(value: string, field: string): Cell {
   try {
     const cells = Cell.fromBoc(Buffer.from(value, "base64"));
     if (cells.length !== 1) {
       throw new Error("expected single-root BoC");
     }
+    return cells[0];
   } catch (error) {
     throw new Error(`${field} must be a single-root TON BoC base64 string`, { cause: error });
   }
+}
+
+function decodeSampleCounterDataBoc(value: string): bigint {
+  const slice = singleRootCell(value, "data_boc_base64").beginParse();
+  if (slice.loadUint(32) !== SAMPLE_COUNTER_DATA_MAGIC) {
+    throw new Error("sample counter data BoC is malformed");
+  }
+  const counter = slice.loadUintBig(64);
+  if (slice.remainingBits !== 0 || slice.remainingRefs !== 0) {
+    throw new Error("sample counter data BoC is malformed");
+  }
+  return counter;
 }

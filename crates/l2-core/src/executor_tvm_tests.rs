@@ -52,6 +52,13 @@ fn valid_boc_base64() -> String {
     BASE64_STANDARD.encode(boc)
 }
 
+fn boc_hash(boc_base64: &str) -> Hash32 {
+    let boc = BASE64_STANDARD
+        .decode(boc_base64.as_bytes())
+        .expect("valid test BoC");
+    crate::boc_single_root_hash(&boc).expect("valid single-root test BoC")
+}
+
 fn sample_increment_boc_base64(increment: u32) -> String {
     let mut builder = CellBuilder::new();
     builder
@@ -88,10 +95,16 @@ fn fund_sender_and_contract(
     assert!(state
         .account_mut(sender)
         .credit(L2_NATIVE_GAS_ASSET, gas_balance));
+    let code_boc_base64 = valid_boc_base64();
+    let data_boc_base64 = valid_boc_base64();
+    let code_hash = boc_hash(&code_boc_base64);
+    let data_hash = boc_hash(&data_boc_base64);
     let contract_account = state.account_mut(contract);
-    contract_account.code_hash = account(b"contract-code");
-    contract_account.data_hash = account(b"old-data");
-    contract_account.storage_root = account(b"old-storage");
+    contract_account.code_hash = code_hash;
+    contract_account.data_hash = data_hash;
+    contract_account.storage_root = data_hash;
+    contract_account.code_boc_base64 = Some(code_boc_base64);
+    contract_account.data_boc_base64 = Some(data_boc_base64);
 }
 
 fn fund_sender_and_sample_counter(
@@ -109,6 +122,8 @@ fn fund_sender_and_sample_counter(
     contract_account.code_hash = sample.code_hash;
     contract_account.data_hash = sample.data_hash;
     contract_account.storage_root = sample.storage_root;
+    contract_account.code_boc_base64 = Some(sample.code_boc_base64);
+    contract_account.data_boc_base64 = Some(sample.data_boc_base64);
 }
 
 #[derive(Clone)]
@@ -263,9 +278,8 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
             2,
             L2TransactionKind::DeployContract {
                 contract,
-                code_hash: initial.code_hash,
-                data_hash: initial.data_hash,
-                storage_root: initial.storage_root,
+                code_boc_base64: initial.code_boc_base64,
+                data_boc_base64: initial.data_boc_base64,
             },
         ),
         &ExecutionConfig::default(),
@@ -403,7 +417,9 @@ fn mock_adapter_applies_contract_delta_and_returns_internal_messages() {
         state_delta: Some(TvmStateDelta {
             contract,
             code_hash: None,
+            code_boc_base64: None,
             data_hash: Some(account(b"new-data")),
+            data_boc_base64: None,
             storage_root: Some(new_storage),
         }),
         emitted_internal_messages: vec![TvmInternalMessage {
@@ -463,14 +479,16 @@ fn adapter_oversized_internal_message_body_is_rejected_without_delta() {
     let mut state = State::default();
     let sender = account(b"sender");
     let contract = account(b"contract");
-    let old_storage = account(b"old-storage");
     fund_sender_and_contract(&mut state, sender, contract, 1_000);
+    let old_storage = state.account(contract).unwrap().storage_root;
     let output = TvmExecutionOutput {
         status: TvmExecutionStatus::Applied,
         state_delta: Some(TvmStateDelta {
             contract,
             code_hash: None,
+            code_boc_base64: None,
             data_hash: None,
+            data_boc_base64: None,
             storage_root: Some(account(b"new-storage")),
         }),
         emitted_internal_messages: vec![TvmInternalMessage {
@@ -505,14 +523,16 @@ fn adapter_output_over_internal_message_limit_is_rejected_without_delta() {
     let mut state = State::default();
     let sender = account(b"sender");
     let contract = account(b"contract");
-    let old_storage = account(b"old-storage");
     fund_sender_and_contract(&mut state, sender, contract, 1_000);
+    let old_storage = state.account(contract).unwrap().storage_root;
     let output = TvmExecutionOutput {
         status: TvmExecutionStatus::Applied,
         state_delta: Some(TvmStateDelta {
             contract,
             code_hash: None,
+            code_boc_base64: None,
             data_hash: None,
+            data_boc_base64: None,
             storage_root: Some(account(b"new-storage")),
         }),
         emitted_internal_messages: vec![
@@ -559,15 +579,17 @@ fn adapter_state_delta_for_wrong_contract_is_rejected_without_storage_corruption
     let mut state = State::default();
     let sender = account(b"sender");
     let contract = account(b"contract");
-    let old_storage = account(b"old-storage");
     fund_sender_and_contract(&mut state, sender, contract, 1_000);
+    let old_storage = state.account(contract).unwrap().storage_root;
     let adapter = MockTvmAdapter {
         output: Ok(TvmExecutionOutput::applied(
             10,
             Some(TvmStateDelta {
                 contract: account(b"other-contract"),
                 code_hash: None,
+                code_boc_base64: None,
                 data_hash: None,
+                data_boc_base64: None,
                 storage_root: Some(account(b"attacker-storage")),
             }),
         )),
@@ -599,7 +621,9 @@ fn mock_adapter_replay_is_deterministic_for_same_input() {
         Some(TvmStateDelta {
             contract,
             code_hash: None,
+            code_boc_base64: None,
             data_hash: Some(account(b"new-data")),
+            data_boc_base64: None,
             storage_root: Some(account(b"new-storage")),
         }),
     );

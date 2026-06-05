@@ -51,6 +51,15 @@ pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
             TvmBoundaryError::ContractCodeMissing.rejection_reason(),
         );
     }
+    if contract_account.code_boc_base64.is_none() || contract_account.data_boc_base64.is_none() {
+        return rejected_attempt(
+            state,
+            tx,
+            from,
+            config,
+            TvmBoundaryError::ContractCodeMissing.rejection_reason(),
+        );
+    }
 
     let input = TvmExecutionInput {
         caller: from,
@@ -177,8 +186,14 @@ fn apply_tvm_state_delta(
     if let Some(code_hash) = delta.code_hash {
         account.code_hash = code_hash;
     }
+    if let Some(code_boc_base64) = delta.code_boc_base64 {
+        account.code_boc_base64 = Some(code_boc_base64);
+    }
     if let Some(data_hash) = delta.data_hash {
         account.data_hash = data_hash;
+    }
+    if let Some(data_boc_base64) = delta.data_boc_base64 {
+        account.data_boc_base64 = Some(data_boc_base64);
     }
     if let Some(storage_root) = delta.storage_root {
         account.storage_root = storage_root;

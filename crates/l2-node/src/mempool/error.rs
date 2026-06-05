@@ -26,6 +26,14 @@ pub enum MempoolError {
     CallBodyTooLarge { bytes: usize, max: usize },
     #[error("CallContract body_boc_base64 is not valid standard base64")]
     BadCallBodyBase64,
+    #[error("DeployContract {field} is {bytes} bytes, max is {max} bytes")]
+    DeployBocTooLarge {
+        field: &'static str,
+        bytes: usize,
+        max: usize,
+    },
+    #[error("DeployContract {field} is not valid standard base64")]
+    BadDeployBocBase64 { field: &'static str },
     #[error("gas_limit {gas_limit} is outside [{min}, {max}]")]
     InvalidGasLimit { gas_limit: u64, min: u64, max: u64 },
     #[error("max_gas_price {gas_price} is below minimum {min}")]
@@ -75,6 +83,8 @@ impl MempoolError {
             Self::PayloadTooLarge { .. } => "payload_too_large",
             Self::CallBodyTooLarge { .. } => "call_body_too_large",
             Self::BadCallBodyBase64 => "bad_call_body_base64",
+            Self::DeployBocTooLarge { .. } => "deploy_boc_too_large",
+            Self::BadDeployBocBase64 { .. } => "bad_deploy_boc_base64",
             Self::InvalidGasLimit { .. } => "invalid_gas_limit",
             Self::GasPriceTooLow { .. } => "gas_price_too_low",
             Self::TxFeeOverflow => "tx_fee_overflow",

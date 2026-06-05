@@ -32,14 +32,20 @@ pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};
 pub use state::{Account, State};
 pub use tvm::{
-    decode_call_body_boc_base64, read_sample_counter_value, sample_counter_code_hash,
-    sample_counter_data_hash, sample_counter_initial_state, sample_counter_storage_root,
-    validate_call_body_boc, validate_tvm_output, NoopTvmAdapter, PrototypeTvmAdapter,
+    boc_single_root_hash, decode_call_body_boc_base64, decode_contract_cell_boc_base64,
+    read_sample_counter_value, sample_counter_code_boc_base64, sample_counter_code_hash,
+    sample_counter_data_boc_base64, sample_counter_data_hash, sample_counter_initial_state,
+    sample_counter_storage_root, validate_call_body_boc, validate_tvm_output, ContractCell,
+    ContractCellError, ContractCellField, NoopTvmAdapter, PrototypeTvmAdapter,
     SampleCounterContractState, SampleCounterReadError, TvmAccountState, TvmAdapterError,
-    TvmBoundaryError, TvmExecutionAdapter, TvmExecutionContext, TvmExecutionInput,
-    TvmExecutionOutput, TvmExecutionStatus, TvmInternalMessage, TvmStateDelta,
-    DEFAULT_MAX_TVM_BOC_BYTES, SAMPLE_COUNTER_INCREMENT_GAS, SAMPLE_COUNTER_INCREMENT_OPCODE,
+    TvmBoundaryError, TvmEmulatorAdapter, TvmEmulatorBackend, TvmEmulatorBackendError,
+    TvmEmulatorConfig, TvmEmulatorRequest, TvmEmulatorResult, TvmExecutionAdapter,
+    TvmExecutionContext, TvmExecutionInput, TvmExecutionOutput, TvmExecutionStatus,
+    TvmInternalMessage, TvmStateDelta, DEFAULT_MAX_TVM_BOC_BYTES, SAMPLE_COUNTER_INCREMENT_GAS,
+    SAMPLE_COUNTER_INCREMENT_OPCODE,
 };
+#[cfg(feature = "tonlib-tvm")]
+pub use tvm::{RealTvmAdapter, TonlibTvmBackend};
 pub use types::*;
 pub use withdrawal::{
     build_withdrawal_merkle_proof, hash_withdrawal_node, release_leaf_hash,
