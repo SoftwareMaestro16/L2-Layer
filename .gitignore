@@ -11,6 +11,8 @@ desktop.ini
 /ecosystem/*
 !/ecosystem/wallet/
 !/ecosystem/wallet/**
+!/ecosystem/faucet/
+!/ecosystem/faucet/**
 
 # Logs and local diagnostics
 *.log
