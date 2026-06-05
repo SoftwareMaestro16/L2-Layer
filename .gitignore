@@ -8,7 +8,9 @@ desktop.ini
 
 # Local planning / agent workspace outside the L2 product
 /.codex/
-/ecosystem/
+/ecosystem/*
+!/ecosystem/wallet/
+!/ecosystem/wallet/**
 
 # Logs and local diagnostics
 *.log
@@ -70,6 +72,7 @@ node_modules/
 /ecosystem/**/.next/
 /ecosystem/**/out/
 /ecosystem/**/dist/
+/ecosystem/**/dist-server/
 /ecosystem/**/coverage/
 /ecosystem/**/.env.local
 /ecosystem/**/.env.*.local
