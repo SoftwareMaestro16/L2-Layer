@@ -196,6 +196,47 @@ async fn contract_get_method_reads_enwallet_v5_seqno() {
 }
 
 #[tokio::test]
+async fn contract_get_method_reads_missing_enwallet_seqno_as_zero() {
+    let state = AppState::test(Some("test-admin-token"));
+    let contract = sha256_bytes(b"missing-enwallet-v5");
+
+    let Json(response) = get_contract_method(
+        State(state),
+        Path((l2_user_friendly_address(contract), "seqno".to_owned())),
+    )
+    .await
+    .expect("get method response");
+
+    assert_eq!(response.method, "seqno");
+    assert_eq!(response.result["initialized"], false);
+    assert_eq!(response.result["result"]["value"], "0");
+    assert_eq!(response.source, "l2_uninitialized_wallet");
+}
+
+#[tokio::test]
+async fn contract_get_method_reads_prefunded_enwallet_seqno_as_zero() {
+    let state = AppState::test(Some("test-admin-token"));
+    let contract = sha256_bytes(b"prefunded-enwallet-v5");
+    {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(contract);
+        assert!(account.credit(0, 1_000));
+    }
+
+    let Json(response) = get_contract_method(
+        State(state),
+        Path((l2_user_friendly_address(contract), "seqno".to_owned())),
+    )
+    .await
+    .expect("get method response");
+
+    assert_eq!(response.method, "seqno");
+    assert_eq!(response.result["initialized"], false);
+    assert_eq!(response.result["result"]["value"], "0");
+    assert_eq!(response.source, "l2_uninitialized_wallet");
+}
+
+#[tokio::test]
 async fn sample_counter_read_endpoint_rejects_non_sample_account() {
     let state = AppState::test(Some("test-admin-token"));
     let contract = sha256_bytes(b"ordinary-account");

@@ -51,6 +51,11 @@ pub(super) struct ContractGetMethodRequest {
     pub(super) gas_limit: Option<u64>,
 }
 
+struct KnownGetterResult {
+    result: serde_json::Value,
+    source: &'static str,
+}
+
 pub(super) async fn get_sample_counter(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -123,15 +128,11 @@ async fn run_contract_get_method(
     .map_err(|error| ApiError::bad_request(error.rejection_reason()))?;
     let (account, state_root) = {
         let sequencer = state.sequencer.read().await;
-        let account = sequencer
-            .state
-            .account(id)
-            .cloned()
-            .ok_or_else(|| ApiError::not_found("account not found"))?;
+        let account = sequencer.state.account(id).cloned();
         (account, sequencer.state.root_hash())
     };
 
-    if let Some(result) = known_getter_result(&request.method, &account, &stack_boc)? {
+    if let Some(result) = known_getter_result(&request.method, account.as_ref(), &stack_boc)? {
         return Ok(Json(contract_get_method_response(
             id,
             request.method,
@@ -139,11 +140,13 @@ async fn run_contract_get_method(
             gas_limit,
             0,
             0,
-            result,
-            "l2_state",
+            result.result,
+            result.source,
             state_root,
         )));
     }
+
+    let account = account.ok_or_else(|| ApiError::not_found("account not found"))?;
 
     if state.tvm_adapter != l2_core::TvmAdapterMode::Real {
         return Err(ApiError::bad_request("get method not implemented"));
@@ -174,17 +177,21 @@ async fn run_contract_get_method(
 
 fn known_getter_result(
     method: &str,
-    account: &Account,
+    account: Option<&Account>,
     stack_boc: &[u8],
-) -> Result<Option<serde_json::Value>, ApiError> {
+) -> Result<Option<KnownGetterResult>, ApiError> {
     if method == "currentCounter" || method == "counter" {
         reject_known_getter_args(stack_boc)?;
+        let account = account.ok_or_else(|| ApiError::not_found("account not found"))?;
         let counter = read_sample_counter_value(account)
             .map_err(|_| ApiError::bad_request("not a sample counter contract"))?;
-        return Ok(Some(serde_json::json!({
+        return Ok(Some(KnownGetterResult {
+            result: serde_json::json!({
                 "type": "uint64",
                 "value": counter.to_string(),
-        })));
+            }),
+            source: "l2_state",
+        }));
     }
 
     if matches!(
@@ -197,6 +204,17 @@ fn known_getter_result(
             | "get_extensions"
     ) {
         reject_known_getter_args(stack_boc)?;
+        let Some(account) = account else {
+            if method == "seqno" {
+                return Ok(Some(uninitialized_enwallet_seqno_result()));
+            }
+            return Err(ApiError::not_found("account not found"));
+        };
+
+        if method == "seqno" && account.code_hash == Hash32::ZERO {
+            return Ok(Some(uninitialized_enwallet_seqno_result()));
+        }
+
         let wallet = read_enwallet_v5_state(account)
             .map_err(|_| ApiError::bad_request("not an EnWallet V5 R1 contract"))?;
         let result = match method {
@@ -222,14 +240,32 @@ fn known_getter_result(
             }),
             _ => unreachable!(),
         };
-        return Ok(Some(serde_json::json!({
+        return Ok(Some(KnownGetterResult {
+            result: serde_json::json!({
                 "interface": ENWALLET_V5R1_INTERFACE,
                 "interface_label": ENWALLET_V5R1_LABEL,
                 "result": result,
-        })));
+            }),
+            source: "l2_state",
+        }));
     }
 
     Ok(None)
+}
+
+fn uninitialized_enwallet_seqno_result() -> KnownGetterResult {
+    KnownGetterResult {
+        result: serde_json::json!({
+            "interface": ENWALLET_V5R1_INTERFACE,
+            "interface_label": ENWALLET_V5R1_LABEL,
+            "initialized": false,
+            "result": {
+                "type": "uint32",
+                "value": "0",
+            },
+        }),
+        source: "l2_uninitialized_wallet",
+    }
 }
 
 fn reject_known_getter_args(stack_boc: &[u8]) -> Result<(), ApiError> {
