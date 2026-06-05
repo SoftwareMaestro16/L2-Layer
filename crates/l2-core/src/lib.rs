@@ -3,6 +3,7 @@ pub mod batch;
 pub mod batch_decode;
 pub mod consensus;
 pub mod crypto;
+pub mod economics;
 pub mod enwallet;
 pub mod executor;
 pub mod gas;
@@ -25,6 +26,11 @@ pub use batch::{
 };
 pub use batch_decode::{decode_batch_data, BatchDataDecodeError, DecodedBatchData};
 pub use crypto::{decode_public_key, derive_account_id, verify_signature, Hash32};
+pub use economics::{
+    EconomicPolicyError, EconomicSecurityPolicy, FeeAllocation, FeeSplit, GovernanceAction,
+    GovernancePolicy, ReputationPolicy, SecurityBondPolicy, SlashingEvidence, SlashingEvidenceKind,
+    BASIS_POINTS_DENOMINATOR,
+};
 pub use enwallet::{
     decode_enwallet_v5_data_boc, interface_for_code_hash, is_enwallet_v5r1_code_hash,
     read_enwallet_v5_state, EnWalletReadError, EnWalletV5State, ENWALLET_V5R1_CODE_HASH,

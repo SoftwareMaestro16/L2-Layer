@@ -154,6 +154,12 @@ Finalization rule:
   response deadline.
 - An invalid-transition challenge succeeds only with a verifier-supported proof.
 - A failed challenge burns or transfers challenger bond to prevent griefing.
+- Sequencer unbond delay must remain longer than the challenge window so a
+  sequencer cannot exit before a disputed commitment is resolved.
+- Slashing must require objective evidence: offender, disputed batch, and
+  evidence hash. Subjective operator decisions are not slashable conditions.
+- Governance may update parameters or pause emergency surfaces, but it must not
+  release bridged/user funds outside the withdrawal proof and release flow.
 
 ## Adversarial Scenarios
 

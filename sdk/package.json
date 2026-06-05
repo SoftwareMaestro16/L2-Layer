@@ -5,6 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "browser": "dist/browser.js",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,9 +23,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "sandbox:l2-counter": "npm run build && node examples/l2-counter-sample.mjs",
-    "test:vectors": "npm run build && node --test dist/consensus.test.js dist/contracts.test.js",
+    "test:vectors": "npm run build && node --test dist/consensus.test.js dist/contracts.test.js dist/sdk_security.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

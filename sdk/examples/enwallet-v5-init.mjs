@@ -12,10 +12,6 @@ const recoveryWords = process.env.ENTROPIS_MNEMONIC?.trim().split(/\s+/)
 const keyPair = await enwalletKeyPairFromMnemonic(recoveryWords);
 const wallet = enwalletV5InitialState({ publicKey: keyPair.publicKey });
 
-if (process.env.ENTROPIS_PRINT_MNEMONIC === "1") {
-  console.log("THROWAWAY TEST MNEMONIC:", recoveryWords.join(" "));
-}
-
 console.log("Owner raw:", l2RawAddress(wallet.owner_account_id));
 console.log("Owner friendly:", l2UserFriendlyAddress(wallet.owner_account_id));
 console.log("EnWallet raw:", l2RawAddress(wallet.wallet_account_id));
