@@ -413,3 +413,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tvm_tests.rs"]
 mod tvm_tests;
+
+#[cfg(test)]
+#[path = "tvm_security_tests.rs"]
+mod tvm_security_tests;
