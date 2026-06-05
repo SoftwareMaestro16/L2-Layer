@@ -79,10 +79,16 @@ The public registry reference for docs and operator tooling is:
 deployments/testnet/entropis.json
 ```
 
-The current guard policy treats `deployments/` as local artifact space. If the
-registry is promoted to tracked source later, first update the artifact guard and
-document the policy change. Until then, operators can serve a local copy
-containing only public metadata:
+The artifact guard allows only this public testnet manifest and its schema under
+`deployments/`. Other deployment outputs remain ignored artifacts. Validate the
+manifest before publishing evidence:
+
+```powershell
+python scripts/ci/validate_deployment_registry.py deployments/testnet/entropis.json
+```
+
+The registry starts as `draft`. Promote it to `deployed` or `verified` only with
+public metadata:
 
 - `rollupRoot` and `assetVault`
 - deployed code hashes
@@ -94,6 +100,9 @@ containing only public metadata:
 
 Never put mnemonic phrases, private keys, signer tokens, API keys, database URLs,
 Redis URLs, wallet exports, or signed BoCs in registry JSON.
+
+For the exact deposit-to-withdrawal rehearsal gate, follow
+`docs/testnet-live-bridge-e2e.md`.
 
 ## Non-Secret Environment Checklist
 

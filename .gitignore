@@ -50,6 +50,10 @@ libraries.toml
 /build/
 /gen/
 /deployments/
+!/deployments/
+!/deployments/testnet/
+!/deployments/testnet/entropis.json
+!/deployments/testnet/entropis.schema.json
 wallets.toml
 global.wallets.toml
 libraries.toml

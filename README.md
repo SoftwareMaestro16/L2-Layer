@@ -210,7 +210,8 @@ cargo run -p l2-node --features tonlib-tvm --bin l2-node
 ```
 
 For live TON testnet deposit, commit, finalization, and withdrawal rehearsal,
-follow `docs/testnet-launch-runbook.md` after the testnet registry, signer, and
+follow `docs/testnet-launch-runbook.md` and
+`docs/testnet-live-bridge-e2e.md` after the public testnet registry, signer, and
 funded wallets are available. Do not use mainnet endpoints for this prototype.
 
 ## Current MVP Boundaries

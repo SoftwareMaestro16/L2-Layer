@@ -13,6 +13,8 @@ from pathlib import Path
 ALLOW = {
     ".env.example",
     ".env.template",
+    "deployments/testnet/entropis.json",
+    "deployments/testnet/entropis.schema.json",
 }
 
 FORBIDDEN = (

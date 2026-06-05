@@ -28,6 +28,7 @@ Before committing locally, run the staged guards:
 ```powershell
 python scripts/ci/secret_scan.py --staged
 python scripts/ci/artifact_guard.py --staged
+python scripts/ci/validate_deployment_registry.py
 ```
 
 For Rust changes:
@@ -73,5 +74,10 @@ The guard scripts inspect tracked files by default and staged files with
 `--staged`. They deliberately allow placeholder values in `.env.example`, but
 fail on live Redis/Postgres URLs, non-placeholder TON API/admin tokens, key or
 mnemonic assignments, local database files, `target/`, `node_modules/`,
-`sdk/dist/`, `.acton/`, `build/`, `deployments/`, `gen/`, `wallets.toml`,
-Acton wallet overlays, deployment output JSON, and local wallet/key material.
+`sdk/dist/`, `.acton/`, `build/`, `gen/`, `wallets.toml`, Acton wallet overlays,
+deployment output JSON, and local wallet/key material. The only allowed tracked
+files under `deployments/` are the public testnet registry manifest and schema:
+`deployments/testnet/entropis.json` and
+`deployments/testnet/entropis.schema.json`. The registry validator rejects
+mainnet references, secret-like fields, private endpoints, and deployed/verified
+registry states without deployment entries.
