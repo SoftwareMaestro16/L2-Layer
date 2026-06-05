@@ -15,6 +15,11 @@ The launch goal is to connect the existing Entropis components end to end:
 4. Demo faucet ENT, TON deposit, L2 transfer, L1 commit, finalization, and TON
    withdrawal claim.
 
+The feature rollout order that leads into this launch checklist is tracked in
+`docs/l2-rollout-order.md`. Do not treat later rollout phases such as staking,
+full arbitrary TVM support, or Jetton hardening as required for the default TON
+deposit/transfer/commit/finalize/withdraw demo unless that document is updated.
+
 ## Architecture
 
 ```mermaid

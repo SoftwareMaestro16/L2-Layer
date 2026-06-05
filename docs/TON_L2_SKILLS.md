@@ -164,6 +164,7 @@ TON_L2_SKILLS = {
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",
     "Runtime secrets belong in .env.local or environment variables only; tracked files may include .env.example placeholders but never real keys.",
+    "Tracked rollout order lives in docs/l2-rollout-order.md: harden L2 account/tx security before faucet/wallet/explorer UX, prove EnWallet and full TVM determinism before staking migration, and keep the prototype explicitly testnet-only.",
     "SDK browser examples must not include admin bearer tokens; admin-only faucet helpers are for operator scripts or demo backends.",
     "Use `@ton-l2-rollup/sdk/browser` for dApps and wallet UI code. It must expose public read/submit APIs, transaction builders, receipt parsing, and local EnWallet create/import helpers, but no `/v1/admin/*` helpers.",
     "Use `@ton-l2-rollup/sdk/admin` for Node/operator scripts that need ENT faucet, dev deposits, or manual block production. Browser bundles should not import this entrypoint.",

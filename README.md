@@ -35,7 +35,7 @@ flowchart TB
 - `examples/l2-counter`: sample L2 Tolk counter contract.
 - `sdk`: TypeScript client helpers for transaction building, hashing, TON cells, and API calls.
 - `docs`: Architecture, local operation notes, CI quality gates, operator runbooks,
-  and the public testnet launch checklist.
+  the rollout order, and the public testnet launch checklist.
 
 ## L2 Token And Address Format
 
@@ -266,3 +266,6 @@ layout.
 
 For the public TON testnet prototype launch sequence, see
 `docs/testnet-launch-runbook.md`.
+
+For the implementation order from L2 hardening through faucet, wallet, explorer,
+TVM, and staking work, see `docs/l2-rollout-order.md`.
