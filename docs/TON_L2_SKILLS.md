@@ -88,6 +88,8 @@ TON_L2_SKILLS = {
     "DA can start as external/Ton Storage-backed data referenced by dataHash, but production fraud proofs require reliable retrievability and challenge rules.",
     "Challenge design separates DA retrieval, deterministic replay, witness/proof generation, and L1 challenge submission; missing DA is an availability challenge, not a state-transition proof.",
     "Entropis observer replay is currently off-chain: it accepts RollupRoot-shaped commitments, fetches canonical DA bytes by dataHash, replays from a trusted checkpoint, stores observer checkpoints, and reports missing_da/corrupt_da/invalid without submitting an L1 challenge.",
+    "Divergent observer reports include challenge_witness v1 when the finding maps to a future L1 path: ChallengeBatch inputs, checkpoint summary, commitment summary, divergence details, path messages, and evidence_hash=hash_domain(\"l2.challenge.witness.v1\", canonical witness fields).",
+    "Witness v1 is evidence groundwork only; RollupRoot does not yet accept ChallengeBatch/RespondChallenge/ResolveChallenge and withdrawals remain trusted-sequencer optimistic until the Tolk verifier is implemented.",
     "The MVP is optimistic/trusted-sequencer until challenge verification is implemented."
   ],
   sequencer_logic: [
@@ -107,7 +109,7 @@ TON_L2_SKILLS = {
     "Public explorer UI belongs in `ecosystem/explorer` as a standalone Next.js app and consumes only public read-only `l2-node` APIs; account transaction history must use server-side pagination instead of client-side block scans.",
     "EnWatcher account code views expose verified contract source only after a verifier record is marked verified for the code hash; pending .tolk uploads must not be displayed as verified source.",
     "EnWatcher account QR codes target Entropis L2 EnWallet send links with account and asset_id parameters, not TON `ton://transfer`, because TON transfer deep links are L1 TON payment links.",
-    "Observer/challenger nodes replay canonical DA bytes from a trusted state checkpoint, compare tx/receipt/withdrawal/state roots, and locate the first invalid transition before L1 challenge submission; they must not trust local sequencer block JSON as the commitment source.",
+    "Observer/challenger nodes replay canonical DA bytes from a trusted state checkpoint, compare tx/receipt/withdrawal/state roots, locate the first invalid transition, and produce a witness with integrity-checked evidence hash before any future L1 challenge submission; they must not trust local sequencer block JSON as the commitment source.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Executor gas is versioned config: applied fees are gas_used * max_gas_price in ENT asset id 0; authenticated rejected execution advances nonce and charges only rejected_execution_gas when possible.",
     "Account lifecycle is consensus state: account_type=user|contract|system|operator, disabled/contract_only/system_only flags, active_public_key, and optional recovery_lock are encoded into the account leaf and therefore affect state roots.",

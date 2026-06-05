@@ -57,6 +57,25 @@ async fn observer_detects_tampered_state_root() {
     assert_eq!(report.checked_batches, 0);
     assert_eq!(divergence.kind, DivergenceKind::RootMismatch);
     assert_eq!(divergence.field, Some("state_root"));
+
+    let witness = report.challenge_witness.expect("challenge witness");
+    assert_eq!(
+        witness.challenge_kind,
+        crate::observer::ChallengeKind::InvalidTransition
+    );
+    assert_eq!(witness.l1_inputs.message, "ChallengeBatch");
+    assert_eq!(witness.l1_inputs.challenge_kind_code, 2);
+    assert_eq!(witness.l1_inputs.batch_no, 1);
+    assert_eq!(witness.l1_inputs.field, Some("state_root"));
+    assert_eq!(
+        witness.l1_inputs.expected_root,
+        Some(block.header.state_root)
+    );
+    assert_eq!(
+        witness.l1_inputs.claimed_root,
+        Some(sha256_bytes(b"malicious-state-root"))
+    );
+    assert!(witness.validate_integrity());
 }
 
 #[tokio::test]
@@ -79,6 +98,20 @@ async fn observer_reports_missing_da_separately() {
     assert_eq!(report.status, ObserverReplayStatus::MissingDa);
     assert_eq!(divergence.kind, DivergenceKind::MissingDa);
     assert_eq!(divergence.reason, "batch data unavailable");
+
+    let witness = report.challenge_witness.expect("challenge witness");
+    assert_eq!(
+        witness.challenge_kind,
+        crate::observer::ChallengeKind::MissingDa
+    );
+    assert_eq!(witness.l1_inputs.challenge_kind_code, 1);
+    assert_eq!(witness.l1_inputs.expected_root, None);
+    assert_eq!(witness.l1_inputs.claimed_root, Some(block.header.data_hash));
+    assert_eq!(
+        witness.path.timeout_rule,
+        "sequencer must provide DA before response deadline"
+    );
+    assert!(witness.validate_integrity());
 }
 
 #[tokio::test]
@@ -113,6 +146,30 @@ async fn observer_rejects_corrupted_da_payload() {
     assert_eq!(report.status, ObserverReplayStatus::CorruptDa);
     assert_eq!(divergence.kind, DivergenceKind::CorruptDa);
     assert_eq!(divergence.field, Some("data_hash"));
+}
+
+#[tokio::test]
+async fn challenge_witness_integrity_detects_manipulation() {
+    let fixture = Fixture::new();
+    let block = produce_deposit_blocks(&[b"deposit-a".as_slice()]).remove(0);
+    fixture.write_da(&block).await;
+    let mut commitment = crate::signer::BatchCommitment::from_block(&block).unwrap();
+    commitment.roots_a.state_root = sha256_bytes(b"malicious-state-root");
+
+    let report = fixture
+        .service
+        .replay(ObserverReplayRequest {
+            trusted_checkpoint: None,
+            commitments: vec![commitment],
+            store_checkpoint: false,
+        })
+        .await
+        .expect("replay");
+    let mut witness = report.challenge_witness.expect("challenge witness");
+    assert!(witness.validate_integrity());
+
+    witness.l1_inputs.claimed_root = Some(sha256_bytes(b"rewritten-claim"));
+    assert!(!witness.validate_integrity());
 }
 
 #[tokio::test]

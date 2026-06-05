@@ -7,6 +7,12 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 mod replay;
+mod witness;
+
+pub use witness::{
+    ChallengeCheckpointSummary, ChallengeCommitmentSummary, ChallengeKind, ChallengeWitness,
+    L1ChallengeInputs, L1ChallengePath,
+};
 
 const MAX_REPLAY_COMMITMENTS: usize = 1_000;
 
@@ -96,22 +102,37 @@ impl ObserverReplayService {
         let mut checked_batches = 0u64;
         for commitment in request.commitments {
             if let Some(divergence) = replay::validate_commitment_order(&checkpoint, &commitment) {
+                let challenge_witness = ChallengeWitness::from_divergence(
+                    &checkpoint,
+                    &commitment,
+                    ObserverReplayStatus::Invalid,
+                    &divergence,
+                );
                 return Ok(ObserverReplayReport::diverged(
                     ObserverReplayStatus::Invalid,
                     checked_batches,
                     checkpoint,
                     divergence,
+                    challenge_witness,
                 ));
             }
             let outcome =
                 replay::replay_commitment(&self.config, self.da.as_ref(), &checkpoint, &commitment)
                     .await?;
             let Some(next_checkpoint) = outcome.next_checkpoint else {
+                let divergence = outcome.divergence.expect("divergent outcome has details");
+                let challenge_witness = ChallengeWitness::from_divergence(
+                    &checkpoint,
+                    &commitment,
+                    outcome.status,
+                    &divergence,
+                );
                 return Ok(ObserverReplayReport::diverged(
                     outcome.status,
                     checked_batches,
                     checkpoint,
-                    outcome.divergence.expect("divergent outcome has details"),
+                    divergence,
+                    challenge_witness,
                 ));
             };
             checkpoint = next_checkpoint;
@@ -128,6 +149,7 @@ impl ObserverReplayService {
             checked_batches,
             latest_checkpoint: checkpoint,
             first_divergence: None,
+            challenge_witness: None,
         })
     }
 }
@@ -147,6 +169,7 @@ pub struct ObserverReplayReport {
     pub checked_batches: u64,
     pub latest_checkpoint: ObserverCheckpoint,
     pub first_divergence: Option<ObserverDivergence>,
+    pub challenge_witness: Option<ChallengeWitness>,
 }
 
 impl ObserverReplayReport {
@@ -155,12 +178,14 @@ impl ObserverReplayReport {
         checked_batches: u64,
         latest_checkpoint: ObserverCheckpoint,
         divergence: ObserverDivergence,
+        challenge_witness: Option<ChallengeWitness>,
     ) -> Self {
         Self {
             status,
             checked_batches,
             latest_checkpoint,
             first_divergence: Some(divergence),
+            challenge_witness,
         }
     }
 }

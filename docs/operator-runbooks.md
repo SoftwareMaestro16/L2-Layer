@@ -179,10 +179,17 @@ Actions:
 - For `invalid` with `field=state_root`, `tx_root`, `receipt_root`, or
   `withdrawal_root`, preserve the replay request, DA payload, and checkpoint
   metadata for challenge evidence.
+- If `challenge_witness` is present, preserve its `l1_inputs.evidence_hash`,
+  checkpoint summary, commitment summary, and divergence reason. A changed
+  witness must fail integrity validation and must not be posted by a future
+  challenger client.
 - Do not derive replay commitments from local L2 block JSON for incident review.
   Use RollupRoot readback or an exported commitment list.
 - Observer checkpoints are local audit state. They contain replayed L2 state and
   roots, but no wallet secrets or provider API keys.
+- Current RollupRoot contracts do not yet accept `ChallengeBatch`,
+  `RespondChallenge`, or `ResolveChallenge`; the witness documents the future L1
+  path but does not by itself block finalization on-chain.
 
 ### Batch Finalizer Failures
 

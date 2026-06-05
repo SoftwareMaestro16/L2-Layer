@@ -18,6 +18,10 @@ Implemented today:
 - The off-chain observer replay prototype accepts RollupRoot-shaped commitments,
   fetches DA by `dataHash`, replays canonical batch bytes from a trusted
   checkpoint, reports the first divergence, and stores observer checkpoints.
+- Divergent observer replay reports include `challenge_witness` v1 for
+  `missing_da`, `corrupt_da`, invalid root, and receipt mismatch findings. The
+  witness contains L1-facing `ChallengeBatch` inputs, checkpoint summary,
+  commitment summary, divergence details, and a domain-separated `evidence_hash`.
 - Rust tests cover deterministic batch roots, consensus golden vectors,
   sequencer replay-like flows, observer golden replay, tampered roots, and DA
   missing/corruption failures.
@@ -98,6 +102,40 @@ block linearly for smaller batches. The proof target becomes:
 - expected receipt,
 - claimed root values.
 
+## Witness Format V1
+
+Observer replay now emits a compact witness envelope for L1 challenge
+groundwork. It is not a complete on-chain proof yet; it is the stable evidence
+boundary between off-chain replay and future `RollupRoot` challenge messages.
+
+`challenge_witness.version = 1` contains:
+
+- `l1_inputs.message = "ChallengeBatch"`.
+- `l1_inputs.batch_no` and `block_height`.
+- `l1_inputs.challenge_kind_code`: `1 = missing_da`, `2 = invalid_transition`.
+- Optional `disputed_tx_index` and `field`.
+- Optional `expected_root`: the observer-replayed root or receipt leaf.
+- Optional `claimed_root`: the sequencer-committed root, DA hash, or DA-provided
+  leaf/hash being challenged.
+- `l1_inputs.evidence_hash`.
+- `checkpoint`: next batch, next block, trusted state root, and checkpoint
+  integrity hash.
+- `commitment`: block hash, roots, and data hash read from the supplied
+  RollupRoot-shaped commitment.
+- `divergence`: safe reason code and first mismatch details.
+- `path`: open/response/resolve message names and timeout rule.
+
+The evidence hash is:
+
+```text
+hash_domain("l2.challenge.witness.v1", canonical witness fields without evidence_hash)
+```
+
+Changing the claimed root, expected root, checkpoint summary, commitment summary,
+field, tx index, or reason changes `evidence_hash`. The observer validates
+checkpoint integrity before witness generation, and witness consumers should call
+the Rust `validate_integrity()` equivalent before posting a challenge.
+
 ## Future L1 Message Sketch
 
 These messages are intentionally not implemented yet. Names and fields are the
@@ -107,9 +145,9 @@ public interface target for future Tolk work.
 struct (0x4c324348) ChallengeBatch {
     batchNo: uint64
     challengeKind: uint8  // 1 = missing_da, 2 = invalid_transition
-    disputedTxIndex: uint32
-    expectedRoot: uint256
-    claimedRoot: uint256
+    disputedTxIndex: uint32  // optional in witness v1; zero/ignored for missing_da
+    expectedRoot: uint256    // replayed root for invalid_transition; zero for missing_da
+    claimedRoot: uint256     // committed root or dataHash
     evidenceHash: uint256
 }
 
@@ -168,6 +206,8 @@ execution and challenges the mismatched root.
 Missing DA:
 Challenger opens a missing-DA challenge. The sequencer must respond with payload
 or a backend-specific availability proof before the response deadline.
+Corrupt DA follows the same L1 path: a challenger opens a DA challenge with the
+committed `dataHash`; the sequencer must provide bytes that hash to that value.
 
 Sequencer censorship:
 Future forced inclusion queue lets users submit transaction hashes/data

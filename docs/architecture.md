@@ -205,6 +205,13 @@ checkpoint, recomputes `txRoot`, `receiptRoot`, `withdrawalRoot`, and `stateRoot
 and reports the first divergence. It stores observer checkpoints for bounded
 future replays, but it does not submit on-chain challenges.
 
+Divergent replay reports include `challenge_witness` v1. The witness maps the
+first invalid/missing-DA finding into future `ChallengeBatch` inputs, a
+checkpoint summary, a commitment summary, a safe divergence reason, and
+`evidence_hash = hash_domain("l2.challenge.witness.v1", ...)`. This gives a
+stable off-chain evidence package for operators and future challenger clients;
+it is not yet an L1 verifier.
+
 Missing DA is handled separately as an availability finding: no payload means the
 batch cannot be independently replayed. Future L1 challenge logic should turn
 that finding into a finalization block until the sequencer responds with data or

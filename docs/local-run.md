@@ -444,6 +444,14 @@ RollupRoot getter client; the observer must not derive them from local L2 block
 JSON. Stored checkpoints include the replayed state snapshot and root so a later
 bounded range can start from the last trusted point.
 
+If replay returns `missing_da`, `corrupt_da`, or `invalid`, the response includes
+`challenge_witness` when the finding maps to the future L1 challenge path. The
+witness includes `l1_inputs.message = "ChallengeBatch"`, `challenge_kind_code`
+(`1` for DA, `2` for invalid transition), optional field/tx index, expected and
+claimed roots when applicable, checkpoint and commitment summaries, and an
+`evidence_hash`. Treat it as off-chain evidence only: the current testnet root
+does not yet accept challenge messages.
+
 ## TON deposit indexer
 
 The deposit indexer is disabled by default. Enable it only after `AssetVault` is
