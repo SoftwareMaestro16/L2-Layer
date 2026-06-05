@@ -6,6 +6,7 @@ import {
   accountIdFromKeyPair,
   buildCallContractTransaction,
   buildDeployContractTransaction,
+  enwalletKeyPairFromMnemonic,
   enwalletV5CodeHash,
   enwalletV5InitialState,
   enwalletV5SignedExternalBodyBase64,
@@ -25,6 +26,8 @@ import {
   ENWALLET_V5R1_TESTNET_WALLET_ID,
   L2_ZERO_ACCOUNT_ID,
   l2RawAddress,
+  l2UserFriendlyAddress,
+  validateEnWalletMnemonic,
 } from "./index.js";
 
 function hash(byte: number): string {
@@ -163,6 +166,24 @@ test("sample counter storage helpers decode account state and reject mismatches"
       }),
     /single-root TON BoC/,
   );
+});
+
+test("EnWallet mnemonic derivation matches browser BIP39 seed flow", async () => {
+  const words =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art".split(
+      " ",
+    );
+  const keyPair = await enwalletKeyPairFromMnemonic(words);
+  const owner = accountIdFromKeyPair(keyPair);
+
+  assert.equal(await validateEnWalletMnemonic(words), true);
+  assert.equal(
+    Buffer.from(keyPair.publicKey).toString("hex"),
+    "6671dc29cf9f793b1e540d092ae8efb93823db42b3d0a526de6e00dd34ddddf1",
+  );
+  assert.equal(owner, "69fc6aa088fc02a3c46c0fb87ea5fedff7c35a758fe4cbe161a62596cec79d5d");
+  assert.equal(l2UserFriendlyAddress(owner), "EXhp_GqgiPwCo8RsD7h-pf7f98NadY_ky-FhpiWWzsedXdX4");
+  assert.equal(await validateEnWalletMnemonic([...words.slice(0, -1), "zoo"]), false);
 });
 
 test("EnWallet V5 helpers derive init state and signed wallet body", () => {

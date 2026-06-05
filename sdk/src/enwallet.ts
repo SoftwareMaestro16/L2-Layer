@@ -1,10 +1,5 @@
 import { beginCell, Cell, Dictionary, storeStateInit } from "@ton/core";
-import {
-  mnemonicNew,
-  mnemonicToPrivateKey,
-  mnemonicValidate,
-  type KeyPair,
-} from "@ton/crypto";
+import { mnemonicWordList } from "@ton/crypto";
 import nacl from "tweetnacl";
 import { type Hash32 } from "./address.js";
 import { deriveAccountId, hashDomain } from "./consensus.js";
@@ -26,6 +21,14 @@ type UIntLike = bigint | number | string;
 export const ENWALLET_V5R1_INTERFACE = "org.ton.wallet.v5.r1";
 export const ENWALLET_V5R1_LABEL = "Wallet Signed External V5 R1";
 export const ENWALLET_V5R1_TESTNET_WALLET_ID = 0x7ffffffdn;
+const ENWALLET_ED25519_SEED_DOMAIN = "entropis.enwallet.ed25519.seed.v1";
+const ENWALLET_MNEMONIC_WORD_COUNT = 24;
+const ENWALLET_MNEMONIC_ENTROPY_BYTES = 32;
+const BIP39_PBKDF2_ITERATIONS = 2048;
+const BIP39_SEED_BITS = 512;
+const BIP39_WORD_BITS = 11;
+const BIP39_WORDS = mnemonicWordList as readonly string[];
+const BIP39_WORD_INDEX = new Map(BIP39_WORDS.map((word, index) => [word, index]));
 
 export interface EnWalletV5InitialState {
   interface: typeof ENWALLET_V5R1_INTERFACE;
@@ -53,16 +56,22 @@ export interface EnWalletV5DeployParams
 }
 
 export async function createEnWalletMnemonic(): Promise<string[]> {
-  return mnemonicNew(24);
+  return mnemonicFromEntropy(randomBytes(ENWALLET_MNEMONIC_ENTROPY_BYTES));
 }
 
 export async function validateEnWalletMnemonic(words: string[]): Promise<boolean> {
-  return mnemonicValidate(words);
+  return validateBip39Mnemonic(words);
 }
 
 export async function enwalletKeyPairFromMnemonic(words: string[]): Promise<nacl.SignKeyPair> {
-  const keyPair = await mnemonicToPrivateKey(words);
-  return tonKeyPairToNacl(keyPair);
+  if (!(await validateEnWalletMnemonic(words))) {
+    throw new Error("invalid EnWallet mnemonic");
+  }
+  const mnemonicSeed = await bip39Seed(normalizeMnemonicWords(words));
+  const signingSeed = await sha256Bytes(
+    concatBytes(utf8Bytes(ENWALLET_ED25519_SEED_DOMAIN), mnemonicSeed),
+  );
+  return nacl.sign.keyPair.fromSeed(signingSeed);
 }
 
 export function enwalletV5CodeBocBase64(): string {
@@ -205,15 +214,6 @@ function signWalletRequest(unsigned: Cell, keyPair: nacl.SignKeyPair): string {
     .toString("base64");
 }
 
-function tonKeyPairToNacl(keyPair: KeyPair): nacl.SignKeyPair {
-  const publicKey = Uint8Array.from(keyPair.publicKey);
-  const signingKeyBytes = Uint8Array.from(keyPair.secretKey);
-  if (publicKey.length !== 32 || signingKeyBytes.length !== 64) {
-    throw new Error("mnemonic did not produce an Ed25519 keypair");
-  }
-  return { publicKey, ["secretKey"]: signingKeyBytes } as nacl.SignKeyPair;
-}
-
 function normalizePublicKey(value: Uint8Array | string): Uint8Array {
   if (typeof value !== "string") {
     if (value.length !== 32) {
@@ -238,6 +238,128 @@ function toUint(value: UIntLike, field: string, bits: number): bigint {
     throw new Error(`${field} exceeds uint${bits}`);
   }
   return parsed;
+}
+
+function normalizeMnemonicWords(words: string[]): string[] {
+  return words
+    .map((word) => word.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+async function validateBip39Mnemonic(words: string[]): Promise<boolean> {
+  const normalized = normalizeMnemonicWords(words);
+  if (normalized.length !== ENWALLET_MNEMONIC_WORD_COUNT) {
+    return false;
+  }
+  const indices: number[] = [];
+  for (const word of normalized) {
+    const index = BIP39_WORD_INDEX.get(word);
+    if (index === undefined) {
+      return false;
+    }
+    indices.push(index);
+  }
+
+  const bits = indices.map((index) => index.toString(2).padStart(BIP39_WORD_BITS, "0")).join("");
+  const entropyBitsLength = Math.floor((bits.length * 32) / 33);
+  const checksumBitsLength = bits.length - entropyBitsLength;
+  if (entropyBitsLength !== ENWALLET_MNEMONIC_ENTROPY_BYTES * 8) {
+    return false;
+  }
+
+  const entropyBits = bits.slice(0, entropyBitsLength);
+  const checksumBits = bits.slice(entropyBitsLength);
+  const entropy = bitsToBytes(entropyBits);
+  const expectedChecksum = bytesToBits(await sha256Bytes(entropy)).slice(0, checksumBitsLength);
+  return checksumBits === expectedChecksum;
+}
+
+async function bip39Seed(words: string[]): Promise<Uint8Array> {
+  const phraseText = normalizeMnemonicWords(words).join(" ").normalize("NFKD");
+  const key = await webCrypto().subtle.importKey(
+    "raw",
+    toArrayBuffer(utf8Bytes(phraseText)),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await webCrypto().subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-512",
+      salt: toArrayBuffer(utf8Bytes("mnemonic")),
+      iterations: BIP39_PBKDF2_ITERATIONS,
+    },
+    key,
+    BIP39_SEED_BITS,
+  );
+  return new Uint8Array(bits);
+}
+
+async function mnemonicFromEntropy(entropy: Uint8Array): Promise<string[]> {
+  if (entropy.length !== ENWALLET_MNEMONIC_ENTROPY_BYTES) {
+    throw new Error("EnWallet mnemonic entropy must be 32 bytes");
+  }
+  const checksumLength = (entropy.length * 8) / 32;
+  const bits = `${bytesToBits(entropy)}${bytesToBits(await sha256Bytes(entropy)).slice(0, checksumLength)}`;
+  const words: string[] = [];
+  for (let offset = 0; offset < bits.length; offset += BIP39_WORD_BITS) {
+    const index = Number.parseInt(bits.slice(offset, offset + BIP39_WORD_BITS), 2);
+    words.push(BIP39_WORDS[index]);
+  }
+  return words;
+}
+
+function bitsToBytes(bits: string): Uint8Array {
+  if (bits.length % 8 !== 0) {
+    throw new Error("bit string length must be byte-aligned");
+  }
+  const bytes = new Uint8Array(bits.length / 8);
+  for (let offset = 0; offset < bits.length; offset += 8) {
+    bytes[offset / 8] = Number.parseInt(bits.slice(offset, offset + 8), 2);
+  }
+  return bytes;
+}
+
+function bytesToBits(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(2).padStart(8, "0")).join("");
+}
+
+async function sha256Bytes(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await webCrypto().subtle.digest("SHA-256", toArrayBuffer(bytes)));
+}
+
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  webCrypto().getRandomValues(bytes);
+  return bytes;
+}
+
+function concatBytes(...chunks: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+function utf8Bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const out = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(out).set(bytes);
+  return out;
+}
+
+function webCrypto(): Crypto {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Web Crypto API is required for EnWallet mnemonic derivation");
+  }
+  return globalThis.crypto;
 }
 
 function parseUint(value: UIntLike, field: string): bigint {
