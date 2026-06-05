@@ -10,6 +10,7 @@ desktop.ini
 /.codex/
 /PLAN.md
 /ecosystem/PLAN.md
+/ecosystem/
 
 # Logs and local diagnostics
 *.log
