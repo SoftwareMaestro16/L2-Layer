@@ -515,6 +515,7 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
     const LEADER_OWNER: &str = "entropis-local-sequencer";
     state.metrics.record_block_attempt();
     if !state.mempool.acquire_leader_lock(LEADER_OWNER).await? {
+        state.metrics.record_leader_lock_contention();
         state.metrics.record_empty_block();
         return Ok(None);
     }
@@ -525,6 +526,7 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
             .mempool
             .pop_batch(state.mempool_pop_batch_size)
             .await?;
+        let pending_user_txs = queued.iter().filter(|tx| !tx.is_system()).count() as u64;
         let mut sequencer = state.sequencer.write().await;
         let mut candidate = sequencer.clone();
         for tx in queued.iter().cloned() {
@@ -586,6 +588,14 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
         state
             .metrics
             .record_storage_save_block_latency(storage_started.elapsed());
+        let included_user_txs = block
+            .transactions
+            .iter()
+            .filter(|tx| !tx.is_system())
+            .count() as u64;
+        state
+            .metrics
+            .record_proposal_observation(pending_user_txs, included_user_txs);
         *sequencer = candidate;
         Ok(Some(block))
     }

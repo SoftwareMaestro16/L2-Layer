@@ -70,7 +70,30 @@ async fn operator_metrics_requires_admin_and_reports_node_metrics() {
 
     assert_eq!(metrics.0.node.block_production.produced, 1);
     assert_eq!(metrics.0.node.block_production.last_height, Some(0));
+    assert_eq!(metrics.0.node.proposer.mode, "single_trusted");
+    assert_eq!(metrics.0.node.proposer.proposal_observations, 1);
+    assert_eq!(metrics.0.node.proposer.leader_lock_contention, 0);
     assert_eq!(metrics.0.node.latency.storage_save_block.operations, 1);
+}
+
+#[tokio::test]
+async fn operator_metrics_reports_leader_lock_contention() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    state
+        .mempool
+        .acquire_leader_lock("competing-producer")
+        .await
+        .expect("leader lock");
+
+    let produced = produce_block_once(&state).await.expect("produce attempt");
+    assert!(produced.is_none());
+
+    let metrics = operator_metrics(State(state), auth_headers(ADMIN_TOKEN))
+        .await
+        .expect("operator metrics");
+    assert_eq!(metrics.0.node.block_production.empty, 1);
+    assert_eq!(metrics.0.node.proposer.leader_lock_contention, 1);
+    assert_eq!(metrics.0.node.proposer.proposal_observations, 0);
 }
 
 #[tokio::test]

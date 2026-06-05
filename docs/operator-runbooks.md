@@ -13,7 +13,7 @@ Public:
 Admin-only:
 
 - `GET /v1/operator/metrics`: node counters, mempool metrics, relayer/indexer
-  counters, and DA/storage latency snapshots.
+  counters, proposer signals, and DA/storage latency snapshots.
 - `GET /v1/operator/failures`: failed L1 batch relays and current failed
   withdrawal visibility status.
 - `GET /v1/operator/batch-relayer`: pending/submitted/failed/latest L1 commit
@@ -60,6 +60,9 @@ Suggested alert thresholds for testnet:
 
 - Mempool `queued_global` above 80% of `MEMPOOL_MAX_GLOBAL_QUEUE` for 5 minutes.
 - Any increase in `node.block_production.errors`.
+- Any increase in `node.proposer.leader_lock_contention`.
+- Sustained increase in `node.proposer.censorship_signals` while mempool queue
+  is non-empty.
 - No increase in `node.block_production.produced` for 2 block intervals while
   mempool queue is non-empty.
 - `node.relayer.failed` increases.
@@ -71,6 +74,13 @@ Suggested alert thresholds for testnet:
 
 The current metrics endpoint is JSON. Prometheus/OpenTelemetry export should map
 these counters and latency snapshots without changing the response semantics.
+
+`node.proposer.mode` is currently `single_trusted`. Proposer metrics are
+diagnostic signals only: `leader_lock_contention` means another producer held the
+local leader lock, `proposal_observations` counts saved block proposals, and
+`censorship_signals` is the accumulated difference between pending and included
+user transactions at successful production time. These counters do not activate
+multi-proposer consensus.
 
 ## Common Failures
 

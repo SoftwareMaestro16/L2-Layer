@@ -95,6 +95,9 @@ TON_L2_SKILLS = {
   ],
   sequencer_logic: [
     "Sequencer owns ordering in the MVP: ingest deposits, validate L2 txs, sort/canonicalize, execute deterministically, produce receipts and state root.",
+    "Proposer-set groundwork is model and observability only: the runtime remains single trusted sequencer until a separate consensus migration activates multiple proposers.",
+    "Future proposer identities include proposer_id, signer_account, reward_account, active/standby/suspended status, and stake_weight; the preview selection must stay deterministic and must not weaken current sequencer authorization.",
+    "Leader-lock contention is a duplicate-producer/liveness signal; pending versus included user transaction counts are censorship visibility signals exposed through operator metrics.",
     "Batch building should include previous state root, new state root, tx root, receipt root, withdrawal root, DA hash, and monotonic batch number.",
     "Deterministic batch building is isolated from mempool, execution, storage, Redis, network, and wall-clock reads; it consumes ordered txs, receipts, withdrawals, previous header/root, final state root, and an explicit timestamp.",
     "A produced L2 block must be committed to the in-memory sequencer state only after DA publish and storage save succeed; failed DA/storage writes must leave deposits/txs retryable and must not expose phantom account balances.",

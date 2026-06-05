@@ -36,6 +36,19 @@ target model introduces observer/challenger nodes, DA challenges, invalid
 transition challenges, challenge bonds, and forced inclusion without changing the
 current bridge behavior until the L1 verifier is implemented.
 
+## Sequencer And Proposer Groundwork
+
+The live MVP still runs one trusted sequencer. The node uses a leader lock so a
+second local producer attempt becomes an observable contention signal instead of
+silently producing a duplicate block. The proposer-set model in `l2-core` records
+future proposer identities, signer/reward accounts, active status, deterministic
+expected proposer order, duplicate proposal attempts, out-of-order attempts, and
+pending-versus-included user transaction signals, but it does not activate
+multi-proposer consensus.
+
+Future decentralization must add an explicit consensus migration before any
+stake-backed proposer rotation affects block validity or L1 commit authority.
+
 ## Hashing
 
 The MVP uses SHA-256 over domain-separated v1 consensus bytes. JSON is allowed for

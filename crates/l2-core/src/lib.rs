@@ -9,6 +9,9 @@ pub mod executor;
 pub mod gas;
 pub mod internal_queue;
 pub mod merkle;
+pub mod proposer;
+#[cfg(test)]
+mod proposer_tests;
 pub mod sequencer;
 mod sequencer_validation;
 pub mod staking;
@@ -52,6 +55,10 @@ pub use internal_queue::{
     DEFAULT_MAX_INTERNAL_MESSAGES_PER_BLOCK, DEFAULT_MAX_INTERNAL_QUEUE_LEN,
 };
 pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
+pub use proposer::{
+    ProposalObservation, ProposerIdentity, ProposerSelectionMode, ProposerSet, ProposerSetError,
+    ProposerSetSignals, ProposerStatus,
+};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};
 pub use staking::{
     RewardDistribution, RewardRequest, StakingConfig, StakingError, StakingState, UnbondingEntry,

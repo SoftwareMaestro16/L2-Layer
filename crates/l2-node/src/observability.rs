@@ -1,62 +1,19 @@
-use crate::config::{NodeConfig, SecretString};
-use async_trait::async_trait;
+mod readiness;
+
+pub use readiness::{
+    readiness_component, ComponentReadiness, DynTonReadinessProbe, HealthResponse, ReadinessError,
+    ReadinessReport, ReadyTonReadinessProbe, TonReadinessProbe, ToncenterReadinessClient,
+};
+
 use serde::Serialize;
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use thiserror::Error;
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct HealthResponse {
-    pub status: &'static str,
-    pub service: &'static str,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct ReadinessReport {
-    pub status: &'static str,
-    pub components: BTreeMap<&'static str, ComponentReadiness>,
-}
-
-impl ReadinessReport {
-    pub fn from_components(components: BTreeMap<&'static str, ComponentReadiness>) -> Self {
-        let ready = components.values().all(|component| component.ready);
-        Self {
-            status: if ready { "ready" } else { "not_ready" },
-            components,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct ComponentReadiness {
-    pub ready: bool,
-    pub code: &'static str,
-    pub latency_ms: u64,
-}
-
-impl ComponentReadiness {
-    pub fn ready(latency_ms: u64) -> Self {
-        Self {
-            ready: true,
-            code: "ok",
-            latency_ms,
-        }
-    }
-
-    pub fn failed(code: &'static str, latency_ms: u64) -> Self {
-        Self {
-            ready: false,
-            code,
-            latency_ms,
-        }
-    }
-}
+use std::sync::Mutex;
+use std::time::Duration;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct OperatorMetrics {
     pub block_production: BlockProductionMetrics,
+    pub proposer: ProposerMetrics,
     pub economics: EconomicsMetrics,
     pub indexer: IndexerMetrics,
     pub relayer: RelayerMetrics,
@@ -71,6 +28,29 @@ pub struct BlockProductionMetrics {
     pub empty: u64,
     pub errors: u64,
     pub last_height: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProposerMetrics {
+    pub mode: &'static str,
+    pub leader_lock_contention: u64,
+    pub proposal_observations: u64,
+    pub pending_user_txs: u64,
+    pub included_user_txs: u64,
+    pub censorship_signals: u64,
+}
+
+impl Default for ProposerMetrics {
+    fn default() -> Self {
+        Self {
+            mode: "single_trusted",
+            leader_lock_contention: 0,
+            proposal_observations: 0,
+            pending_user_txs: 0,
+            included_user_txs: 0,
+            censorship_signals: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -136,6 +116,11 @@ pub struct NodeMetrics {
     empty_blocks: AtomicU64,
     block_errors: AtomicU64,
     last_block_height_plus_one: AtomicU64,
+    leader_lock_contention: AtomicU64,
+    proposal_observations: AtomicU64,
+    proposal_pending_user_txs: AtomicU64,
+    proposal_included_user_txs: AtomicU64,
+    proposal_censorship_signals: AtomicU64,
     economics: Mutex<EconomicsTotals>,
     indexer_polls: AtomicU64,
     indexer_errors: AtomicU64,
@@ -179,6 +164,24 @@ impl NodeMetrics {
 
     pub fn record_block_error(&self) {
         self.block_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_leader_lock_contention(&self) {
+        self.leader_lock_contention.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_proposal_observation(&self, pending_user_txs: u64, included_user_txs: u64) {
+        self.proposal_observations.fetch_add(1, Ordering::Relaxed);
+        self.proposal_pending_user_txs
+            .fetch_add(pending_user_txs, Ordering::Relaxed);
+        self.proposal_included_user_txs
+            .fetch_add(included_user_txs, Ordering::Relaxed);
+        if pending_user_txs > included_user_txs {
+            self.proposal_censorship_signals.fetch_add(
+                pending_user_txs.saturating_sub(included_user_txs),
+                Ordering::Relaxed,
+            );
+        }
     }
 
     pub fn record_fee_distribution_events(&self, block: &l2_core::L2Block) {
@@ -298,6 +301,14 @@ impl NodeMetrics {
                 errors: self.block_errors.load(Ordering::Relaxed),
                 last_height: last_block_height_plus_one.checked_sub(1),
             },
+            proposer: ProposerMetrics {
+                mode: "single_trusted",
+                leader_lock_contention: self.leader_lock_contention.load(Ordering::Relaxed),
+                proposal_observations: self.proposal_observations.load(Ordering::Relaxed),
+                pending_user_txs: self.proposal_pending_user_txs.load(Ordering::Relaxed),
+                included_user_txs: self.proposal_included_user_txs.load(Ordering::Relaxed),
+                censorship_signals: self.proposal_censorship_signals.load(Ordering::Relaxed),
+            },
             economics,
             indexer: IndexerMetrics {
                 polls: self.indexer_polls.load(Ordering::Relaxed),
@@ -393,76 +404,4 @@ impl LatencyMetric {
 
 pub fn duration_ms(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-}
-
-pub async fn readiness_component<F, Fut>(code: &'static str, check: F) -> ComponentReadiness
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<(), ReadinessError>>,
-{
-    let started = Instant::now();
-    match check().await {
-        Ok(()) => ComponentReadiness::ready(duration_ms(started.elapsed())),
-        Err(_) => ComponentReadiness::failed(code, duration_ms(started.elapsed())),
-    }
-}
-
-#[async_trait]
-pub trait TonReadinessProbe: Send + Sync {
-    async fn check(&self) -> Result<(), ReadinessError>;
-}
-
-pub type DynTonReadinessProbe = Arc<dyn TonReadinessProbe>;
-
-#[derive(Clone, Debug)]
-pub struct ToncenterReadinessClient {
-    base_url: String,
-    api_key: SecretString,
-    client: reqwest::Client,
-}
-
-impl ToncenterReadinessClient {
-    pub fn from_config(config: &NodeConfig) -> Result<Self, ReadinessError> {
-        Ok(Self {
-            base_url: config
-                .toncenter_v3_base_url
-                .trim_end_matches('/')
-                .to_owned(),
-            api_key: config.toncenter_api_key.clone(),
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(3))
-                .build()?,
-        })
-    }
-}
-
-#[async_trait]
-impl TonReadinessProbe for ToncenterReadinessClient {
-    async fn check(&self) -> Result<(), ReadinessError> {
-        self.client
-            .get(format!("{}/masterchainInfo", self.base_url))
-            .header("X-API-Key", self.api_key.expose())
-            .send()
-            .await?
-            .error_for_status()?;
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ReadyTonReadinessProbe;
-
-#[async_trait]
-impl TonReadinessProbe for ReadyTonReadinessProbe {
-    async fn check(&self) -> Result<(), ReadinessError> {
-        Ok(())
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum ReadinessError {
-    #[error("ton readiness HTTP request failed")]
-    Http(#[from] reqwest::Error),
-    #[error("component is unavailable")]
-    Unavailable,
 }
