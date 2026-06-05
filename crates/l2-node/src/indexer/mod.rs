@@ -413,5 +413,9 @@ pub enum IndexerError {
 }
 
 #[cfg(test)]
+#[path = "security_tests.rs"]
+mod security_tests;
+
+#[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
