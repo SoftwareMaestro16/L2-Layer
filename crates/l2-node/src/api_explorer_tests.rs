@@ -2,11 +2,12 @@ use super::*;
 use axum::extract::Query;
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
-    canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address, L2TransactionKind,
-    Receipt, SignedL2Transaction, WithdrawalLeaf, ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE,
-    ENWALLET_V5R1_LABEL, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1,
-    L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2, L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL,
-    L2_ZERO_FRIENDLY_ADDRESS, L2_ZERO_RAW_ADDRESS,
+    canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address,
+    sample_counter_initial_state, L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf,
+    ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL, L2_NATIVE_GAS_ASSET,
+    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+    L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL, L2_ZERO_FRIENDLY_ADDRESS,
+    L2_ZERO_RAW_ADDRESS,
 };
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -321,6 +322,10 @@ async fn explorer_summary_and_blocks_are_public() {
     assert_eq!(summary.latest_block.as_ref().unwrap().height, 0);
     assert_eq!(summary.latest_block.as_ref().unwrap().deposit_count, 1);
     assert_eq!(summary.latest_block.as_ref().unwrap().withdrawal_count, 1);
+    assert_eq!(summary.block_count, 1);
+    assert_eq!(summary.transaction_count, 1);
+    assert_eq!(summary.deposit_count, 1);
+    assert_eq!(summary.withdrawal_count, 1);
     assert_eq!(
         summary.latest_batch_commit.as_ref().unwrap().status,
         "pending"
@@ -399,4 +404,138 @@ async fn explorer_withdrawal_status_tracks_finalization_without_claim_proof() {
         .0;
     assert_eq!(finalized.status, "finalized");
     assert!(finalized.proof_available);
+}
+
+#[tokio::test]
+async fn explorer_account_assets_return_l2_balances_as_tokens() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"asset-account");
+    {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(account_id);
+        account.credit(0, 123);
+        account.credit(7, 456);
+    }
+
+    let assets = explorer_account_assets(State(state), Path(account_id.to_hex()))
+        .await
+        .expect("assets")
+        .0;
+
+    assert_eq!(assets.tokens.len(), 2);
+    assert_eq!(assets.tokens[0].symbol, "ENT");
+    assert_eq!(assets.tokens[1].asset_id, 7);
+    assert!(assets.collectibles.is_empty());
+}
+
+#[tokio::test]
+async fn explorer_account_code_returns_boc_views_and_unverified_source() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"code-account");
+    let sample = sample_counter_initial_state(3);
+    {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(account_id);
+        account.mark_contract_account();
+        account.code_hash = sample.code_hash;
+        account.data_hash = sample.data_hash;
+        account.storage_root = sample.storage_root;
+        account.code_boc_base64 = Some(sample.code_boc_base64);
+        account.data_boc_base64 = Some(sample.data_boc_base64);
+    }
+
+    let code = explorer_account_code(State(state), Path(account_id.to_hex()))
+        .await
+        .expect("code")
+        .0;
+
+    assert_eq!(code.bytecode.root_hash, sample.code_hash);
+    assert_eq!(code.bytecode.hex_hash, sample.code_hash.to_hex());
+    assert_eq!(code.raw_data.root_hash, sample.data_hash);
+    assert_eq!(code.source.status, "not_found");
+}
+
+#[tokio::test]
+async fn explorer_verifier_submission_is_pending_until_reviewed() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let code_hash = sha256_bytes(b"verified-code");
+    let pending = explorer_verifier_submit(
+        State(state.clone()),
+        Json(explorer::account::VerifierSubmitRequest {
+            account_id: None,
+            code_hash: Some(code_hash.to_hex()),
+            files: vec![crate::storage::VerifierSourceFile {
+                path: "main.tolk".to_owned(),
+                content: "fun main() {}".to_owned(),
+            }],
+        }),
+    )
+    .await
+    .expect("submit")
+    .0;
+
+    assert_eq!(pending.status, "pending");
+    assert!(pending.files.is_empty());
+    let submission_id = pending.submission_id.expect("submission id");
+
+    let verified = admin_explorer_verifier_review(
+        State(state),
+        Path(submission_id.to_hex()),
+        Json(explorer::account::VerifierReviewRequest {
+            status: "verified".to_owned(),
+        }),
+    )
+    .await
+    .expect("review")
+    .0;
+
+    assert_eq!(verified.status, "verified");
+    assert_eq!(verified.files.len(), 1);
+}
+
+#[tokio::test]
+async fn explorer_tx_flow_maps_transfer_and_receipt() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let from = sha256_bytes(b"flow-sender");
+    let to = sha256_bytes(b"flow-recipient");
+    let tx = user_tx(
+        from,
+        0,
+        L2TransactionKind::Transfer {
+            to,
+            asset_id: 0,
+            amount: 99,
+        },
+    );
+    let block = L2Block::new(
+        4,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"flow-state"),
+        vec![tx.clone()],
+        vec![Receipt::rejected_with_gas(
+            tx.tx_hash(),
+            "insufficient_balance",
+            3,
+        )],
+        vec![],
+        canonical_batch_data_hash(std::slice::from_ref(&tx), &[]),
+        333,
+    );
+    state.storage.save_block(block).await.unwrap();
+
+    let detail = explorer_tx(State(state), Path(tx.tx_hash().to_hex()))
+        .await
+        .expect("detail")
+        .0;
+
+    assert!(detail.flow.iter().any(|node| node.role == "from"));
+    assert!(detail.flow.iter().any(|node| node.role == "value"));
+    let receipt = detail
+        .flow
+        .iter()
+        .find(|node| node.role == "receipt")
+        .expect("receipt node");
+    assert_eq!(receipt.status, Some("rejected"));
+    assert_eq!(receipt.gas_charged.as_deref(), Some("3"));
 }

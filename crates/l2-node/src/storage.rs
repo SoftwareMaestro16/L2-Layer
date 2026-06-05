@@ -36,6 +36,56 @@ pub struct StoredTransaction {
     pub receipt: Option<Receipt>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExplorerStorageStats {
+    pub block_count: u64,
+    pub transaction_count: u64,
+    pub deposit_count: u64,
+    pub withdrawal_count: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerifierStatus {
+    Pending,
+    Verified,
+    Rejected,
+}
+
+impl VerifierStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Verified => "verified",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "verified" => Some(Self::Verified),
+            "rejected" => Some(Self::Rejected),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VerifierSourceFile {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VerifierSubmissionRecord {
+    pub submission_id: Hash32,
+    pub code_hash: Hash32,
+    pub account_id: Option<Hash32>,
+    pub status: VerifierStatus,
+    pub files: Vec<VerifierSourceFile>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct L1Cursor {
     pub lt: u64,
@@ -209,6 +259,7 @@ pub trait Storage: Send + Sync {
         &self,
         hash: Hash32,
     ) -> Result<Option<StoredTransaction>, StorageError>;
+    async fn explorer_storage_stats(&self) -> Result<ExplorerStorageStats, StorageError>;
     async fn list_account_transactions(
         &self,
         account_id: Hash32,
@@ -271,6 +322,19 @@ pub trait Storage: Send + Sync {
         &self,
         account_id: Hash32,
     ) -> Result<Option<StoredContractState>, StorageError>;
+    async fn save_verifier_submission(
+        &self,
+        submission: VerifierSubmissionRecord,
+    ) -> Result<(), StorageError>;
+    async fn get_verifier_source(
+        &self,
+        code_hash: Hash32,
+    ) -> Result<Option<VerifierSubmissionRecord>, StorageError>;
+    async fn review_verifier_submission(
+        &self,
+        submission_id: Hash32,
+        status: VerifierStatus,
+    ) -> Result<Option<VerifierSubmissionRecord>, StorageError>;
     async fn save_internal_queue_snapshot(
         &self,
         record: InternalQueueSnapshotRecord,
@@ -301,6 +365,7 @@ pub struct InMemoryStorage {
     contract_code_cells: RwLock<BTreeMap<Hash32, StoredContractCodeCell>>,
     contract_data_cells: RwLock<BTreeMap<Hash32, StoredContractDataCell>>,
     contract_accounts: RwLock<BTreeMap<Hash32, (Account, u64)>>,
+    verifier_submissions: RwLock<BTreeMap<Hash32, VerifierSubmissionRecord>>,
     internal_queue_snapshots: RwLock<BTreeMap<u64, InternalQueueSnapshotRecord>>,
     observer_checkpoints: RwLock<BTreeMap<u64, ObserverCheckpoint>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
@@ -368,6 +433,26 @@ impl Storage for InMemoryStorage {
             }
         }
         Ok(None)
+    }
+
+    async fn explorer_storage_stats(&self) -> Result<ExplorerStorageStats, StorageError> {
+        let blocks = self.blocks.read().await;
+        Ok(ExplorerStorageStats {
+            block_count: blocks.len() as u64,
+            transaction_count: blocks
+                .iter()
+                .map(|block| block.transactions.len() as u64)
+                .sum(),
+            deposit_count: blocks
+                .iter()
+                .flat_map(|block| &block.transactions)
+                .filter(|tx| matches!(tx.kind, l2_core::L2TransactionKind::Deposit { .. }))
+                .count() as u64,
+            withdrawal_count: blocks
+                .iter()
+                .map(|block| block.withdrawals.len() as u64)
+                .sum(),
+        })
     }
 
     async fn list_account_transactions(
@@ -658,6 +743,50 @@ impl Storage for InMemoryStorage {
             data_cell,
             last_block_height,
         }))
+    }
+
+    async fn save_verifier_submission(
+        &self,
+        submission: VerifierSubmissionRecord,
+    ) -> Result<(), StorageError> {
+        self.verifier_submissions
+            .write()
+            .await
+            .entry(submission.submission_id)
+            .or_insert(submission);
+        Ok(())
+    }
+
+    async fn get_verifier_source(
+        &self,
+        code_hash: Hash32,
+    ) -> Result<Option<VerifierSubmissionRecord>, StorageError> {
+        Ok(self
+            .verifier_submissions
+            .read()
+            .await
+            .values()
+            .filter(|submission| submission.code_hash == code_hash)
+            .filter(|submission| submission.status != VerifierStatus::Rejected)
+            .max_by_key(|submission| match submission.status {
+                VerifierStatus::Verified => 2u8,
+                VerifierStatus::Pending => 1u8,
+                VerifierStatus::Rejected => 0u8,
+            })
+            .cloned())
+    }
+
+    async fn review_verifier_submission(
+        &self,
+        submission_id: Hash32,
+        status: VerifierStatus,
+    ) -> Result<Option<VerifierSubmissionRecord>, StorageError> {
+        let mut submissions = self.verifier_submissions.write().await;
+        let Some(submission) = submissions.get_mut(&submission_id) else {
+            return Ok(None);
+        };
+        submission.status = status;
+        Ok(Some(submission.clone()))
     }
 
     async fn save_internal_queue_snapshot(

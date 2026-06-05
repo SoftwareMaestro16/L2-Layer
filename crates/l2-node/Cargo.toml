@@ -15,6 +15,7 @@ async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 dotenvy.workspace = true
+hex.workspace = true
 l2-core = { path = "../l2-core" }
 num-bigint.workspace = true
 redis.workspace = true

@@ -47,8 +47,10 @@ use contract::get_contract_state;
 use da::{get_batch_da_payload, get_batch_da_payload_by_hash};
 use error::ApiError;
 use explorer::{
-    explorer_account, explorer_account_transactions, explorer_blocks, explorer_deposit,
-    explorer_deposits, explorer_summary, explorer_tx, explorer_withdrawal, get_withdrawal_proof,
+    admin_explorer_verifier_review, explorer_account, explorer_account_assets,
+    explorer_account_code, explorer_account_transactions, explorer_blocks, explorer_code_source,
+    explorer_deposit, explorer_deposits, explorer_summary, explorer_tx, explorer_verifier_submit,
+    explorer_withdrawal, get_withdrawal_proof,
 };
 use mempool_ingress::MempoolIngressGuard;
 use operator::{
@@ -233,10 +235,27 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/explorer/deposits", get(explorer_deposits))
         .route("/v1/explorer/account/:id", get(explorer_account))
         .route(
+            "/v1/explorer/account/:id/assets",
+            get(explorer_account_assets),
+        )
+        .route("/v1/explorer/account/:id/code", get(explorer_account_code))
+        .route(
             "/v1/explorer/account/:id/transactions",
             get(explorer_account_transactions),
         )
         .route("/v1/explorer/tx/:hash", get(explorer_tx))
+        .route(
+            "/v1/explorer/code/:code_hash/source",
+            get(explorer_code_source),
+        )
+        .route(
+            "/v1/explorer/verifier/submissions",
+            post(explorer_verifier_submit),
+        )
+        .route(
+            "/v1/admin/explorer/verifier/submissions/:submission_id/review",
+            post(admin_review_verifier_submission),
+        )
         .route("/v1/explorer/deposit/:id", get(explorer_deposit))
         .route("/v1/explorer/withdrawal/:id", get(explorer_withdrawal))
         .route("/v1/proof/withdrawal/:id", get(get_withdrawal_proof))
@@ -312,6 +331,16 @@ async fn admin_ent_faucet(
     }
 
     Ok(Json(grant.response))
+}
+
+async fn admin_review_verifier_submission(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(submission_id): Path<String>,
+    Json(request): Json<explorer::account::VerifierReviewRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.admin_auth.authorize(&headers)?;
+    admin_explorer_verifier_review(State(state), Path(submission_id), Json(request)).await
 }
 
 async fn get_account(

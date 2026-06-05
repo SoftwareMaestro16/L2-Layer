@@ -10,7 +10,11 @@ use serde::{Deserialize, Serialize};
 
 pub(in crate::api) mod account;
 
-pub(super) use account::{explorer_account, explorer_account_transactions, explorer_tx};
+pub(super) use account::{
+    admin_explorer_verifier_review, explorer_account, explorer_account_assets,
+    explorer_account_code, explorer_account_transactions, explorer_code_source, explorer_tx,
+    explorer_verifier_submit,
+};
 
 const DEFAULT_LIMIT: usize = 20;
 const MAX_LIMIT: usize = 100;
@@ -35,6 +39,13 @@ pub(super) struct ExplorerSummary {
     pub(super) latest_confirmed_commit: Option<ExplorerBatchStatus>,
     pub(super) latest_finalization: Option<ExplorerFinalizationStatus>,
     pub(super) latest_finalized_batch: Option<ExplorerFinalizationStatus>,
+    pub(super) block_count: u64,
+    pub(super) transaction_count: u64,
+    pub(super) deposit_count: u64,
+    pub(super) withdrawal_count: u64,
+    pub(super) live_account_count: u64,
+    #[serde(with = "l2_core::serde_u128_string")]
+    pub(super) live_ent_supply: u128,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -99,6 +110,7 @@ pub(super) struct ExplorerFinalizationStatus {
 pub(super) async fn explorer_summary(
     State(state): State<AppState>,
 ) -> Result<Json<ExplorerSummary>, ApiError> {
+    let storage_stats = state.storage.explorer_storage_stats().await?;
     let latest_batch_commit = state.storage.latest_batch_commit(&[]).await?;
     let latest_height = latest_batch_commit
         .as_ref()
@@ -134,6 +146,23 @@ pub(super) async fn explorer_summary(
             .await?
             .as_ref()
             .map(finalization_status),
+        block_count: storage_stats.block_count,
+        transaction_count: storage_stats.transaction_count,
+        deposit_count: storage_stats.deposit_count,
+        withdrawal_count: storage_stats.withdrawal_count,
+        live_account_count: {
+            let sequencer = state.sequencer.read().await;
+            sequencer.state.accounts.len() as u64
+        },
+        live_ent_supply: {
+            let sequencer = state.sequencer.read().await;
+            sequencer
+                .state
+                .accounts
+                .values()
+                .map(|account| account.balance(l2_core::L2_NATIVE_GAS_ASSET))
+                .sum()
+        },
     }))
 }
 

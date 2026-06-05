@@ -1,12 +1,13 @@
 use async_trait::async_trait;
 use l2_core::{DepositEvent, Hash32, L2Block, WithdrawalProof};
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
-    InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage, StorageError,
-    StoredBatchPayload, StoredContractState, StoredTransaction,
+    ExplorerStorageStats, InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage,
+    StorageError, StoredBatchPayload, StoredContractState, StoredTransaction, VerifierSourceFile,
+    VerifierStatus, VerifierSubmissionRecord,
 };
 use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
 use crate::storage::{
@@ -186,6 +187,29 @@ impl Storage for PostgresStorage {
             transaction: serde_json::from_value(transaction)?,
             receipt: receipt.map(serde_json::from_value).transpose()?,
         }))
+    }
+
+    async fn explorer_storage_stats(&self) -> Result<ExplorerStorageStats, StorageError> {
+        let block_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM l2_blocks")
+            .fetch_one(&self.pool)
+            .await?;
+        let transaction_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM l2_transactions")
+            .fetch_one(&self.pool)
+            .await?;
+        let deposit_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM l2_transactions WHERE tx_json #>> '{kind,Deposit,deposit_id}' IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let withdrawal_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM l2_withdrawals")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(ExplorerStorageStats {
+            block_count: block_count as u64,
+            transaction_count: transaction_count as u64,
+            deposit_count: deposit_count as u64,
+            withdrawal_count: withdrawal_count as u64,
+        })
     }
 
     async fn list_account_transactions(
@@ -532,6 +556,75 @@ impl Storage for PostgresStorage {
         postgres_contracts::get_contract_state(&self.pool, account_id).await
     }
 
+    async fn save_verifier_submission(
+        &self,
+        submission: VerifierSubmissionRecord,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            r#"
+            INSERT INTO contract_source_submissions (
+                submission_id, code_hash, account_id, status, files_json
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (submission_id) DO NOTHING
+            "#,
+        )
+        .bind(submission.submission_id.to_hex())
+        .bind(submission.code_hash.to_hex())
+        .bind(submission.account_id.map(Hash32::to_hex))
+        .bind(submission.status.as_str())
+        .bind(serde_json::to_value(&submission.files)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_verifier_source(
+        &self,
+        code_hash: Hash32,
+    ) -> Result<Option<VerifierSubmissionRecord>, StorageError> {
+        let Some(row) = sqlx::query(
+            r#"
+            SELECT submission_id, code_hash, account_id, status, files_json
+            FROM contract_source_submissions
+            WHERE code_hash = $1 AND status IN ('pending', 'verified')
+            ORDER BY CASE status WHEN 'verified' THEN 2 WHEN 'pending' THEN 1 ELSE 0 END DESC,
+                     created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(code_hash.to_hex())
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+        verifier_submission_from_row(row)
+    }
+
+    async fn review_verifier_submission(
+        &self,
+        submission_id: Hash32,
+        status: VerifierStatus,
+    ) -> Result<Option<VerifierSubmissionRecord>, StorageError> {
+        let Some(row) = sqlx::query(
+            r#"
+            UPDATE contract_source_submissions
+            SET status = $2, reviewed_at = now()
+            WHERE submission_id = $1
+            RETURNING submission_id, code_hash, account_id, status, files_json
+            "#,
+        )
+        .bind(submission_id.to_hex())
+        .bind(status.as_str())
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+        verifier_submission_from_row(row)
+    }
+
     async fn save_internal_queue_snapshot(
         &self,
         record: InternalQueueSnapshotRecord,
@@ -555,4 +648,37 @@ impl Storage for PostgresStorage {
     async fn latest_observer_checkpoint(&self) -> Result<Option<ObserverCheckpoint>, StorageError> {
         postgres_observer::latest_observer_checkpoint(&self.pool).await
     }
+}
+
+fn verifier_submission_from_row(
+    row: PgRow,
+) -> Result<Option<VerifierSubmissionRecord>, StorageError> {
+    let submission_id: String = row.try_get("submission_id")?;
+    let code_hash: String = row.try_get("code_hash")?;
+    let account_id: Option<String> = row.try_get("account_id")?;
+    let status: String = row.try_get("status")?;
+    let files_json: serde_json::Value = row.try_get("files_json")?;
+    Ok(Some(VerifierSubmissionRecord {
+        submission_id: Hash32::from_hex(&submission_id).map_err(|_| StorageError::InvalidHash {
+            field: "contract_source_submissions.submission_id",
+            value: submission_id,
+        })?,
+        code_hash: Hash32::from_hex(&code_hash).map_err(|_| StorageError::InvalidHash {
+            field: "contract_source_submissions.code_hash",
+            value: code_hash,
+        })?,
+        account_id: account_id
+            .map(|value| {
+                Hash32::from_hex(&value).map_err(|_| StorageError::InvalidHash {
+                    field: "contract_source_submissions.account_id",
+                    value,
+                })
+            })
+            .transpose()?,
+        status: VerifierStatus::parse(&status).ok_or(StorageError::InvalidStatus {
+            field: "contract_source_submissions.status",
+            value: status,
+        })?,
+        files: serde_json::from_value::<Vec<VerifierSourceFile>>(files_json)?,
+    }))
 }

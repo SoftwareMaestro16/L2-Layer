@@ -1,6 +1,9 @@
 use super::super::{ApiError, AppState};
 use super::bounded_limit;
-use crate::storage::StoredTransaction;
+use crate::storage::{
+    StoredContractState, StoredTransaction, VerifierSourceFile, VerifierStatus,
+    VerifierSubmissionRecord,
+};
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use l2_core::{
@@ -10,6 +13,11 @@ use l2_core::{
     ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL, L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+const MAX_VERIFIER_FILES: usize = 16;
+const MAX_VERIFIER_FILE_BYTES: usize = 128 * 1024;
+const MAX_VERIFIER_TOTAL_BYTES: usize = 512 * 1024;
 
 #[derive(Clone, Debug, Serialize)]
 pub(in crate::api) struct ExplorerAccount {
@@ -37,6 +45,30 @@ pub(in crate::api) struct ExplorerBalance {
     pub(in crate::api) asset_id: u32,
     #[serde(with = "l2_core::serde_u128_string")]
     pub(in crate::api) amount: u128,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerAccountAssets {
+    pub(in crate::api) tokens: Vec<ExplorerTokenHolding>,
+    pub(in crate::api) collectibles: Vec<ExplorerCollectible>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerTokenHolding {
+    pub(in crate::api) id: String,
+    pub(in crate::api) asset_id: u32,
+    pub(in crate::api) symbol: String,
+    pub(in crate::api) name: String,
+    pub(in crate::api) decimals: u8,
+    #[serde(with = "l2_core::serde_u128_string")]
+    pub(in crate::api) amount: u128,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerCollectible {
+    pub(in crate::api) id: String,
+    pub(in crate::api) name: String,
+    pub(in crate::api) collection: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -92,6 +124,7 @@ pub(in crate::api) struct ExplorerParticipant {
 pub(in crate::api) struct ExplorerTransactionDetail {
     #[serde(flatten)]
     pub(in crate::api) summary: ExplorerTransactionSummary,
+    pub(in crate::api) flow: Vec<ExplorerTransactionFlowNode>,
     pub(in crate::api) chain_id: String,
     pub(in crate::api) nonce: u64,
     pub(in crate::api) gas_limit: u64,
@@ -104,6 +137,69 @@ pub(in crate::api) struct ExplorerTransactionDetail {
     pub(in crate::api) state_root: Hash32,
     pub(in crate::api) raw_transaction: SignedL2Transaction,
     pub(in crate::api) raw_receipt: Option<Receipt>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerTransactionFlowNode {
+    pub(in crate::api) id: String,
+    pub(in crate::api) label: String,
+    pub(in crate::api) role: String,
+    pub(in crate::api) account_id: Option<Hash32>,
+    pub(in crate::api) raw_address: Option<String>,
+    pub(in crate::api) user_friendly_address: Option<String>,
+    pub(in crate::api) asset_id: Option<u32>,
+    pub(in crate::api) amount: Option<String>,
+    pub(in crate::api) gas_charged: Option<String>,
+    pub(in crate::api) status: Option<&'static str>,
+    pub(in crate::api) reason: Option<String>,
+    pub(in crate::api) details: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerAccountCode {
+    pub(in crate::api) account_id: Hash32,
+    pub(in crate::api) bytecode: ExplorerCellView,
+    pub(in crate::api) raw_data: ExplorerCellView,
+    pub(in crate::api) source: ExplorerCodeSource,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerCellView {
+    pub(in crate::api) hex: String,
+    pub(in crate::api) base64: String,
+    pub(in crate::api) hex_hash: String,
+    pub(in crate::api) root_hash: Hash32,
+    pub(in crate::api) size_bytes: usize,
+    pub(in crate::api) cell_count: usize,
+    pub(in crate::api) cells: Vec<ExplorerCellSummary>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerCellSummary {
+    pub(in crate::api) index: usize,
+    pub(in crate::api) role: &'static str,
+    pub(in crate::api) hash: Hash32,
+    pub(in crate::api) size_bytes: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(in crate::api) struct ExplorerCodeSource {
+    pub(in crate::api) status: &'static str,
+    pub(in crate::api) code_hash: Hash32,
+    pub(in crate::api) submission_id: Option<Hash32>,
+    pub(in crate::api) files: Vec<VerifierSourceFile>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(in crate::api) struct VerifierSubmitRequest {
+    pub(in crate::api) account_id: Option<String>,
+    pub(in crate::api) code_hash: Option<String>,
+    pub(in crate::api) files: Vec<VerifierSourceFile>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(in crate::api) struct VerifierReviewRequest {
+    pub(in crate::api) status: String,
 }
 
 pub(in crate::api) async fn explorer_account(
@@ -153,6 +249,32 @@ pub(in crate::api) async fn explorer_account(
         storage_root: account.storage_root,
         interfaces: account_interfaces(account.code_hash),
         last_lt: account.last_lt,
+    }))
+}
+
+pub(in crate::api) async fn explorer_account_assets(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<ExplorerAccountAssets>, ApiError> {
+    let id = parse_l2_address(&id).map_err(|_| ApiError::bad_request("invalid account id"))?;
+    if is_l2_zero_address(id) {
+        return Ok(Json(ExplorerAccountAssets {
+            tokens: vec![],
+            collectibles: vec![],
+        }));
+    }
+    let sequencer = state.sequencer.read().await;
+    let account = sequencer
+        .state
+        .account(id)
+        .ok_or_else(|| ApiError::not_found("account not found"))?;
+    Ok(Json(ExplorerAccountAssets {
+        tokens: account
+            .balances
+            .iter()
+            .map(|(asset_id, amount)| token_holding(*asset_id, *amount))
+            .collect(),
+        collectibles: vec![],
     }))
 }
 
@@ -208,6 +330,7 @@ pub(in crate::api) async fn explorer_tx(
     let summary = transaction_summary(record.clone(), None);
 
     Ok(Json(ExplorerTransactionDetail {
+        flow: transaction_flow(&record),
         summary,
         chain_id: record.transaction.chain_id.clone(),
         nonce: record.transaction.nonce,
@@ -221,6 +344,94 @@ pub(in crate::api) async fn explorer_tx(
         raw_transaction: record.transaction,
         raw_receipt: record.receipt,
     }))
+}
+
+pub(in crate::api) async fn explorer_account_code(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<ExplorerAccountCode>, ApiError> {
+    let id = parse_l2_address(&id).map_err(|_| ApiError::bad_request("invalid account id"))?;
+    let record = load_contract_state(&state, id).await?;
+    let source = source_response(&state, record.code_cell.code_hash).await?;
+    Ok(Json(ExplorerAccountCode {
+        account_id: id,
+        bytecode: cell_view(
+            &record.code_cell.code_boc_base64,
+            record.code_cell.code_hash,
+            "bytecode",
+        )?,
+        raw_data: cell_view(
+            &record.data_cell.data_boc_base64,
+            record.data_cell.data_hash,
+            "raw_data",
+        )?,
+        source,
+    }))
+}
+
+pub(in crate::api) async fn explorer_code_source(
+    State(state): State<AppState>,
+    Path(code_hash): Path<String>,
+) -> Result<Json<ExplorerCodeSource>, ApiError> {
+    let code_hash =
+        Hash32::from_hex(&code_hash).map_err(|_| ApiError::bad_request("invalid code hash"))?;
+    Ok(Json(source_response(&state, code_hash).await?))
+}
+
+pub(in crate::api) async fn explorer_verifier_submit(
+    State(state): State<AppState>,
+    Json(request): Json<VerifierSubmitRequest>,
+) -> Result<Json<ExplorerCodeSource>, ApiError> {
+    let account_id = request
+        .account_id
+        .as_deref()
+        .map(parse_l2_address)
+        .transpose()
+        .map_err(|_| ApiError::bad_request("invalid account id"))?;
+    let code_hash = match request.code_hash.as_deref() {
+        Some(value) => {
+            Hash32::from_hex(value).map_err(|_| ApiError::bad_request("invalid code hash"))?
+        }
+        None => {
+            let Some(account_id) = account_id else {
+                return Err(ApiError::bad_request("account_id or code_hash required"));
+            };
+            load_contract_state(&state, account_id)
+                .await?
+                .code_cell
+                .code_hash
+        }
+    };
+    validate_verifier_files(&request.files)?;
+    let submission = VerifierSubmissionRecord {
+        submission_id: verifier_submission_id(code_hash, &request.files),
+        code_hash,
+        account_id,
+        status: VerifierStatus::Pending,
+        files: request.files,
+    };
+    state.storage.save_verifier_submission(submission).await?;
+    Ok(Json(source_response(&state, code_hash).await?))
+}
+
+pub(in crate::api) async fn admin_explorer_verifier_review(
+    State(state): State<AppState>,
+    Path(submission_id): Path<String>,
+    Json(request): Json<VerifierReviewRequest>,
+) -> Result<Json<ExplorerCodeSource>, ApiError> {
+    let submission_id = Hash32::from_hex(&submission_id)
+        .map_err(|_| ApiError::bad_request("invalid submission id"))?;
+    let status = match VerifierStatus::parse(&request.status) {
+        Some(VerifierStatus::Verified) => VerifierStatus::Verified,
+        Some(VerifierStatus::Rejected) => VerifierStatus::Rejected,
+        _ => return Err(ApiError::bad_request("status must be verified or rejected")),
+    };
+    let reviewed = state
+        .storage
+        .review_verifier_submission(submission_id, status)
+        .await?
+        .ok_or_else(|| ApiError::not_found("verifier submission not found"))?;
+    Ok(Json(source_response(&state, reviewed.code_hash).await?))
 }
 
 fn transaction_summary(
@@ -425,5 +636,326 @@ fn participant(role: &'static str, account_id: Hash32) -> ExplorerParticipant {
         account_id,
         raw_address: l2_raw_address(account_id),
         user_friendly_address: l2_user_friendly_address(account_id),
+    }
+}
+
+fn token_holding(asset_id: u32, amount: u128) -> ExplorerTokenHolding {
+    let (symbol, name, decimals) = match asset_id {
+        0 => ("ENT".to_owned(), "Entropis".to_owned(), 9),
+        1 => ("TON".to_owned(), "TON testnet".to_owned(), 9),
+        other => (format!("A{other}"), format!("L2 asset {other}"), 9),
+    };
+    ExplorerTokenHolding {
+        id: format!("asset-{asset_id}"),
+        asset_id,
+        symbol,
+        name,
+        decimals,
+        amount,
+    }
+}
+
+async fn load_contract_state(
+    state: &AppState,
+    account_id: Hash32,
+) -> Result<StoredContractState, ApiError> {
+    {
+        let sequencer = state.sequencer.read().await;
+        if let Some(account) = sequencer.state.account(account_id) {
+            if let Some(record) =
+                StoredContractState::from_account(account_id, account, account.last_lt)?
+            {
+                return Ok(record);
+            }
+        }
+    }
+    state
+        .storage
+        .get_contract_state(account_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("contract code not found"))
+}
+
+fn cell_view(
+    boc_base64: &str,
+    expected_hash: Hash32,
+    role: &'static str,
+) -> Result<ExplorerCellView, ApiError> {
+    let cell = decode_contract_cell_boc_base64(boc_base64, DEFAULT_MAX_TVM_BOC_BYTES)
+        .map_err(|_| ApiError::bad_request("malformed contract cell"))?;
+    if cell.cell_hash != expected_hash {
+        return Err(ApiError::conflict("contract cell hash mismatch"));
+    }
+    Ok(ExplorerCellView {
+        hex: hex::encode(&cell.boc_bytes),
+        base64: cell.boc_base64,
+        hex_hash: cell.cell_hash.to_hex(),
+        root_hash: cell.cell_hash,
+        size_bytes: cell.boc_bytes.len(),
+        cell_count: 1,
+        cells: vec![ExplorerCellSummary {
+            index: 0,
+            role,
+            hash: cell.cell_hash,
+            size_bytes: cell.boc_bytes.len(),
+        }],
+    })
+}
+
+async fn source_response(
+    state: &AppState,
+    code_hash: Hash32,
+) -> Result<ExplorerCodeSource, ApiError> {
+    let Some(source) = state.storage.get_verifier_source(code_hash).await? else {
+        return Ok(ExplorerCodeSource {
+            status: "not_found",
+            code_hash,
+            submission_id: None,
+            files: vec![],
+        });
+    };
+    Ok(ExplorerCodeSource {
+        status: source.status.as_str(),
+        code_hash,
+        submission_id: Some(source.submission_id),
+        files: if source.status == VerifierStatus::Verified {
+            source.files
+        } else {
+            vec![]
+        },
+    })
+}
+
+fn validate_verifier_files(files: &[VerifierSourceFile]) -> Result<(), ApiError> {
+    if files.is_empty() {
+        return Err(ApiError::bad_request("at least one .tolk file required"));
+    }
+    if files.len() > MAX_VERIFIER_FILES {
+        return Err(ApiError::bad_request("too many source files"));
+    }
+    let mut total = 0usize;
+    for file in files {
+        if !file.path.ends_with(".tolk")
+            || file.path.contains('\\')
+            || file.path.contains("..")
+            || file.path.starts_with('/')
+        {
+            return Err(ApiError::bad_request(
+                "only relative .tolk files are accepted",
+            ));
+        }
+        let bytes = file.content.as_bytes().len();
+        if bytes == 0 || bytes > MAX_VERIFIER_FILE_BYTES {
+            return Err(ApiError::bad_request("source file size is invalid"));
+        }
+        total = total
+            .checked_add(bytes)
+            .ok_or_else(|| ApiError::bad_request("source bundle too large"))?;
+    }
+    if total > MAX_VERIFIER_TOTAL_BYTES {
+        return Err(ApiError::bad_request("source bundle too large"));
+    }
+    Ok(())
+}
+
+fn verifier_submission_id(code_hash: Hash32, files: &[VerifierSourceFile]) -> Hash32 {
+    let mut material = Vec::new();
+    material.extend_from_slice(code_hash.as_bytes());
+    for file in files {
+        material.extend_from_slice(file.path.as_bytes());
+        material.push(0);
+        material.extend_from_slice(file.content.as_bytes());
+        material.push(0xff);
+    }
+    l2_core::crypto::hash_domain("entropis.explorer.verifier.v1", &[&material])
+}
+
+fn transaction_flow(record: &StoredTransaction) -> Vec<ExplorerTransactionFlowNode> {
+    let mut nodes = Vec::new();
+    if let Some(from) = record.transaction.from {
+        nodes.push(account_flow_node("from", "Sender", "from", from));
+    }
+    match &record.transaction.kind {
+        L2TransactionKind::Deposit {
+            deposit_id,
+            asset_id,
+            recipient,
+            amount,
+        } => {
+            nodes.push(system_flow_node(
+                "deposit",
+                "Deposit",
+                "deposit",
+                Some(*asset_id),
+                Some(*amount),
+                json!({ "deposit_id": deposit_id }),
+            ));
+            nodes.push(account_flow_node(
+                "recipient",
+                "Recipient",
+                "recipient",
+                *recipient,
+            ));
+        }
+        L2TransactionKind::Transfer {
+            to,
+            asset_id,
+            amount,
+        } => {
+            nodes.push(value_flow_node("transfer", "Transfer", *asset_id, *amount));
+            nodes.push(account_flow_node("to", "Recipient", "to", *to));
+        }
+        L2TransactionKind::Withdraw {
+            asset_id,
+            amount,
+            l1_recipient,
+        } => nodes.push(system_flow_node(
+            "withdraw",
+            "Withdrawal",
+            "withdrawal",
+            Some(*asset_id),
+            Some(*amount),
+            json!({ "l1_recipient": l1_recipient }),
+        )),
+        L2TransactionKind::DeployContract { contract, .. } => {
+            nodes.push(account_flow_node(
+                "contract", "Contract", "contract", *contract,
+            ));
+            nodes.push(system_flow_node(
+                "deploy",
+                "Deploy",
+                "contract_deploy",
+                None,
+                None,
+                json!({ "contract": contract }),
+            ));
+        }
+        L2TransactionKind::CallContract { contract, .. } => {
+            nodes.push(account_flow_node(
+                "contract", "Contract", "contract", *contract,
+            ));
+            nodes.push(system_flow_node(
+                "call",
+                "Call",
+                "contract_call",
+                None,
+                None,
+                json!({ "contract": contract }),
+            ));
+        }
+        L2TransactionKind::InternalMessage {
+            message_id,
+            from,
+            to,
+            value,
+            bounce,
+            bounced,
+            ..
+        } => {
+            nodes.push(account_flow_node(
+                "internal_from",
+                "Internal from",
+                "internal_from",
+                *from,
+            ));
+            nodes.push(system_flow_node(
+                "internal_message",
+                "Internal message",
+                "internal_message",
+                Some(0),
+                Some(*value),
+                json!({ "message_id": message_id, "bounce": bounce, "bounced": bounced }),
+            ));
+            nodes.push(account_flow_node(
+                "internal_to",
+                "Internal to",
+                "internal_to",
+                *to,
+            ));
+        }
+        L2TransactionKind::RotatePublicKey { new_public_key } => nodes.push(system_flow_node(
+            "rotate_public_key",
+            "Rotate public key",
+            "account_security",
+            None,
+            None,
+            json!({ "new_public_key": new_public_key }),
+        )),
+    }
+    if let Some(receipt) = &record.receipt {
+        nodes.push(ExplorerTransactionFlowNode {
+            id: "receipt".to_owned(),
+            label: "Receipt".to_owned(),
+            role: "receipt".to_owned(),
+            account_id: None,
+            raw_address: None,
+            user_friendly_address: None,
+            asset_id: None,
+            amount: None,
+            gas_charged: Some(receipt.gas_charged.to_string()),
+            status: Some(receipt_status(Some(receipt))),
+            reason: receipt.reason.clone(),
+            details: json!({
+                "withdrawal_id": receipt.withdrawal_id,
+                "event_count": receipt.events.len(),
+                "events": receipt.events,
+            }),
+        });
+    }
+    nodes
+}
+
+fn account_flow_node(
+    id: &str,
+    label: &str,
+    role: &str,
+    account_id: Hash32,
+) -> ExplorerTransactionFlowNode {
+    ExplorerTransactionFlowNode {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        role: role.to_owned(),
+        account_id: Some(account_id),
+        raw_address: Some(l2_raw_address(account_id)),
+        user_friendly_address: Some(l2_user_friendly_address(account_id)),
+        asset_id: None,
+        amount: None,
+        gas_charged: None,
+        status: None,
+        reason: None,
+        details: json!({ "account_id": account_id }),
+    }
+}
+
+fn value_flow_node(
+    id: &str,
+    label: &str,
+    asset_id: u32,
+    amount: u128,
+) -> ExplorerTransactionFlowNode {
+    system_flow_node(id, label, "value", Some(asset_id), Some(amount), json!({}))
+}
+
+fn system_flow_node(
+    id: &str,
+    label: &str,
+    role: &str,
+    asset_id: Option<u32>,
+    amount: Option<u128>,
+    details: serde_json::Value,
+) -> ExplorerTransactionFlowNode {
+    ExplorerTransactionFlowNode {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        role: role.to_owned(),
+        account_id: None,
+        raw_address: None,
+        user_friendly_address: None,
+        asset_id,
+        amount: amount.map(|value| value.to_string()),
+        gas_charged: None,
+        status: None,
+        reason: None,
+        details,
     }
 }

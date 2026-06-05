@@ -105,6 +105,8 @@ TON_L2_SKILLS = {
     "L2 events are deterministic typed receipt data, currently ContractDeployed, ContractCalled, and WithdrawalCreated. They are committed through receipt_leaf_hash, receipt_root, and batch DA; a separate event_root requires a future block-header and L1 RollupRoot schema upgrade.",
     "Receipt events are bounded by count and encoded size, never raw JSON or raw TVM body payload. Contract call events expose body_hash instead of body bytes so logs cannot break determinism or leak oversized payloads.",
     "Public explorer UI belongs in `ecosystem/explorer` as a standalone Next.js app and consumes only public read-only `l2-node` APIs; account transaction history must use server-side pagination instead of client-side block scans.",
+    "EnWatcher account code views expose verified contract source only after a verifier record is marked verified for the code hash; pending .tolk uploads must not be displayed as verified source.",
+    "EnWatcher account QR codes target Entropis L2 EnWallet send links with account and asset_id parameters, not TON `ton://transfer`, because TON transfer deep links are L1 TON payment links.",
     "Observer/challenger nodes replay canonical DA bytes from a trusted state checkpoint, compare tx/receipt/withdrawal/state roots, and locate the first invalid transition before L1 challenge submission; they must not trust local sequencer block JSON as the commitment source.",
     "Rust executor must isolate deterministic transition logic from networking, wall clock, persistence, and RPC/indexer effects.",
     "Executor gas is versioned config: applied fees are gas_used * max_gas_price in ENT asset id 0; authenticated rejected execution advances nonce and charges only rejected_execution_gas when possible.",
