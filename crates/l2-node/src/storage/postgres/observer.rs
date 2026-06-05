@@ -7,6 +7,11 @@ pub(super) async fn save_observer_checkpoint(
     pool: &PgPool,
     checkpoint: ObserverCheckpoint,
 ) -> Result<(), StorageError> {
+    if !checkpoint.validate_integrity() {
+        return Err(StorageError::InvalidObserverCheckpoint {
+            reason: "state root mismatch",
+        });
+    }
     sqlx::query(
         r#"
         INSERT INTO observer_checkpoints (

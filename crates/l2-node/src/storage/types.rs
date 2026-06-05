@@ -235,6 +235,8 @@ pub enum StorageError {
         expected: Hash32,
         actual: Hash32,
     },
+    #[error("observer checkpoint is invalid: {reason}")]
+    InvalidObserverCheckpoint { reason: &'static str },
 }
 
 #[async_trait]

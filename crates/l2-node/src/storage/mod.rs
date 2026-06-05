@@ -281,7 +281,16 @@ impl Storage for InMemoryStorage {
     }
 
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError> {
-        self.cursors.write().await.insert(source.to_owned(), cursor);
+        let mut cursors = self.cursors.write().await;
+        if let Some(existing) = cursors.get(source) {
+            if cursor.lt < existing.lt || (cursor.lt == existing.lt && cursor.hash != existing.hash)
+            {
+                return Err(StorageError::Conflict {
+                    resource: "l1 cursor",
+                });
+            }
+        }
+        cursors.insert(source.to_owned(), cursor);
         Ok(())
     }
 
@@ -567,6 +576,11 @@ impl Storage for InMemoryStorage {
         &self,
         checkpoint: ObserverCheckpoint,
     ) -> Result<(), StorageError> {
+        if !checkpoint.validate_integrity() {
+            return Err(StorageError::InvalidObserverCheckpoint {
+                reason: "state root mismatch",
+            });
+        }
         self.observer_checkpoints
             .write()
             .await
@@ -584,6 +598,10 @@ impl Storage for InMemoryStorage {
             .cloned())
     }
 }
+
+#[cfg(test)]
+#[path = "security_tests.rs"]
+mod security_tests;
 
 #[cfg(test)]
 #[path = "tests.rs"]

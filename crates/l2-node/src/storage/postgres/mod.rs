@@ -73,6 +73,15 @@ impl Storage for PostgresStorage {
         .execute(&mut *tx)
         .await?;
 
+        sqlx::query("DELETE FROM l2_transactions WHERE block_height = $1")
+            .bind(block_height)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM l2_withdrawals WHERE block_height = $1")
+            .bind(block_height)
+            .execute(&mut *tx)
+            .await?;
+
         for (index, transaction) in block.transactions.iter().enumerate() {
             let tx_index = checked_i32(index, "tx_index")?;
             let receipt = block.receipts.get(index).cloned();
@@ -360,7 +369,7 @@ impl Storage for PostgresStorage {
     }
 
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO l1_cursors (source, lt, hash)
             VALUES ($1, $2, $3)
@@ -368,6 +377,8 @@ impl Storage for PostgresStorage {
                 lt = EXCLUDED.lt,
                 hash = EXCLUDED.hash,
                 updated_at = now()
+            WHERE l1_cursors.lt < EXCLUDED.lt
+               OR (l1_cursors.lt = EXCLUDED.lt AND l1_cursors.hash = EXCLUDED.hash)
             "#,
         )
         .bind(source)
@@ -375,6 +386,11 @@ impl Storage for PostgresStorage {
         .bind(cursor.hash.to_hex())
         .execute(&self.pool)
         .await?;
+        if result.rows_affected() == 0 {
+            return Err(StorageError::Conflict {
+                resource: "l1 cursor",
+            });
+        }
         Ok(())
     }
 
