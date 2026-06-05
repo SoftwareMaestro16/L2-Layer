@@ -14,6 +14,13 @@ Scope:
 - `acton test`: passed, 22 tests
 - `npx tsa-installer install`: failed locally with `npm ERR! cb.apply is not a function`; TSA analysis was unavailable in this environment.
 
+Post-audit tooling update:
+
+- `py -3 scripts\ci\tsa_install_check.py` now verifies TSA availability through
+  `npm exec --yes --package tsa-installer -- tsa-installer install`, avoiding
+  the local `npx` `cb.apply` failure mode. Custom TSA checkers still need to be
+  added before this becomes a formal-verification result.
+
 ## Coverage Added
 
 Security/adversarial tests were added in `tests/contracts_security.test.tolk`.

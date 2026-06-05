@@ -179,6 +179,7 @@ TON_L2_SKILLS = {
   security_patterns: [
     "Use explicit admin/sequencer authorization and pausability for emergency response.",
     "Run L2-only audit passes separately from L1 contract audits: cover nonce replay, signature spoofing, deploy overwrite, malformed BoC, gas griefing, state-root manipulation, internal message explosion, mempool flood, withdrawal double creation, and DA/block mismatch.",
+    "Use `py -3 scripts\\ci\\tsa_install_check.py` as the local/CI TSA availability gate. It invokes `npm exec --yes --package tsa-installer -- tsa-installer install`, which avoids the legacy `npx tsa-installer install` `cb.apply` failure observed on this Windows/npm setup.",
     "Root-to-vault deployment linking must be admin-only, reject the zero sentinel, reject replay after first link, and happen before any batch commitment.",
     "RollupRoot must reject CommitBatch while the AssetVault address is still the zero sentinel, because linking is intentionally disabled after the first committed batch.",
     "Track claimed withdrawals before sending release messages to prevent reentrancy-style double claims in async flow.",

@@ -109,6 +109,7 @@ Operational secrets:
 - `CorsLayer::permissive()` is acceptable for local browser tooling only while admin tokens are never stored in browser bundles or local storage.
 - Permissionless finalization is intentional for the optimistic MVP, but challenge logic must revisit it before production withdrawals.
 - TSA symbolic analysis was not required to validate the resolved Rust/indexer findings; if TSA is available in CI, add `RollupRoot` and `AssetVault` drain/bounce checks as a later quality gate.
+- TSA availability should be checked with `py -3 scripts\ci\tsa_install_check.py`; this uses the `npm exec --package tsa-installer` path that avoids the local `npx` `cb.apply` installer failure.
 
 ## Manual Testnet Attack Checklist
 
@@ -145,6 +146,7 @@ Local validation notes:
 - The first `cargo test --workspace` attempt failed with `rustc-LLVM ERROR: IO failure on output stream: no space on device`. The repo-local `target/` directory was verified under the workspace and cleaned with `cargo clean`; the retry passed.
 - WSL prints `Failed to translate 'D:\MongoDB\Server\5.0\bin'`, but Acton commands complete successfully.
 - TSA symbolic analysis was not run. `npx tsa-installer location` failed locally with `cb.apply is not a function` before returning a TSA CLI path. The validated findings in this report are proven by repository tests.
+- Follow-up tooling now provides `scripts\ci\tsa_install_check.py` as a stable TSA availability check. The original report remains test-backed, not TSA-backed, until custom TSA checkers are added and run.
 
 Required immediately before commit:
 
