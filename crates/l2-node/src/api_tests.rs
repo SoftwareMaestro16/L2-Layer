@@ -1,5 +1,7 @@
 use super::*;
+use crate::faucet::EntFaucetRequest;
 use axum::body::to_bytes;
+use axum::extract::Query;
 use axum::http::header::AUTHORIZATION;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::HeaderValue;
@@ -880,6 +882,194 @@ async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
     get_account(State(state), Path(l2_user_friendly_address(account_id)))
         .await
         .expect("friendly account path");
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_requires_authorization() {
+    let state = test_state(None);
+
+    let error = admin_ent_faucet_batch(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(faucet::EntFaucetBatchRequest { claims: vec![] }),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_grants_and_reports_per_claim_status() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let first_account = sha256_bytes(b"batch-faucet-first");
+    let second_account = sha256_bytes(b"batch-faucet-second");
+
+    let response = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(faucet::EntFaucetBatchRequest {
+            claims: vec![
+                faucet::EntFaucetBatchClaimRequest {
+                    claim_id: "claim-first".to_owned(),
+                    account_id: l2_user_friendly_address(first_account),
+                    amount_ent: Some(100),
+                },
+                faucet::EntFaucetBatchClaimRequest {
+                    claim_id: "claim-second".to_owned(),
+                    account_id: l2_raw_address(second_account),
+                    amount_ent: None,
+                },
+                faucet::EntFaucetBatchClaimRequest {
+                    claim_id: "claim-invalid".to_owned(),
+                    account_id: "not-an-account".to_owned(),
+                    amount_ent: None,
+                },
+            ],
+        }),
+    )
+    .await
+    .expect("batch faucet")
+    .0;
+
+    assert_eq!(response.totals.total, 3);
+    assert_eq!(response.totals.granted, 2);
+    assert_eq!(response.totals.invalid_account, 1);
+    assert_eq!(response.claims[0].status, "granted");
+    assert_eq!(response.claims[2].status, "invalid_account");
+
+    produce_block_once(&state)
+        .await
+        .expect("produce")
+        .expect("faucet block");
+    let sequencer = state.sequencer.read().await;
+    assert_eq!(
+        sequencer.state.account(first_account).unwrap().balance(0),
+        100_000_000_000
+    );
+    assert_eq!(
+        sequencer.state.account(second_account).unwrap().balance(0),
+        1_000_000_000_000
+    );
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_is_claim_id_idempotent() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account = sha256_bytes(b"batch-replay-account");
+    let request = faucet::EntFaucetBatchRequest {
+        claims: vec![faucet::EntFaucetBatchClaimRequest {
+            claim_id: "claim-replay".to_owned(),
+            account_id: l2_raw_address(account),
+            amount_ent: Some(100),
+        }],
+    };
+
+    let first = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(request.clone()),
+    )
+    .await
+    .expect("first")
+    .0;
+    let replay = admin_ent_faucet_batch(State(state), auth_headers(ADMIN_TOKEN), Json(request))
+        .await
+        .expect("replay")
+        .0;
+
+    assert_eq!(first.totals.granted, 1);
+    assert_eq!(replay.totals.duplicate_claim, 1);
+    assert_eq!(replay.claims[0].deposit_id, first.claims[0].deposit_id);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_rejects_duplicate_account_without_credit() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account = sha256_bytes(b"batch-duplicate-account");
+    let _ = admin_ent_faucet(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetRequest {
+            account_id: l2_raw_address(account),
+        }),
+    )
+    .await
+    .expect("single faucet grant");
+
+    let response = admin_ent_faucet_batch(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(faucet::EntFaucetBatchRequest {
+            claims: vec![faucet::EntFaucetBatchClaimRequest {
+                claim_id: "claim-duplicate-account".to_owned(),
+                account_id: l2_raw_address(account),
+                amount_ent: Some(100),
+            }],
+        }),
+    )
+    .await
+    .expect("batch")
+    .0;
+
+    assert_eq!(response.totals.duplicate_account, 1);
+    assert_eq!(response.claims[0].status, "duplicate_account");
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_rejects_amount_above_limit() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account = sha256_bytes(b"batch-too-large-amount");
+
+    let response = admin_ent_faucet_batch(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(faucet::EntFaucetBatchRequest {
+            claims: vec![faucet::EntFaucetBatchClaimRequest {
+                claim_id: "claim-too-large".to_owned(),
+                account_id: l2_raw_address(account),
+                amount_ent: Some(1_001),
+            }],
+        }),
+    )
+    .await
+    .expect("batch")
+    .0;
+
+    assert_eq!(response.totals.invalid_amount, 1);
+    assert_eq!(response.claims[0].status, "invalid_amount");
+}
+
+#[tokio::test]
+async fn explorer_faucet_batches_are_public_and_safe() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account = sha256_bytes(b"explorer-faucet-account");
+    let _ = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(faucet::EntFaucetBatchRequest {
+            claims: vec![faucet::EntFaucetBatchClaimRequest {
+                claim_id: "claim-explorer".to_owned(),
+                account_id: l2_raw_address(account),
+                amount_ent: Some(100),
+            }],
+        }),
+    )
+    .await
+    .expect("batch");
+
+    let batches = explorer_faucet_batches(
+        State(state),
+        Query(faucet_explorer::FaucetExplorerQuery { limit: Some(10) }),
+    )
+    .await
+    .expect("explorer faucet batches")
+    .0;
+
+    assert_eq!(batches.items.len(), 1);
+    assert_eq!(batches.items[0].granted, 1);
+    assert_eq!(batches.items[0].claims[0].claim_id, "claim-explorer");
+    assert_eq!(batches.items[0].claims[0].account_id, account);
 }
 
 #[tokio::test]

@@ -124,9 +124,10 @@ impl From<ObserverError> for ApiError {
 impl From<FaucetError> for ApiError {
     fn from(error: FaucetError) -> Self {
         match error {
-            FaucetError::InvalidAccountId | FaucetError::ZeroAccountId => {
-                Self::bad_request(error.to_string())
-            }
+            FaucetError::InvalidAccountId
+            | FaucetError::InvalidClaimId
+            | FaucetError::InvalidAmount
+            | FaucetError::ZeroAccountId => Self::bad_request(error.to_string()),
             FaucetError::Storage(storage_error) => storage_error.into(),
             FaucetError::AmountOverflow => Self::internal(error.to_string()),
         }

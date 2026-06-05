@@ -5,14 +5,15 @@ use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
-    ExplorerStorageStats, InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage,
-    StorageError, StoredBatchPayload, StoredContractState, StoredTransaction, VerifierSourceFile,
-    VerifierStatus, VerifierSubmissionRecord,
+    EntFaucetClaimRecord, EntFaucetClaimSaveResult, ExplorerStorageStats,
+    InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage, StorageError,
+    StoredBatchPayload, StoredContractState, StoredTransaction, VerifierSourceFile, VerifierStatus,
+    VerifierSubmissionRecord,
 };
 use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
 use crate::storage::{
-    postgres_contracts, postgres_da, postgres_finalization, postgres_internal_queue,
-    postgres_observer,
+    postgres_contracts, postgres_da, postgres_faucet, postgres_finalization,
+    postgres_internal_queue, postgres_observer,
 };
 
 #[derive(Clone, Debug)]
@@ -321,20 +322,22 @@ impl Storage for PostgresStorage {
         account_id: Hash32,
         amount: u128,
     ) -> Result<bool, StorageError> {
-        let inserted = sqlx::query_scalar::<_, String>(
-            r#"
-            INSERT INTO ent_faucet_grants (account_id, asset_id, amount)
-            VALUES ($1, 0, $2::numeric)
-            ON CONFLICT (account_id) DO NOTHING
-            RETURNING account_id
-            "#,
-        )
-        .bind(account_id.to_hex())
-        .bind(amount.to_string())
-        .fetch_optional(&self.pool)
-        .await?;
+        postgres_faucet::save_ent_faucet_grant(&self.pool, account_id, amount).await
+    }
 
-        Ok(inserted.is_some())
+    async fn save_ent_faucet_batch_claim(
+        &self,
+        record: EntFaucetClaimRecord,
+        deposit: DepositEvent,
+    ) -> Result<EntFaucetClaimSaveResult, StorageError> {
+        postgres_faucet::save_ent_faucet_batch_claim(&self.pool, record, deposit).await
+    }
+
+    async fn list_ent_faucet_claims(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EntFaucetClaimRecord>, StorageError> {
+        postgres_faucet::list_ent_faucet_claims(&self.pool, limit).await
     }
 
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {

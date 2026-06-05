@@ -45,6 +45,77 @@ async fn memory_storage_ent_faucet_grant_is_one_per_account() {
 }
 
 #[tokio::test]
+async fn memory_storage_ent_faucet_batch_claims_are_idempotent() {
+    let storage = InMemoryStorage::default();
+    let account = sha256_bytes(b"batch-account");
+    let claim = EntFaucetClaimRecord {
+        batch_id: sha256_bytes(b"batch"),
+        claim_index: 0,
+        claim_id: "claim-1".to_owned(),
+        account_id: account,
+        amount_base_units: 100,
+        deposit_id: sha256_bytes(b"batch-deposit"),
+        status: EntFaucetClaimStatus::Granted,
+    };
+    let deposit = DepositEvent {
+        deposit_id: claim.deposit_id,
+        asset_id: 0,
+        recipient: account,
+        amount: 100,
+        l1_tx_hash: sha256_bytes(b"batch-l1"),
+        l1_lt: 9,
+    };
+
+    let first = storage
+        .save_ent_faucet_batch_claim(claim.clone(), deposit.clone())
+        .await
+        .unwrap();
+    assert_eq!(first.status, EntFaucetClaimSaveStatus::Granted);
+
+    let replay = storage
+        .save_ent_faucet_batch_claim(claim, deposit)
+        .await
+        .unwrap();
+    assert_eq!(replay.status, EntFaucetClaimSaveStatus::DuplicateClaim);
+    assert_eq!(replay.record.deposit_id, first.record.deposit_id);
+}
+
+#[tokio::test]
+async fn memory_storage_ent_faucet_batch_claim_rejects_duplicate_account() {
+    let storage = InMemoryStorage::default();
+    let account = sha256_bytes(b"duplicate-account");
+    assert!(storage.save_ent_faucet_grant(account, 100).await.unwrap());
+
+    let claim = EntFaucetClaimRecord {
+        batch_id: sha256_bytes(b"batch"),
+        claim_index: 0,
+        claim_id: "claim-duplicate-account".to_owned(),
+        account_id: account,
+        amount_base_units: 100,
+        deposit_id: sha256_bytes(b"duplicate-deposit"),
+        status: EntFaucetClaimStatus::Granted,
+    };
+    let deposit = DepositEvent {
+        deposit_id: claim.deposit_id,
+        asset_id: 0,
+        recipient: account,
+        amount: 100,
+        l1_tx_hash: sha256_bytes(b"duplicate-l1"),
+        l1_lt: 10,
+    };
+
+    let result = storage
+        .save_ent_faucet_batch_claim(claim, deposit)
+        .await
+        .unwrap();
+    assert_eq!(result.status, EntFaucetClaimSaveStatus::DuplicateAccount);
+    assert_eq!(result.record.status, EntFaucetClaimStatus::DuplicateAccount);
+    let claims = storage.list_ent_faucet_claims(10).await.unwrap();
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].status, EntFaucetClaimStatus::DuplicateAccount);
+}
+
+#[tokio::test]
 async fn memory_storage_batch_payload_is_idempotent_and_rejects_conflict() {
     let storage = InMemoryStorage::default();
     let payload = StoredBatchPayload {

@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
-use super::{ObserverCheckpoint, StoredContractState};
+use super::{
+    EntFaucetClaimRecord, EntFaucetClaimSaveResult, ObserverCheckpoint, StoredContractState,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StoredTransaction {
@@ -219,6 +221,8 @@ pub enum StorageError {
     InvalidHash { field: &'static str, value: String },
     #[error("{field} contains invalid status value {value}")]
     InvalidStatus { field: &'static str, value: String },
+    #[error("{field} contains invalid numeric value {value}")]
+    InvalidNumeric { field: &'static str, value: String },
     #[error("{resource} already exists with different data")]
     Conflict { resource: &'static str },
     #[error("{field} is missing for contract state persistence")]
@@ -260,6 +264,15 @@ pub trait Storage: Send + Sync {
         account_id: Hash32,
         amount: u128,
     ) -> Result<bool, StorageError>;
+    async fn save_ent_faucet_batch_claim(
+        &self,
+        record: EntFaucetClaimRecord,
+        deposit: DepositEvent,
+    ) -> Result<EntFaucetClaimSaveResult, StorageError>;
+    async fn list_ent_faucet_claims(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<EntFaucetClaimRecord>, StorageError>;
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError>;
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError>;
     async fn get_batch_commit(
