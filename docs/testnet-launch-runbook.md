@@ -406,6 +406,7 @@ Admin/operator endpoints:
 - `GET /v1/mempool/metrics`
 - `GET /v1/operator/metrics`
 - `GET /v1/operator/failures`
+- `GET /v1/operator/da/batch/{height}/{data_hash}`
 - `GET /v1/operator/batch-relayer`
 - `GET /v1/operator/batch-finalizer`
 - `GET /v1/operator/observer/checkpoint`
@@ -431,6 +432,8 @@ Suggested testnet alert thresholds:
 - Pending finalizations remain unfinalized past `challengeWindowSec` plus two
   finalizer poll intervals.
 - DA write latency or storage save latency exceeds 1000 ms.
+- `GET /v1/operator/da/batch/{height}/{data_hash}` reports `missing`,
+  `corrupt`, or `unavailable`.
 - Signer returns `unauthorized`, `rate_limited`, `rollup_root_mismatch`,
   `signer_address_mismatch`, `expired_request`, or `malformed_boc`.
 - Toncenter testnet readiness fails or send-message errors persist after retry

@@ -50,11 +50,12 @@ Secrets stay in `.env.local` or operator secret storage:
 6. Verify the credited L2 balance through `GET /v1/account/{id}`.
 7. Submit a signed L2 transfer and wait for inclusion.
 8. Verify DA by `GET /v1/da/batch/{height}/{data_hash}`.
-9. Wait for relayer confirmation and compare `RollupRoot.commitment(batchNo)`.
-10. Wait for finalizer confirmation after `challengeWindowSec`.
-11. Submit an L2 withdrawal, fetch `GET /v1/proof/withdrawal/{id}` after
+9. Check `GET /v1/operator/da/batch/{height}/{data_hash}` returns `available`.
+10. Wait for relayer confirmation and compare `RollupRoot.commitment(batchNo)`.
+11. Wait for finalizer confirmation after `challengeWindowSec`.
+12. Submit an L2 withdrawal, fetch `GET /v1/proof/withdrawal/{id}` after
     finalization, build a `ClaimWithdrawal` body and send it to `RollupRoot`.
-12. Confirm `AssetVault` releases TON and locked TON decreases by the amount.
+13. Confirm `AssetVault` releases TON and locked TON decreases by the amount.
 
 ## Negative Checks
 

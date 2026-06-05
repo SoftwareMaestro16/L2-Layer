@@ -155,6 +155,116 @@ async fn operator_batch_relayer_reports_latest_commit() {
 }
 
 #[tokio::test]
+async fn operator_da_payload_visibility_requires_admin() {
+    let error = operator_da_payload(
+        State(test_state(None)),
+        auth_headers(ADMIN_TOKEN),
+        Path((0, Hash32::ZERO.to_hex())),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn operator_da_payload_visibility_reports_available_batch() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    admin_deposit(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(deposit_event()),
+    )
+    .await
+    .expect("deposit");
+    let block = produce_block_once(&state)
+        .await
+        .expect("produce")
+        .expect("block");
+
+    let response = operator_da_payload(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Path((block.header.height, block.header.data_hash.to_hex())),
+    )
+    .await
+    .expect("operator da")
+    .0;
+
+    assert_eq!(response.status, "available");
+    assert_eq!(response.block_height, block.header.height);
+    assert_eq!(response.data_hash, block.header.data_hash);
+    assert_eq!(response.block_hash, Some(block.header.block_hash()));
+    assert_eq!(
+        response.payload_size,
+        Some(l2_core::canonical_batch_data_bytes(&block.transactions, &block.receipts).len())
+    );
+    let expected_download_path = format!(
+        "/v1/da/batch/{}/{}",
+        block.header.height,
+        block.header.data_hash.to_hex()
+    );
+    assert_eq!(
+        response.download_path.as_deref(),
+        Some(expected_download_path.as_str())
+    );
+    assert!(response.reason.is_none());
+}
+
+#[tokio::test]
+async fn operator_da_payload_visibility_reports_missing_or_corrupt_batch() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let block = empty_block(0);
+    state.storage.save_block(block.clone()).await.unwrap();
+
+    let missing = operator_da_payload(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Path((block.header.height, block.header.data_hash.to_hex())),
+    )
+    .await
+    .expect("missing da")
+    .0;
+    assert_eq!(missing.status, "missing");
+    assert_eq!(missing.reason, Some("batch_data_unavailable"));
+
+    let wrong_hash = operator_da_payload(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Path((block.header.height, sha256_bytes(b"wrong-data").to_hex())),
+    )
+    .await
+    .expect("wrong hash")
+    .0;
+    assert_eq!(wrong_hash.status, "corrupt");
+    assert_eq!(wrong_hash.reason, Some("data_hash_not_for_block"));
+
+    state
+        .storage
+        .save_batch_payload(crate::storage::StoredBatchPayload {
+            block_height: block.header.height,
+            block_hash: block.header.block_hash(),
+            data_hash: block.header.data_hash,
+            payload_bytes: vec![0],
+            public_ref: None,
+            public_uri: None,
+        })
+        .await
+        .unwrap();
+
+    let corrupt = operator_da_payload(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Path((block.header.height, block.header.data_hash.to_hex())),
+    )
+    .await
+    .expect("corrupt da")
+    .0;
+    assert_eq!(corrupt.status, "corrupt");
+    assert_eq!(corrupt.reason, Some("batch_data_hash_mismatch"));
+}
+
+#[tokio::test]
 async fn operator_observer_replay_requires_authorization() {
     let state = test_state(None);
     let error = operator_observer_replay(
