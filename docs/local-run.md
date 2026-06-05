@@ -45,6 +45,8 @@ Useful endpoints:
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
 - `GET /v1/tx/{tx_hash_hex}`
+- `GET /v1/contract/{contract_id}/state`
+- `POST /v1/contract/{contract_id}/get-method`
 - `GET /v1/da/batch/{height}`
 - `GET /v1/da/batch/{height}/{data_hash_hex}`
 - `GET /readyz`
@@ -201,6 +203,48 @@ Tolk-compatible `CounterIncrement` body, applies deterministic gas
 `SAMPLE_COUNTER_INCREMENT_GAS=25`, and updates the sample storage root. Other code
 hashes fail closed with `tvm_adapter_not_implemented`; malformed BoCs are rejected
 earlier with `malformed_boc`.
+
+Read-only contract getter requests do not create transactions and must not mutate
+the L2 state root. The node exposes the live contract cell snapshot through:
+
+```text
+GET /v1/contract/{contract_id}/state
+```
+
+Getter calls use a bounded POST request:
+
+```text
+POST /v1/contract/{contract_id}/get-method
+```
+
+```json
+{
+  "method": "seqno",
+  "method_id": null,
+  "stack_boc_base64": null,
+  "gas_limit": 100000
+}
+```
+
+The response includes `read_only=true`, `state_root`, `method_id`, `gas_limit`,
+`gas_used`, `vm_exit_code`, and a predictable result envelope. Built-in state
+getters such as the sample counter and EnWallet V5 R1 getters return typed JSON.
+Arbitrary contract getters require `TVM_ADAPTER=real` and return
+`{"type":"vm_stack_boc","stack_boc_base64":"..."}` from the TON emulator stack.
+
+Getter limits are runtime config, but not consensus state:
+
+```text
+TVM_GETTER_DEFAULT_GAS_LIMIT=100000
+TVM_GETTER_MAX_GAS_LIMIT=1000000
+TVM_GETTER_TIMEOUT_MS=500
+TVM_GETTER_MAX_STACK_BOC_BYTES=16384
+```
+
+Malformed method names, malformed stack BoCs, oversized stack payloads, and gas
+limits above `TVM_GETTER_MAX_GAS_LIMIT` are rejected before TVM entry. The legacy
+`GET /v1/contract/{id}/get/{method}` route remains for simple no-argument local
+checks.
 
 ## L2 addresses
 

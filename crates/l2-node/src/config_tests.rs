@@ -81,6 +81,19 @@ fn valid_entropis_testnet_config_loads() {
     );
     assert_eq!(config.tvm_adapter, l2_core::TvmAdapterMode::Real);
     assert_eq!(config.tvm_tonlib_library_path, None);
+    assert_eq!(
+        config.tvm_getter_default_gas_limit,
+        DEFAULT_TVM_GETTER_DEFAULT_GAS_LIMIT
+    );
+    assert_eq!(
+        config.tvm_getter_max_gas_limit,
+        DEFAULT_TVM_GETTER_MAX_GAS_LIMIT
+    );
+    assert_eq!(config.tvm_getter_timeout_ms, DEFAULT_TVM_GETTER_TIMEOUT_MS);
+    assert_eq!(
+        config.tvm_getter_max_stack_boc_bytes,
+        DEFAULT_TVM_GETTER_MAX_STACK_BOC_BYTES
+    );
 }
 
 #[test]
@@ -410,6 +423,43 @@ fn config_validates_tvm_adapter_settings() {
 
     let mut env = valid_env();
     env.insert("TVM_ADAPTER".to_owned(), "sample-only".to_owned());
+    assert!(load_from(&env).is_err());
+}
+
+#[test]
+fn config_validates_tvm_getter_limits() {
+    let mut env = valid_env();
+    env.insert(
+        "TVM_GETTER_DEFAULT_GAS_LIMIT".to_owned(),
+        "25000".to_owned(),
+    );
+    env.insert("TVM_GETTER_MAX_GAS_LIMIT".to_owned(), "50000".to_owned());
+    env.insert("TVM_GETTER_TIMEOUT_MS".to_owned(), "250".to_owned());
+    env.insert(
+        "TVM_GETTER_MAX_STACK_BOC_BYTES".to_owned(),
+        "4096".to_owned(),
+    );
+    let config = load_from(&env).expect("getter config");
+    assert_eq!(config.tvm_getter_default_gas_limit, 25_000);
+    assert_eq!(config.tvm_getter_max_gas_limit, 50_000);
+    assert_eq!(config.tvm_getter_timeout_ms, 250);
+    assert_eq!(config.tvm_getter_max_stack_boc_bytes, 4096);
+
+    let mut env = valid_env();
+    env.insert("TVM_GETTER_DEFAULT_GAS_LIMIT".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("TVM_GETTER_DEFAULT_GAS_LIMIT".to_owned(), "100".to_owned());
+    env.insert("TVM_GETTER_MAX_GAS_LIMIT".to_owned(), "99".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("TVM_GETTER_TIMEOUT_MS".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("TVM_GETTER_MAX_STACK_BOC_BYTES".to_owned(), "0".to_owned());
     assert!(load_from(&env).is_err());
 }
 

@@ -1,4 +1,5 @@
 use super::*;
+use crate::api::sample::ContractGetMethodRequest;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use l2_core::crypto::sha256_bytes;
@@ -65,6 +66,104 @@ async fn contract_get_method_reads_sample_counter() {
     assert_eq!(response.method, "currentCounter");
     assert_eq!(response.result["value"], "5");
     assert_eq!(response.source, "l2_state");
+    assert!(response.read_only);
+    assert_eq!(response.gas_used, 0);
+    assert_eq!(response.vm_exit_code, 0);
+}
+
+#[tokio::test]
+async fn contract_get_method_post_is_read_only_and_preserves_state_root() {
+    let state = AppState::test(Some("test-admin-token"));
+    let contract = sha256_bytes(b"sample-counter");
+    let sample = sample_counter_initial_state(8);
+    let before_root = {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(contract);
+        account.code_hash = sample.code_hash;
+        account.data_hash = sample.data_hash;
+        account.storage_root = sample.storage_root;
+        account.code_boc_base64 = Some(sample.code_boc_base64);
+        account.data_boc_base64 = Some(sample.data_boc_base64);
+        sequencer.state.root_hash()
+    };
+
+    let Json(response) = post_contract_get_method(
+        State(state.clone()),
+        Path(l2_user_friendly_address(contract)),
+        Json(ContractGetMethodRequest {
+            method: "currentCounter".to_owned(),
+            method_id: None,
+            stack_boc_base64: None,
+            gas_limit: Some(25_000),
+        }),
+    )
+    .await
+    .expect("get method response");
+    let after_root = state.sequencer.read().await.state.root_hash();
+
+    assert_eq!(response.result["value"], "8");
+    assert_eq!(response.gas_limit, 25_000);
+    assert_eq!(response.state_root, before_root);
+    assert_eq!(before_root, after_root);
+}
+
+#[tokio::test]
+async fn contract_get_method_rejects_malformed_stack_payload() {
+    let state = AppState::test(Some("test-admin-token"));
+    let contract = sha256_bytes(b"sample-counter");
+    let sample = sample_counter_initial_state(8);
+    {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(contract);
+        account.code_hash = sample.code_hash;
+        account.data_hash = sample.data_hash;
+        account.storage_root = sample.storage_root;
+        account.code_boc_base64 = Some(sample.code_boc_base64);
+        account.data_boc_base64 = Some(sample.data_boc_base64);
+    }
+
+    let error = post_contract_get_method(
+        State(state),
+        Path(l2_user_friendly_address(contract)),
+        Json(ContractGetMethodRequest {
+            method: "currentCounter".to_owned(),
+            method_id: None,
+            stack_boc_base64: Some("not-base64".to_owned()),
+            gas_limit: None,
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert_eq!(error.message, "malformed_getter_stack_boc");
+}
+
+#[tokio::test]
+async fn contract_get_method_rejects_over_limit_gas() {
+    let mut state = AppState::test(Some("test-admin-token"));
+    state.tvm_getter_max_gas_limit = 10;
+    let contract = sha256_bytes(b"sample-counter");
+    {
+        let mut sequencer = state.sequencer.write().await;
+        sequencer.state.account_mut(contract);
+    }
+
+    let error = post_contract_get_method(
+        State(state),
+        Path(l2_user_friendly_address(contract)),
+        Json(ContractGetMethodRequest {
+            method: "currentCounter".to_owned(),
+            method_id: None,
+            stack_boc_base64: None,
+            gas_limit: Some(11),
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert_eq!(error.message, "invalid_getter_gas_limit");
 }
 
 #[tokio::test]

@@ -1,4 +1,7 @@
-use super::{TvmEmulatorBackend, TvmEmulatorBackendError, TvmEmulatorRequest, TvmEmulatorResult};
+use super::{
+    TvmEmulatorBackend, TvmEmulatorBackendError, TvmEmulatorGetBackend, TvmEmulatorGetRequest,
+    TvmEmulatorGetResult, TvmEmulatorRequest, TvmEmulatorResult,
+};
 use libloading::Library;
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
@@ -27,6 +30,11 @@ type TvmEmulatorSendInternalMessage = unsafe extern "C" fn(
     *mut std::os::raw::c_void,
     *const std::os::raw::c_char,
     u64,
+) -> *const std::os::raw::c_char;
+type TvmEmulatorRunGetMethod = unsafe extern "C" fn(
+    *mut std::os::raw::c_void,
+    std::os::raw::c_int,
+    *const std::os::raw::c_char,
 ) -> *const std::os::raw::c_char;
 type TvmEmulatorDestroy = unsafe extern "C" fn(*mut std::os::raw::c_void);
 
@@ -62,6 +70,7 @@ struct TonlibBindings {
     tvm_emulator_set_gas_limit: TvmEmulatorSetGasLimit,
     tvm_emulator_set_debug_enabled: TvmEmulatorSetDebugEnabled,
     tvm_emulator_send_internal_message: TvmEmulatorSendInternalMessage,
+    tvm_emulator_run_get_method: TvmEmulatorRunGetMethod,
     tvm_emulator_destroy: TvmEmulatorDestroy,
 }
 
@@ -97,12 +106,25 @@ impl TonlibBindings {
                 tvm_emulator_send_internal_message: *library
                     .get(b"tvm_emulator_send_internal_message\0")
                     .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
+                tvm_emulator_run_get_method: *library
+                    .get(b"tvm_emulator_run_get_method\0")
+                    .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
                 tvm_emulator_destroy: *library
                     .get(b"tvm_emulator_destroy\0")
                     .map_err(|_| TvmEmulatorBackendError::new("symbol_missing"))?,
                 _library: library,
             }))
         }
+    }
+}
+
+impl TvmEmulatorGetBackend for TonlibTvmBackend {
+    fn run_get_method(
+        &self,
+        request: &TvmEmulatorGetRequest,
+    ) -> Result<TvmEmulatorGetResult, TvmEmulatorBackendError> {
+        let bindings = TonlibBindings::load(self.library_path.as_deref())?;
+        run_tonlib_get_method(&bindings, self.vm_log_verbosity, request)
     }
 }
 
@@ -188,6 +210,65 @@ fn run_tonlib_emulator(
     }
 }
 
+fn run_tonlib_get_method(
+    bindings: &TonlibBindings,
+    vm_log_verbosity: u32,
+    request: &TvmEmulatorGetRequest,
+) -> Result<TvmEmulatorGetResult, TvmEmulatorBackendError> {
+    let code = cstring(&request.code_boc_base64)?;
+    let data = cstring(&request.data_boc_base64)?;
+    let address = cstring(&request.address)?;
+    let rand_seed = cstring(&request.rand_seed_hex)?;
+    let config = cstring(&request.config_boc_base64)?;
+    let stack = cstring(&request.stack_boc_base64)?;
+    let libs = request
+        .libraries_boc_base64
+        .as_deref()
+        .map(cstring)
+        .transpose()?;
+
+    unsafe {
+        (bindings.emulator_set_verbosity_level)(0);
+        let emulator =
+            (bindings.tvm_emulator_create)(code.as_ptr(), data.as_ptr(), vm_log_verbosity);
+        if emulator.is_null() {
+            return Err(TvmEmulatorBackendError::new("create_failed"));
+        }
+        let _guard = EmulatorGuard {
+            emulator,
+            destroy: bindings.tvm_emulator_destroy,
+        };
+        if let Some(libs) = libs.as_ref() {
+            if !(bindings.tvm_emulator_set_libraries)(emulator, libs.as_ptr()) {
+                return Err(TvmEmulatorBackendError::new("set_libraries_failed"));
+            }
+        }
+        if !(bindings.tvm_emulator_set_c7)(
+            emulator,
+            address.as_ptr(),
+            request.unixtime,
+            request.balance_nanoton,
+            rand_seed.as_ptr(),
+            config.as_ptr(),
+        ) {
+            return Err(TvmEmulatorBackendError::new("set_c7_failed"));
+        }
+        if !(bindings.tvm_emulator_set_gas_limit)(emulator, request.gas_limit) {
+            return Err(TvmEmulatorBackendError::new("set_gas_limit_failed"));
+        }
+        (bindings.tvm_emulator_set_debug_enabled)(emulator, 0);
+        let raw =
+            (bindings.tvm_emulator_run_get_method)(emulator, request.method_id, stack.as_ptr());
+        if raw.is_null() {
+            return Err(TvmEmulatorBackendError::new("empty_result"));
+        }
+        let json = CStr::from_ptr(raw)
+            .to_str()
+            .map_err(|_| TvmEmulatorBackendError::new("bad_result_utf8"))?;
+        parse_tonlib_get_result(json)
+    }
+}
+
 fn cstring(value: &str) -> Result<CString, TvmEmulatorBackendError> {
     CString::new(value).map_err(|_| TvmEmulatorBackendError::new("nul_byte"))
 }
@@ -219,6 +300,31 @@ fn parse_tonlib_result(json: &str) -> Result<TvmEmulatorResult, TvmEmulatorBacke
         new_code_boc_base64: string_field(&value, "new_code"),
         new_data_boc_base64: string_field(&value, "new_data"),
         actions_boc_base64: string_field(&value, "actions"),
+        missing_library: string_field(&value, "missing_library"),
+    })
+}
+
+fn parse_tonlib_get_result(json: &str) -> Result<TvmEmulatorGetResult, TvmEmulatorBackendError> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|_| TvmEmulatorBackendError::new("bad_json"))?;
+    if !value
+        .get("success")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(TvmEmulatorBackendError::new("emulator_rejected"));
+    }
+    Ok(TvmEmulatorGetResult {
+        vm_exit_code: value
+            .get("vm_exit_code")
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|v| i32::try_from(v).ok())
+            .unwrap_or(i32::MAX),
+        gas_used: value
+            .get("gas_used")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        stack_boc_base64: string_field(&value, "stack").unwrap_or_default(),
         missing_library: string_field(&value, "missing_library"),
     })
 }

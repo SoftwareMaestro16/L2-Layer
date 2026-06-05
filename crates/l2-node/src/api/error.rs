@@ -68,6 +68,13 @@ impl ApiError {
             message: message.into(),
         }
     }
+
+    pub(crate) fn gateway_timeout(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::GATEWAY_TIMEOUT,
+            message: message.into(),
+        }
+    }
 }
 
 impl From<StorageError> for ApiError {

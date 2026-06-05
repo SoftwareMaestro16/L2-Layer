@@ -17,12 +17,14 @@ import {
   signEnWalletV5InitTransaction,
   signCallContractTransaction,
   signDeployContractTransaction,
+  TonL2Client,
   txHash,
   EnWalletV5Generated,
   ENWALLET_V5R1_INTERFACE,
   ENWALLET_V5R1_LABEL,
   ENWALLET_V5R1_TESTNET_WALLET_ID,
   L2_ZERO_ACCOUNT_ID,
+  l2RawAddress,
 } from "./index.js";
 
 function hash(byte: number): string {
@@ -240,4 +242,54 @@ test("EnWallet V5 helpers derive init state and signed wallet body", () => {
     nacl.sign.detached.verify(unsignedExternal.hash(), signature, keyPair.publicKey),
     true,
   );
+});
+
+test("client posts read-only get-method requests", async () => {
+  const contract = hash(0x22);
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: url.toString(), init });
+    return new Response(
+      JSON.stringify({
+        contract,
+        contract_raw_address: l2RawAddress(contract),
+        contract_friendly_address: "EXtest",
+        method: "currentCounter",
+        method_id: 1,
+        gas_limit: 25,
+        gas_used: 0,
+        vm_exit_code: 0,
+        result: { type: "uint64", value: "8" },
+        source: "l2_state",
+        read_only: true,
+        state_root: hash(0x33),
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const client = new TonL2Client("http://127.0.0.1:8080");
+    const response = await client.getContractMethod(contract, {
+      method: "currentCounter",
+      stackBocBase64: "te6ccgEBAQEAAgAAAA==",
+      gasLimit: "25",
+    });
+
+    assert.equal(response.read_only, true);
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0].url,
+      `http://127.0.0.1:8080/v1/contract/${encodeURIComponent(l2RawAddress(contract))}/get-method`,
+    );
+    assert.equal(calls[0].init?.method, "POST");
+    assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+      method: "currentCounter",
+      stack_boc_base64: "te6ccgEBAQEAAgAAAA==",
+      gas_limit: 25,
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });

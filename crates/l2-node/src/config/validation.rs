@@ -49,6 +49,7 @@ impl NodeConfig {
         self.validate_l1_relayer()?;
         self.validate_l1_finalizer()?;
         self.validate_da()?;
+        self.validate_tvm_getters()?;
         self.validate_mempool()?;
         self.executor_gas_schedule
             .validate()
@@ -205,6 +206,28 @@ impl NodeConfig {
             if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
                 return Err(anyhow!("DA_PUBLIC_BASE_URL must be an HTTP URL"));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_tvm_getters(&self) -> anyhow::Result<()> {
+        if self.tvm_getter_default_gas_limit == 0 || self.tvm_getter_max_gas_limit == 0 {
+            return Err(anyhow!("TVM getter gas limits must be non-zero"));
+        }
+        if self.tvm_getter_default_gas_limit > self.tvm_getter_max_gas_limit {
+            return Err(anyhow!(
+                "TVM_GETTER_DEFAULT_GAS_LIMIT must be <= TVM_GETTER_MAX_GAS_LIMIT"
+            ));
+        }
+        if self.tvm_getter_timeout_ms == 0 {
+            return Err(anyhow!("TVM_GETTER_TIMEOUT_MS must be non-zero"));
+        }
+        if self.tvm_getter_max_stack_boc_bytes == 0
+            || self.tvm_getter_max_stack_boc_bytes > super::DEFAULT_MEMPOOL_MAX_PAYLOAD_BYTES
+        {
+            return Err(anyhow!(
+                "TVM_GETTER_MAX_STACK_BOC_BYTES must be between 1 and MEMPOOL_MAX_PAYLOAD_BYTES"
+            ));
         }
         Ok(())
     }

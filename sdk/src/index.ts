@@ -289,7 +289,42 @@ export interface ContractGetMethodResponse {
   contract_raw_address: string;
   contract_friendly_address: string;
   method: string;
+  method_id: number;
+  gas_limit: number;
+  gas_used: number;
+  vm_exit_code: number;
   result: unknown;
+  source: string;
+  read_only: boolean;
+  state_root: Hash32;
+}
+
+export interface ContractGetMethodRequest {
+  method: string;
+  methodId?: number;
+  stackBocBase64?: string;
+  gasLimit?: UIntLike;
+}
+
+export interface ContractStateResponse {
+  contract: Hash32;
+  contract_raw_address: string;
+  contract_friendly_address: string;
+  account: L2Account;
+  code: {
+    code_hash: Hash32;
+    code_boc_base64: string;
+    size_bytes: number;
+    first_seen_block_height: number;
+  };
+  data: {
+    data_hash: Hash32;
+    storage_root: Hash32;
+    data_boc_base64: string;
+    size_bytes: number;
+    first_seen_block_height: number;
+  };
+  last_block_height: number;
   source: string;
 }
 
@@ -581,12 +616,26 @@ export class TonL2Client {
     );
   }
 
+  async getContractState(contractId: Hash32): Promise<ContractStateResponse> {
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(contractId)));
+    return this.getJson(`/v1/contract/${address}/state`);
+  }
+
   async getContractMethod(
     contractId: Hash32,
-    method: string,
+    method: string | ContractGetMethodRequest,
   ): Promise<ContractGetMethodResponse> {
     const address = encodeURIComponent(l2RawAddress(parseL2Address(contractId)));
-    return this.getJson(`/v1/contract/${address}/get/${encodeURIComponent(method)}`);
+    const request = typeof method === "string" ? { method } : method;
+    return this.postJson(`/v1/contract/${address}/get-method`, {
+      method: request.method,
+      method_id: request.methodId,
+      stack_boc_base64: request.stackBocBase64,
+      gas_limit:
+        request.gasLimit === undefined
+          ? undefined
+          : toSafeNumber(toUint(request.gasLimit, "gasLimit", 64), "gasLimit"),
+    });
   }
 
   async getExplorerAccount(accountId: Hash32): Promise<ExplorerAccountResponse> {

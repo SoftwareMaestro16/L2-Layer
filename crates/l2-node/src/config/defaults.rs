@@ -30,6 +30,11 @@ pub(crate) const DEFAULT_DA_MAX_PAYLOAD_BYTES: usize = crate::da::DEFAULT_DA_MAX
 pub(crate) const DEFAULT_DA_PUBLIC_BACKEND: &str = crate::da::DEFAULT_DA_PUBLIC_BACKEND;
 pub(crate) const DEFAULT_DA_PUBLIC_FS_DIR: &str = crate::da::DEFAULT_DA_PUBLIC_FS_DIR;
 pub(crate) const DEFAULT_TVM_ADAPTER: &str = "real";
+pub(crate) const DEFAULT_TVM_GETTER_DEFAULT_GAS_LIMIT: u64 = l2_core::DEFAULT_GETTER_GAS_LIMIT;
+pub(crate) const DEFAULT_TVM_GETTER_MAX_GAS_LIMIT: u64 = 1_000_000;
+pub(crate) const DEFAULT_TVM_GETTER_TIMEOUT_MS: u64 = 500;
+pub(crate) const DEFAULT_TVM_GETTER_MAX_STACK_BOC_BYTES: usize =
+    l2_core::DEFAULT_MAX_GETTER_STACK_BOC_BYTES;
 pub(crate) const DEFAULT_MEMPOOL_REPLAY_TTL_SECS: u64 = 86_400;
 pub(crate) const DEFAULT_MEMPOOL_NONCE_LOCK_TTL_SECS: u64 = 300;
 pub(crate) const DEFAULT_MEMPOOL_LEADER_TTL_SECS: u64 = 10;

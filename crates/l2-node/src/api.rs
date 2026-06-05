@@ -54,6 +54,7 @@ use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
+use sample::post_contract_get_method;
 use sample::{get_contract_method, get_sample_counter};
 use stream::stream;
 #[cfg(test)]
@@ -72,6 +73,12 @@ pub struct AppState {
     mempool_ingress: MempoolIngressGuard,
     dev_admin_deposits_enabled: bool,
     mempool_pop_batch_size: usize,
+    tvm_adapter: l2_core::TvmAdapterMode,
+    tvm_tonlib_library_path: Option<std::path::PathBuf>,
+    tvm_getter_default_gas_limit: u64,
+    tvm_getter_max_gas_limit: u64,
+    tvm_getter_timeout_ms: u64,
+    tvm_getter_max_stack_boc_bytes: usize,
 }
 
 impl AppState {
@@ -103,6 +110,12 @@ impl AppState {
             mempool_ingress: MempoolIngressGuard::from_config(config),
             dev_admin_deposits_enabled: config.dev_admin_deposits_enabled,
             mempool_pop_batch_size: config.mempool_pop_batch_size,
+            tvm_adapter: config.tvm_adapter.clone(),
+            tvm_tonlib_library_path: config.tvm_tonlib_library_path.clone(),
+            tvm_getter_default_gas_limit: config.tvm_getter_default_gas_limit,
+            tvm_getter_max_gas_limit: config.tvm_getter_max_gas_limit,
+            tvm_getter_timeout_ms: config.tvm_getter_timeout_ms,
+            tvm_getter_max_stack_boc_bytes: config.tvm_getter_max_stack_boc_bytes,
         })
     }
 
@@ -128,6 +141,12 @@ impl AppState {
             mempool_ingress: MempoolIngressGuard::from_config(&test_config()),
             dev_admin_deposits_enabled: true,
             mempool_pop_batch_size: 1024,
+            tvm_adapter: l2_core::TvmAdapterMode::Prototype,
+            tvm_tonlib_library_path: None,
+            tvm_getter_default_gas_limit: l2_core::DEFAULT_GETTER_GAS_LIMIT,
+            tvm_getter_max_gas_limit: 1_000_000,
+            tvm_getter_timeout_ms: 500,
+            tvm_getter_max_stack_boc_bytes: l2_core::DEFAULT_MAX_GETTER_STACK_BOC_BYTES,
         }
     }
 }
@@ -171,6 +190,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/account/:id/metadata", get(get_account_metadata))
         .route("/v1/sample-counter/:id", get(get_sample_counter))
         .route("/v1/contract/:id/state", get(get_contract_state))
+        .route(
+            "/v1/contract/:id/get-method",
+            post(post_contract_get_method),
+        )
         .route("/v1/contract/:id/get/:method", get(get_contract_method))
         .route("/v1/da/batch/:height", get(get_batch_da_payload))
         .route(

@@ -90,6 +90,14 @@ platform library path. If the library is missing or an unsupported emulator
 feature is hit, calls fail closed with `tvm_adapter_failed` or a stable TVM
 receipt reason and still follow deterministic rejection-gas rules.
 
+Read-only get-method execution uses the same contract code/data snapshot, but it
+is routed through a separate `TvmGetMethodAdapter` path. Getter requests carry an
+explicit method id, optional stack BoC, gas limit, and block context. The node
+wraps real emulator getters in a bounded timeout, validates the returned stack BoC
+and gas usage, and returns the result without writing the adapter output back to
+state. This mirrors TON's off-chain getter model: a getter may inspect the current
+account data and run TVM code, but it cannot change the committed L2 state root.
+
 For local demo compatibility, `TVM_ADAPTER=prototype` keeps the old bounded
 sample adapter. It recognizes only the sample L2 counter code hash, decodes a
 Tolk-compatible `CounterIncrement` body, updates a deterministic sample storage
@@ -117,6 +125,13 @@ The public read endpoint is `GET /v1/contract/{id}/state`. It serves live
 sequencer state when available and falls back to the persistent registry after a
 node restart. Hash mismatches between account state and BoC registry are rejected
 before persistence.
+
+`POST /v1/contract/{id}/get-method` is the dApp read path. Built-in state getters
+for the sample counter and EnWallet V5 R1 return typed JSON from the account
+snapshot. Other methods require `TVM_ADAPTER=real` and return a stable
+`vm_stack_boc` envelope with the raw TVM result stack. The endpoint is bounded by
+configured getter gas, timeout, and stack-BoC limits and always includes the
+state root observed before execution so clients can bind reads to an L2 state.
 
 Storage-proof compatibility plan: the account leaf commits to
 `code_hash`, `data_hash`, and `storage_root`; the registry binds those hashes to

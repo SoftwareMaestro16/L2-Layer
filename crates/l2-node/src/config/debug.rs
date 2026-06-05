@@ -98,6 +98,16 @@ impl fmt::Debug for NodeConfig {
             .field("da_public_base_url", &self.da_public_base_url)
             .field("tvm_adapter", &self.tvm_adapter)
             .field("tvm_tonlib_library_path", &self.tvm_tonlib_library_path)
+            .field(
+                "tvm_getter_default_gas_limit",
+                &self.tvm_getter_default_gas_limit,
+            )
+            .field("tvm_getter_max_gas_limit", &self.tvm_getter_max_gas_limit)
+            .field("tvm_getter_timeout_ms", &self.tvm_getter_timeout_ms)
+            .field(
+                "tvm_getter_max_stack_boc_bytes",
+                &self.tvm_getter_max_stack_boc_bytes,
+            )
             .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
             .field(
                 "mempool_nonce_lock_ttl_secs",

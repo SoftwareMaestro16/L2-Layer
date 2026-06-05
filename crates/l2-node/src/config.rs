@@ -252,6 +252,38 @@ impl NodeConfig {
             parse_tvm_adapter(&optional(&mut lookup, "TVM_ADAPTER", DEFAULT_TVM_ADAPTER))?;
         let tvm_tonlib_library_path =
             optional_string(&mut lookup, "TVM_TONLIB_LIBRARY_PATH").map(PathBuf::from);
+        let tvm_getter_default_gas_limit = parse_u64(
+            &optional(
+                &mut lookup,
+                "TVM_GETTER_DEFAULT_GAS_LIMIT",
+                &DEFAULT_TVM_GETTER_DEFAULT_GAS_LIMIT.to_string(),
+            ),
+            "TVM_GETTER_DEFAULT_GAS_LIMIT",
+        )?;
+        let tvm_getter_max_gas_limit = parse_u64(
+            &optional(
+                &mut lookup,
+                "TVM_GETTER_MAX_GAS_LIMIT",
+                &DEFAULT_TVM_GETTER_MAX_GAS_LIMIT.to_string(),
+            ),
+            "TVM_GETTER_MAX_GAS_LIMIT",
+        )?;
+        let tvm_getter_timeout_ms = parse_u64(
+            &optional(
+                &mut lookup,
+                "TVM_GETTER_TIMEOUT_MS",
+                &DEFAULT_TVM_GETTER_TIMEOUT_MS.to_string(),
+            ),
+            "TVM_GETTER_TIMEOUT_MS",
+        )?;
+        let tvm_getter_max_stack_boc_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "TVM_GETTER_MAX_STACK_BOC_BYTES",
+                &DEFAULT_TVM_GETTER_MAX_STACK_BOC_BYTES.to_string(),
+            ),
+            "TVM_GETTER_MAX_STACK_BOC_BYTES",
+        )?;
         let mempool_replay_ttl_secs = parse_u64(
             &optional(
                 &mut lookup,
@@ -540,6 +572,10 @@ impl NodeConfig {
             da_public_base_url,
             tvm_adapter,
             tvm_tonlib_library_path,
+            tvm_getter_default_gas_limit,
+            tvm_getter_max_gas_limit,
+            tvm_getter_timeout_ms,
+            tvm_getter_max_stack_boc_bytes,
             mempool_replay_ttl_secs,
             mempool_nonce_lock_ttl_secs,
             mempool_leader_ttl_secs,
