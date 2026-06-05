@@ -142,6 +142,12 @@ pub struct InternalQueueSnapshotRecord {
     pub queue: InternalMessageQueueSnapshot,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntFaucetClaimSave {
+    Inserted,
+    Duplicate,
+}
+
 impl BatchCommitRecord {
     pub fn pending(block: &L2Block) -> Option<Self> {
         Some(Self {
@@ -226,6 +232,12 @@ pub trait Storage: Send + Sync {
         account_id: Hash32,
         amount: u128,
     ) -> Result<bool, StorageError>;
+    async fn save_ent_faucet_claim(
+        &self,
+        claim_id: Hash32,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<EntFaucetClaimSave, StorageError>;
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError>;
     async fn set_l1_cursor(&self, source: &str, cursor: L1Cursor) -> Result<(), StorageError>;
     async fn get_batch_commit(
@@ -306,6 +318,7 @@ pub struct InMemoryStorage {
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
     deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
     ent_faucet_grants: RwLock<BTreeMap<Hash32, u128>>,
+    ent_faucet_claims: RwLock<BTreeMap<Hash32, (Hash32, u128)>>,
     cursors: RwLock<BTreeMap<String, L1Cursor>>,
 }
 
@@ -438,6 +451,29 @@ impl Storage for InMemoryStorage {
     ) -> Result<bool, StorageError> {
         let mut grants = self.ent_faucet_grants.write().await;
         Ok(grants.insert(account_id, amount).is_none())
+    }
+
+    async fn save_ent_faucet_claim(
+        &self,
+        claim_id: Hash32,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<EntFaucetClaimSave, StorageError> {
+        let mut claims = self.ent_faucet_claims.write().await;
+        match claims.get(&claim_id) {
+            Some((stored_account, stored_amount))
+                if *stored_account == account_id && *stored_amount == amount =>
+            {
+                Ok(EntFaucetClaimSave::Duplicate)
+            }
+            Some(_) => Err(StorageError::Conflict {
+                resource: "ent_faucet_claim",
+            }),
+            None => {
+                claims.insert(claim_id, (account_id, amount));
+                Ok(EntFaucetClaimSave::Inserted)
+            }
+        }
     }
 
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {

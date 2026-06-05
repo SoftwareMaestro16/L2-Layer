@@ -5,8 +5,8 @@ use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
-    InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage, StorageError,
-    StoredBatchPayload, StoredContractState, StoredTransaction,
+    EntFaucetClaimSave, InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage,
+    StorageError, StoredBatchPayload, StoredContractState, StoredTransaction,
 };
 use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
 use crate::storage::{
@@ -311,6 +311,46 @@ impl Storage for PostgresStorage {
         .await?;
 
         Ok(inserted.is_some())
+    }
+
+    async fn save_ent_faucet_claim(
+        &self,
+        claim_id: Hash32,
+        account_id: Hash32,
+        amount: u128,
+    ) -> Result<EntFaucetClaimSave, StorageError> {
+        let inserted = sqlx::query_scalar::<_, String>(
+            r#"
+            INSERT INTO ent_faucet_claims (claim_id, account_id, asset_id, amount)
+            VALUES ($1, $2, 0, $3::numeric)
+            ON CONFLICT (claim_id) DO NOTHING
+            RETURNING claim_id
+            "#,
+        )
+        .bind(claim_id.to_hex())
+        .bind(account_id.to_hex())
+        .bind(amount.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if inserted.is_some() {
+            return Ok(EntFaucetClaimSave::Inserted);
+        }
+
+        let row =
+            sqlx::query("SELECT account_id, amount FROM ent_faucet_claims WHERE claim_id = $1")
+                .bind(claim_id.to_hex())
+                .fetch_one(&self.pool)
+                .await?;
+        let stored_account: String = row.try_get("account_id")?;
+        let stored_amount: String = row.try_get("amount")?;
+        if stored_account == account_id.to_hex() && stored_amount == amount.to_string() {
+            return Ok(EntFaucetClaimSave::Duplicate);
+        }
+
+        Err(StorageError::Conflict {
+            resource: "ent_faucet_claim",
+        })
     }
 
     async fn get_l1_cursor(&self, source: &str) -> Result<Option<L1Cursor>, StorageError> {

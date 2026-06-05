@@ -1,4 +1,5 @@
 use super::*;
+use crate::faucet::{EntFaucetBatchClaimRequest, EntFaucetBatchRequest, EntFaucetRequest};
 use axum::body::to_bytes;
 use axum::http::header::AUTHORIZATION;
 use axum::http::header::CONTENT_TYPE;
@@ -8,7 +9,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_bytes, canonical_batch_data_hash, l2_raw_address,
-    l2_user_friendly_address, AccountType, L2Block, L2Event, L2TransactionKind, Receipt,
+    l2_user_friendly_address, AccountType, Hash32, L2Block, L2Event, L2TransactionKind, Receipt,
     WithdrawalLeaf, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR,
     L2_TX_VERSION_V2,
 };
@@ -879,6 +880,135 @@ async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
     get_account(State(state), Path(l2_user_friendly_address(account_id)))
         .await
         .expect("friendly account path");
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_requires_authorization() {
+    let state = test_state(None);
+    let request = EntFaucetBatchRequest {
+        claims: vec![EntFaucetBatchClaimRequest {
+            claim_id: sha256_bytes(b"claim").to_hex(),
+            account_id: l2_raw_address(sha256_bytes(b"account")),
+        }],
+    };
+
+    let error = admin_ent_faucet_batch(State(state), auth_headers(ADMIN_TOKEN), Json(request))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_is_idempotent_by_claim_id() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"batch-account");
+    let claim_id = sha256_bytes(b"claim-one");
+    let request = EntFaucetBatchRequest {
+        claims: vec![EntFaucetBatchClaimRequest {
+            claim_id: claim_id.to_hex(),
+            account_id: l2_user_friendly_address(account_id),
+        }],
+    };
+
+    let first = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(request.clone()),
+    )
+    .await
+    .expect("first batch");
+    assert_eq!(first.0.claims.len(), 1);
+    assert!(first.0.claims[0].faucet.granted);
+
+    let duplicate = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(request),
+    )
+    .await
+    .expect("duplicate batch");
+    assert!(!duplicate.0.claims[0].faucet.granted);
+    assert_eq!(
+        duplicate.0.claims[0].faucet.deposit_id,
+        first.0.claims[0].faucet.deposit_id
+    );
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_allows_new_claim_for_same_account() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"repeat-account");
+    let request = EntFaucetBatchRequest {
+        claims: vec![
+            EntFaucetBatchClaimRequest {
+                claim_id: sha256_bytes(b"claim-a").to_hex(),
+                account_id: l2_raw_address(account_id),
+            },
+            EntFaucetBatchClaimRequest {
+                claim_id: sha256_bytes(b"claim-b").to_hex(),
+                account_id: l2_raw_address(account_id),
+            },
+        ],
+    };
+
+    let response = admin_ent_faucet_batch(State(state), auth_headers(ADMIN_TOKEN), Json(request))
+        .await
+        .expect("batch grants");
+
+    assert_eq!(response.0.claims.len(), 2);
+    assert!(response.0.claims.iter().all(|claim| claim.faucet.granted));
+    assert_ne!(
+        response.0.claims[0].faucet.deposit_id,
+        response.0.claims[1].faucet.deposit_id
+    );
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_batch_rejects_zero_and_conflicting_claims() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let claim_id = sha256_bytes(b"claim-conflict");
+
+    let zero_error = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetBatchRequest {
+            claims: vec![EntFaucetBatchClaimRequest {
+                claim_id: sha256_bytes(b"zero-claim").to_hex(),
+                account_id: l2_raw_address(Hash32::ZERO),
+            }],
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(zero_error.status, StatusCode::BAD_REQUEST);
+
+    let _ = admin_ent_faucet_batch(
+        State(state.clone()),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetBatchRequest {
+            claims: vec![EntFaucetBatchClaimRequest {
+                claim_id: claim_id.to_hex(),
+                account_id: l2_raw_address(sha256_bytes(b"first-account")),
+            }],
+        }),
+    )
+    .await
+    .expect("first claim");
+
+    let conflict = admin_ent_faucet_batch(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetBatchRequest {
+            claims: vec![EntFaucetBatchClaimRequest {
+                claim_id: claim_id.to_hex(),
+                account_id: l2_raw_address(sha256_bytes(b"second-account")),
+            }],
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict.status, StatusCode::CONFLICT);
 }
 
 #[tokio::test]

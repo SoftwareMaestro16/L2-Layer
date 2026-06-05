@@ -1,6 +1,6 @@
 use crate::config::NodeConfig;
 use crate::da::{DataAvailabilityConfig, DynDa, StorageDaStore};
-use crate::faucet::{EntFaucetRequest, EntFaucetResponse, EntFaucetService};
+use crate::faucet::EntFaucetService;
 use crate::finalizer::{BatchFinalizer, BatchFinalizerConfig};
 use crate::indexer::{DepositIndexerConfig, TonDepositIndexer, ToncenterClient};
 use crate::mempool::MempoolService;
@@ -26,6 +26,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod account;
+mod admin_faucet;
 mod auth;
 mod challenge;
 mod contract;
@@ -41,6 +42,7 @@ mod stream;
 mod test_support;
 
 use account::get_account_metadata;
+use admin_faucet::{admin_ent_faucet, admin_ent_faucet_batch};
 use auth::AdminAuth;
 use challenge::{operator_observer_checkpoint, operator_observer_replay};
 use contract::get_contract_state;
@@ -243,6 +245,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/stream", get(stream))
         .route("/v1/admin/deposit", post(admin_deposit))
         .route("/v1/admin/faucet/ent", post(admin_ent_faucet))
+        .route("/v1/admin/faucet/ent/batch", post(admin_ent_faucet_batch))
         .route("/v1/admin/produce-block", post(admin_produce_block))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -294,24 +297,6 @@ async fn admin_produce_block(
         Some(block) => (StatusCode::CREATED, Json(block)).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
     })
-}
-
-async fn admin_ent_faucet(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(request): Json<EntFaucetRequest>,
-) -> Result<Json<EntFaucetResponse>, ApiError> {
-    state.admin_auth.authorize(&headers)?;
-    let account_id = EntFaucetService::parse_account_id(&request.account_id)
-        .map_err(|_| ApiError::bad_request("invalid account id"))?;
-    let grant = state.ent_faucet.grant(&state.storage, account_id).await?;
-
-    if let Some(deposit) = grant.deposit {
-        let mut sequencer = state.sequencer.write().await;
-        sequencer.ingest_deposits(vec![deposit]);
-    }
-
-    Ok(Json(grant.response))
 }
 
 async fn get_account(

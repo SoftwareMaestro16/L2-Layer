@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::NodeConfig;
-use crate::storage::{DynStorage, StorageError};
+use crate::storage::{DynStorage, EntFaucetClaimSave, StorageError};
 
 #[derive(Clone, Debug)]
 pub struct EntFaucetService {
@@ -16,6 +16,17 @@ pub struct EntFaucetService {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EntFaucetRequest {
+    pub account_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EntFaucetBatchRequest {
+    pub claims: Vec<EntFaucetBatchClaimRequest>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EntFaucetBatchClaimRequest {
+    pub claim_id: String,
     pub account_id: String,
 }
 
@@ -32,6 +43,17 @@ pub struct EntFaucetResponse {
     pub granted: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EntFaucetBatchResponse {
+    pub claims: Vec<EntFaucetBatchClaimResponse>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EntFaucetBatchClaimResponse {
+    pub claim_id: Hash32,
+    pub faucet: EntFaucetResponse,
+}
+
 #[derive(Clone, Debug)]
 pub struct EntFaucetGrant {
     pub response: EntFaucetResponse,
@@ -42,8 +64,12 @@ pub struct EntFaucetGrant {
 pub enum FaucetError {
     #[error("invalid account id")]
     InvalidAccountId,
+    #[error("invalid claim id")]
+    InvalidClaimId,
     #[error("reserved zero address")]
     ZeroAccountId,
+    #[error("faucet claim id already exists with different data")]
+    ClaimConflict,
     #[error("ENT faucet amount overflows base units")]
     AmountOverflow,
     #[error("storage failed: {0}")]
@@ -98,8 +124,57 @@ impl EntFaucetService {
         })
     }
 
+    pub async fn grant_claim(
+        &self,
+        storage: &DynStorage,
+        claim_id: Hash32,
+        account_id: Hash32,
+    ) -> Result<EntFaucetGrant, FaucetError> {
+        if claim_id == Hash32::ZERO {
+            return Err(FaucetError::InvalidClaimId);
+        }
+        if account_id == Hash32::ZERO {
+            return Err(FaucetError::ZeroAccountId);
+        }
+
+        let deposit = self.claim_deposit_event(claim_id, account_id);
+        let saved = match storage
+            .save_ent_faucet_claim(claim_id, account_id, self.amount_base_units)
+            .await
+        {
+            Ok(status) => status,
+            Err(StorageError::Conflict {
+                resource: "ent_faucet_claim",
+            }) => return Err(FaucetError::ClaimConflict),
+            Err(error) => return Err(FaucetError::Storage(error)),
+        };
+        let deposit_inserted = if saved == EntFaucetClaimSave::Inserted {
+            storage.save_deposit(deposit.clone()).await?
+        } else {
+            false
+        };
+
+        Ok(EntFaucetGrant {
+            response: EntFaucetResponse {
+                account_id,
+                account_raw_address: l2_raw_address(account_id),
+                account_friendly_address: l2_user_friendly_address(account_id),
+                amount_ent: self.amount_ent,
+                amount_base_units: self.amount_base_units,
+                deposit_id: deposit.deposit_id,
+                granted: deposit_inserted,
+            },
+            deposit: deposit_inserted.then_some(deposit),
+        })
+    }
+
     pub fn parse_account_id(value: &str) -> Result<Hash32, FaucetError> {
         parse_l2_address(value).map_err(|_| FaucetError::InvalidAccountId)
+    }
+
+    pub fn parse_claim_id(value: &str) -> Result<Hash32, FaucetError> {
+        let value = value.strip_prefix("0x").unwrap_or(value);
+        Hash32::from_hex(value).map_err(|_| FaucetError::InvalidClaimId)
     }
 
     fn deposit_event(&self, account_id: Hash32) -> DepositEvent {
@@ -114,6 +189,25 @@ impl EntFaucetService {
             recipient: account_id,
             amount: self.amount_base_units,
             l1_tx_hash: hash_domain("entropis.faucet.synthetic-l1.v1", &[deposit_id.as_bytes()]),
+            l1_lt: 1,
+        }
+    }
+
+    fn claim_deposit_event(&self, claim_id: Hash32, account_id: Hash32) -> DepositEvent {
+        let amount_bytes = self.amount_base_units.to_be_bytes();
+        let deposit_id = hash_domain(
+            "entropis.faucet.claim.deposit.v1",
+            &[claim_id.as_bytes(), account_id.as_bytes(), &amount_bytes],
+        );
+        DepositEvent {
+            deposit_id,
+            asset_id: L2_NATIVE_GAS_ASSET,
+            recipient: account_id,
+            amount: self.amount_base_units,
+            l1_tx_hash: hash_domain(
+                "entropis.faucet.claim.synthetic-l1.v1",
+                &[deposit_id.as_bytes()],
+            ),
             l1_lt: 1,
         }
     }
@@ -190,5 +284,46 @@ mod tests {
             service.grant(&storage, Hash32::ZERO).await.unwrap_err(),
             FaucetError::ZeroAccountId
         ));
+    }
+
+    #[tokio::test]
+    async fn faucet_claim_id_allows_repeat_account_grants() {
+        let service = EntFaucetService::from_config(&config()).unwrap();
+        let storage: DynStorage = Arc::new(InMemoryStorage::default());
+        let account_id = sha256_bytes(b"repeat-account");
+
+        let first = service
+            .grant_claim(&storage, sha256_bytes(b"claim-1"), account_id)
+            .await
+            .unwrap();
+        let second = service
+            .grant_claim(&storage, sha256_bytes(b"claim-2"), account_id)
+            .await
+            .unwrap();
+
+        assert!(first.response.granted);
+        assert!(second.response.granted);
+        assert_ne!(first.response.deposit_id, second.response.deposit_id);
+    }
+
+    #[tokio::test]
+    async fn faucet_claim_id_is_idempotent() {
+        let service = EntFaucetService::from_config(&config()).unwrap();
+        let storage: DynStorage = Arc::new(InMemoryStorage::default());
+        let account_id = sha256_bytes(b"account");
+        let claim_id = sha256_bytes(b"claim");
+
+        let first = service
+            .grant_claim(&storage, claim_id, account_id)
+            .await
+            .unwrap();
+        let duplicate = service
+            .grant_claim(&storage, claim_id, account_id)
+            .await
+            .unwrap();
+
+        assert!(first.response.granted);
+        assert!(!duplicate.response.granted);
+        assert_eq!(first.response.deposit_id, duplicate.response.deposit_id);
     }
 }

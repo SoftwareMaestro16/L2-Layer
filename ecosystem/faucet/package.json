@@ -1,0 +1,36 @@
+{
+  "name": "@entropis/faucet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 3002",
+    "dev:server": "tsx watch server/index.ts",
+    "server": "node dist-server/index.js",
+    "server:build": "tsc -p tsconfig.server.json",
+    "test": "npm run server:build && node --test \"dist-server/**/*.test.js\"",
+    "build": "vue-tsc -b && vite build && npm run server:build",
+    "preview": "vite preview --host 127.0.0.1 --port 3002",
+    "typecheck": "vue-tsc -b"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-vue-next": "^0.555.0",
+    "shadcn-vue": "^2.3.0",
+    "tailwind-merge": "^3.4.0",
+    "vue": "^3.5.25",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.17",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^22.15.30",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "tailwindcss": "^4.1.17",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vue-tsc": "^3.1.8"
+  }
+}

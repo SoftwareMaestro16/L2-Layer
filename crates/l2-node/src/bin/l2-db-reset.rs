@@ -6,6 +6,7 @@ const NODE_TABLES: &[&str] = &[
     "l1_batch_finalizations",
     "l1_batch_commits",
     "l2_batch_payloads",
+    "ent_faucet_claims",
     "ent_faucet_grants",
     "l2_withdrawals",
     "l2_transactions",
