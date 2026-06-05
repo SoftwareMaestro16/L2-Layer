@@ -101,6 +101,8 @@ fun handleRegisterJettonAsset(senderAddress: address, msg: RegisterJettonAsset) 
     assert (senderAddress == storage.admin) throw Errors.Unauthorized;
     assert (msg.assetId != storage.tonAssetId) throw Errors.BadAssetConfig;
     assert (msg.assetId != 0) throw Errors.BadAssetConfig;
+    assert (msg.master != unlinkedAssetVaultAddress()) throw Errors.BadAssetConfig;
+    assert (msg.wallet != unlinkedAssetVaultAddress()) throw Errors.BadAssetConfig;
     assert (msg.decimals <= 18) throw Errors.BadAssetDecimals;
 
     val walletKey = jettonWalletKey(msg.wallet);
@@ -111,6 +113,8 @@ fun handleRegisterJettonAsset(senderAddress: address, msg: RegisterJettonAsset) 
     val existingAsset = storage.jettonAssets.get(msg.assetId);
     if (existingAsset.isFound) {
         val previous = existingAsset.loadValue().load();
+        assert (previous.master == msg.master) throw Errors.BadAssetConfig;
+        assert (previous.decimals == msg.decimals) throw Errors.BadAssetConfig;
         if (previous.wallet != msg.wallet) {
             storage.jettonWalletToAsset.deleteAndGetDeleted(jettonWalletKey(previous.wallet));
         }
@@ -363,8 +367,7 @@ fun decodeL2RecipientCell(payload: cell): uint256 {
 }
 
 fun jettonWalletKey(wallet: address): uint256 {
-    val (_, hash) = wallet.getWorkchainAndHash();
-    return hash;
+    return cellReprHash(beginCell().storeAddress(wallet).endCell());
 }
 
 fun assertJettonWalletRegistered(storage: AssetVaultStorage, wallet: address) {

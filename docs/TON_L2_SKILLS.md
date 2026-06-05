@@ -56,7 +56,8 @@ TON_L2_SKILLS = {
     "Bridge deposits must verify the sending jetton wallet and decode transfer_notification payloads instead of treating Jettons like account balances on one contract.",
     "Important opcodes include transfer 0x0f8a7ea5, transfer_notification 0x7362d09c, burn 0x595f07bc, and excesses 0xd53276db.",
     "TEP-74 transfer_notification contains query_id, amount, sender, and forward_payload as Either Cell ^Cell; Entropis accepts canonical inline or ref branches only when the decoded payload is exactly one non-zero uint256 L2 recipient.",
-    "AssetVault stores an admin-managed asset registry: asset id, Jetton master, vault-owned Jetton wallet, decimals, and wallet-hash reverse index.",
+    "AssetVault stores an admin-managed asset registry: asset id, Jetton master, vault-owned Jetton wallet, decimals, and a full-address reverse index keyed by the serialized wallet address hash, including workchain.",
+    "Jetton asset ids are registry-stable: an existing asset may rotate to a new vault-owned wallet for the same master and decimals, but master/decimals changes require a new asset id.",
     "The SDK builds Jetton deposit transfers with destination=AssetVault, response_destination=user wallet, forward_ton_amount>0, and forward_payload as the canonical ref branch containing the L2 recipient cell.",
     "Always respect token decimals and wallet discovery; do not assume 9 decimals or a globally shared balance contract."
   ],
