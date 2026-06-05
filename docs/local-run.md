@@ -152,13 +152,22 @@ MEMPOOL_BANNED_IPS=
 MEMPOOL_BANNED_ACCOUNTS=
 ```
 
-The mempool rejects duplicate transaction hashes, locked account nonces, malformed
-signatures, wrong chain ids, zero/oversized gas policies, oversized public
-payloads, per-kind payloads, oversized or malformed
-`CallContract.body_boc_base64`, per-account queue floods, global queue floods,
-wide pending nonce windows, banned accounts/IPs, and per-account/per-IP
-rate-limit abuse. Bad-signature submissions with a valid sender/public-key pair
-consume the same per-account and per-IP limits as valid submissions.
+The mempool rejects unsupported tx versions, invalid domain separators,
+unsupported transaction-kind versions, unsupported fee assets, duplicate
+transaction hashes, locked account nonces, malformed signatures, wrong chain ids,
+zero/oversized gas policies, oversized public payloads, per-kind payloads,
+oversized or malformed `CallContract.body_boc_base64`, per-account queue floods,
+global queue floods, wide pending nonce windows, banned accounts/IPs, and
+per-account/per-IP rate-limit abuse. Bad-signature submissions with a valid
+sender/public-key pair consume the same per-account and per-IP limits as valid
+submissions.
+
+Mempool admission is a stateless prefilter. It validates signature correctness
+for the supplied public key, but it does not decide whether `from` currently
+matches that key because rotated accounts are authorized by `active_public_key`
+stored in L2 state. Sequencer and observer replay enforce account type,
+disabled/recovery flags, active-public-key binding, nonce, and expiration before
+deterministic execution; failures there are uncharged sequencer-level rejections.
 `GET /v1/mempool/metrics` exposes accepted/rejected reason counters, current
 store queue depth, and eviction count for operators.
 

@@ -440,5 +440,9 @@ impl Sequencer {
 mod tests;
 
 #[cfg(test)]
+#[path = "sequencer_security_tests.rs"]
+mod security_tests;
+
+#[cfg(test)]
 #[path = "sequencer_internal_tests.rs"]
 mod internal_tests;

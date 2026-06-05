@@ -15,3 +15,7 @@ pub use types::{MempoolMetrics, MempoolStore, MempoolStoreStats};
 #[cfg(test)]
 #[path = "mempool_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "mempool_security_tests.rs"]
+mod security_tests;
