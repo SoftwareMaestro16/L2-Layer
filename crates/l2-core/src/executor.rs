@@ -8,6 +8,7 @@ use crate::tvm::{
 };
 use crate::types::{
     L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
+    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use crate::withdrawal::validate_release_parts;
 use serde::{Deserialize, Serialize};
@@ -73,6 +74,9 @@ impl DeterministicExecutor {
         tvm_adapter: &A,
     ) -> ExecutionOutcome {
         let tx_hash = tx.tx_hash();
+        if let Err(reason) = validate_execution_envelope(tx, config) {
+            return rejected(tx_hash, reason);
+        }
 
         match &tx.kind {
             L2TransactionKind::Deposit {
@@ -122,17 +126,12 @@ impl DeterministicExecutor {
                 if !recipient_can_credit {
                     return rejected_attempt(state, tx, from, config, "balance_overflow");
                 }
-                if let Err(reason) = validate_total_debit(
-                    state,
-                    from,
-                    *asset_id,
-                    *amount,
-                    config.gas_coin_asset,
-                    fee,
-                ) {
+                if let Err(reason) =
+                    validate_total_debit(state, from, *asset_id, *amount, tx.fee_asset_id, fee)
+                {
                     return rejected_attempt(state, tx, from, config, reason);
                 }
-                if !debit_total(state, from, *asset_id, *amount, config.gas_coin_asset, fee) {
+                if !debit_total(state, from, *asset_id, *amount, tx.fee_asset_id, fee) {
                     return rejected_attempt(state, tx, from, config, "insufficient_balance");
                 }
 
@@ -174,13 +173,13 @@ impl DeterministicExecutor {
                 };
                 if state
                     .account(from)
-                    .is_none_or(|account| account.balance(config.gas_coin_asset) < fee.amount)
+                    .is_none_or(|account| account.balance(tx.fee_asset_id) < fee.amount)
                 {
                     return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                 }
                 {
                     let sender = state.account_mut(from);
-                    if !sender.debit(config.gas_coin_asset, fee.amount) {
+                    if !sender.debit(tx.fee_asset_id, fee.amount) {
                         return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                     }
                     mark_sender_attempt(sender, tx, config.block_height);
@@ -214,17 +213,12 @@ impl DeterministicExecutor {
                 if let Err(error) = validate_release_parts(*amount, l1_recipient) {
                     return rejected_attempt(state, tx, from, config, error.rejection_reason());
                 }
-                if let Err(reason) = validate_total_debit(
-                    state,
-                    from,
-                    *asset_id,
-                    *amount,
-                    config.gas_coin_asset,
-                    fee,
-                ) {
+                if let Err(reason) =
+                    validate_total_debit(state, from, *asset_id, *amount, tx.fee_asset_id, fee)
+                {
                     return rejected_attempt(state, tx, from, config, reason);
                 }
-                if !debit_total(state, from, *asset_id, *amount, config.gas_coin_asset, fee) {
+                if !debit_total(state, from, *asset_id, *amount, tx.fee_asset_id, fee) {
                     return rejected_attempt(state, tx, from, config, "insufficient_balance");
                 }
 
@@ -300,13 +294,13 @@ impl DeterministicExecutor {
                 }
                 if state
                     .account(from)
-                    .is_none_or(|account| account.balance(config.gas_coin_asset) < fee.amount)
+                    .is_none_or(|account| account.balance(tx.fee_asset_id) < fee.amount)
                 {
                     return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                 }
                 {
                     let sender = state.account_mut(from);
-                    if !sender.debit(config.gas_coin_asset, fee.amount) {
+                    if !sender.debit(tx.fee_asset_id, fee.amount) {
                         return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                     }
                     mark_sender_attempt(sender, tx, config.block_height);
@@ -354,6 +348,28 @@ fn rejected(tx_hash: Hash32, reason: impl Into<String>) -> ExecutionOutcome {
         withdrawals: vec![],
         internal_messages: vec![],
     }
+}
+
+fn validate_execution_envelope(
+    tx: &SignedL2Transaction,
+    config: &ExecutionConfig,
+) -> Result<(), &'static str> {
+    if tx.tx_version != L2_TX_VERSION_V2 {
+        return Err("unsupported_tx_version");
+    }
+    if tx.domain_separator != L2_TX_DOMAIN_SEPARATOR {
+        return Err("invalid_domain_separator");
+    }
+    if tx.transaction_kind_version != L2_TRANSACTION_KIND_VERSION_V1 {
+        return Err("unsupported_transaction_kind_version");
+    }
+    if tx.valid_until_block < config.block_height {
+        return Err("tx_expired");
+    }
+    if !tx.is_system() && tx.fee_asset_id != config.gas_coin_asset {
+        return Err("unsupported_fee_asset");
+    }
+    Ok(())
 }
 
 fn rejected_attempt(
@@ -450,8 +466,8 @@ fn charge_rejection_fee(
         .rejection_fee(tx.gas_limit, tx.max_gas_price)
         .map_or(0, |fee| fee.amount);
     let account = state.account_mut(from);
-    let gas_charged = if fee > 0 && account.balance(config.gas_coin_asset) >= fee {
-        if account.debit(config.gas_coin_asset, fee) {
+    let gas_charged = if fee > 0 && account.balance(tx.fee_asset_id) >= fee {
+        if account.debit(tx.fee_asset_id, fee) {
             fee
         } else {
             0

@@ -10,7 +10,9 @@ use l2_core::{
     canonical_batch_data_hash, decode_batch_data, merkle_root, withdrawal_merkle_root, Account,
     AccountType, BatchDataDecodeError, DeterministicExecutor, ExecutionConfig, Hash32,
     L2TransactionKind, Receipt, SignedL2Transaction, State, WithdrawalLeaf,
+    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
+use std::collections::BTreeSet;
 
 pub(super) struct ReplayOutcome {
     pub(super) status: ObserverReplayStatus,
@@ -196,9 +198,15 @@ fn replay_transactions(
     let mut receipts = Vec::with_capacity(txs.len());
     let mut withdrawals = Vec::new();
     let mut block_gas_used = 0u64;
+    let mut seen_tx_hashes = BTreeSet::new();
 
     for tx in txs {
-        if let Err(reason) = verify_tx(state, tx, config) {
+        let tx_hash = tx.tx_hash();
+        if !seen_tx_hashes.insert(tx_hash) {
+            receipts.push(Receipt::rejected(tx_hash, "duplicate_tx"));
+            continue;
+        }
+        if let Err(reason) = verify_tx(state, tx, config, block_height) {
             receipts.push(Receipt::rejected(tx.tx_hash(), reason));
             continue;
         }
@@ -238,15 +246,20 @@ fn verify_tx(
     state: &State,
     tx: &SignedL2Transaction,
     config: &ObserverReplayConfig,
+    block_height: u64,
 ) -> Result<(), &'static str> {
     if tx.chain_id != config.chain_id {
         return Err("wrong_chain_id");
     }
+    validate_tx_envelope(tx, block_height)?;
     if is_canonical_system_deposit(tx) {
         return validate_reserved_zero_addresses(tx, true);
     }
     if tx.is_system() {
         return Err("deposit_must_be_system");
+    }
+    if tx.fee_asset_id != config.gas_coin_asset {
+        return Err("unsupported_fee_asset");
     }
     let from = tx.from.ok_or("missing_sender")?;
     if is_l2_zero_address(from) {
@@ -265,6 +278,22 @@ fn verify_tx(
         return Err("bad_nonce");
     }
     validate_reserved_zero_addresses(tx, false)
+}
+
+fn validate_tx_envelope(tx: &SignedL2Transaction, block_height: u64) -> Result<(), &'static str> {
+    if tx.tx_version != L2_TX_VERSION_V2 {
+        return Err("unsupported_tx_version");
+    }
+    if tx.domain_separator != L2_TX_DOMAIN_SEPARATOR {
+        return Err("invalid_domain_separator");
+    }
+    if tx.transaction_kind_version != L2_TRANSACTION_KIND_VERSION_V1 {
+        return Err("unsupported_transaction_kind_version");
+    }
+    if tx.valid_until_block < block_height {
+        return Err("tx_expired");
+    }
+    Ok(())
 }
 
 fn validate_public_sender_account(account: &Account) -> Result<(), &'static str> {

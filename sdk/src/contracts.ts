@@ -1,22 +1,34 @@
 import { beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
 import { isL2ZeroAddress, normalizeHash32, parseL2Address } from "./address.js";
-import { signingPayload } from "./consensus.js";
+import {
+  L2_TRANSACTION_KIND_VERSION_V1,
+  L2_TX_DOMAIN_SEPARATOR,
+  L2_TX_VERSION_V2,
+  signingPayload,
+} from "./consensus.js";
 
 export type Hash32 = string;
 type UIntLike = bigint | number | string;
 
 export const SAMPLE_COUNTER_INCREMENT_OPCODE = 0x534c3201;
 export const SAMPLE_COUNTER_INCREMENT_GAS = 25;
+const L2_NATIVE_GAS_ASSET = 0;
 const SAMPLE_COUNTER_CODE_MAGIC = 0x4c324343;
 const SAMPLE_COUNTER_DATA_MAGIC = 0x4c324344;
 
 export interface SignedL2Transaction {
+  tx_version: number;
+  domain_separator: string;
   chain_id: string;
   from: Hash32 | null;
   nonce: number;
+  valid_until_block: number;
   gas_limit: number;
   max_gas_price: string;
+  fee_asset_id: number;
+  memo_hash: Hash32 | null;
+  transaction_kind_version: number;
   kind:
     | {
         DeployContract: {
@@ -54,6 +66,9 @@ export interface DeployContractTransactionParams {
   dataBocBase64: string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
 }
 
 export interface CallContractTransactionParams {
@@ -64,6 +79,9 @@ export interface CallContractTransactionParams {
   bodyBocBase64: string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
 }
 
 export interface SampleCounterState {
@@ -98,6 +116,7 @@ export function buildDeployContractTransaction(
     throw new Error("dataBocBase64 hash must be non-zero");
   }
   return {
+    ...buildEnvelopeFields(params),
     chain_id: params.chainId,
     from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
@@ -126,6 +145,7 @@ export function buildCallContractTransaction(
   const from = requireNonZeroL2Address(params.from, "from");
   normalizeSingleRootBocBase64(params.bodyBocBase64, "bodyBocBase64");
   return {
+    ...buildEnvelopeFields(params),
     chain_id: params.chainId,
     from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
@@ -281,6 +301,30 @@ function toDecimalString(value: bigint): string {
 
 function zeroHash32(): Hash32 {
   return "0".repeat(64);
+}
+
+function buildEnvelopeFields(params: {
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
+}) {
+  return {
+    tx_version: L2_TX_VERSION_V2,
+    domain_separator: L2_TX_DOMAIN_SEPARATOR,
+    valid_until_block: toSafeNumber(
+      toUint(params.validUntilBlock ?? Number.MAX_SAFE_INTEGER, "validUntilBlock", 64),
+      "validUntilBlock",
+    ),
+    fee_asset_id: toSafeNumber(
+      toUint(params.feeAssetId ?? L2_NATIVE_GAS_ASSET, "feeAssetId", 32),
+      "feeAssetId",
+    ),
+    memo_hash:
+      params.memoHash === undefined || params.memoHash === null
+        ? null
+        : normalizeHash32(params.memoHash),
+    transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
+  };
 }
 
 function requireNonZeroL2Address(value: string, field: string): Hash32 {

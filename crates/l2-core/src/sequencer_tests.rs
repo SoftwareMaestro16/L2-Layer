@@ -1,7 +1,10 @@
 use super::*;
 use crate::crypto::{derive_account_id, sha256_bytes};
 use crate::state::AccountType;
-use crate::types::{L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET};
+use crate::types::{
+    L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
+    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+};
 use crate::withdrawal::verify_withdrawal_merkle_proof;
 use ed25519_dalek::{Signer, SigningKey};
 use rand_core::OsRng;
@@ -14,11 +17,17 @@ fn signed_tx(
 ) -> SignedL2Transaction {
     let public_key = signing_key.verifying_key().to_bytes();
     let mut tx = SignedL2Transaction {
+        tx_version: L2_TX_VERSION_V2,
+        domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
         chain_id: "ton-l2-devnet".to_owned(),
         from: Some(from),
         nonce,
+        valid_until_block: u64::MAX,
         gas_limit: 1_000,
         max_gas_price: 1,
+        fee_asset_id: L2_NATIVE_GAS_ASSET,
+        memo_hash: None,
+        transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
         kind,
         public_key: Some(hex::encode(public_key)),
         signature: None,
@@ -192,6 +201,125 @@ fn wrong_nonce_is_rejected() {
     let block = sequencer.produce_block(2).expect("block");
     assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
     assert_eq!(block.receipts[0].reason.as_deref(), Some("bad_nonce"));
+}
+
+#[test]
+fn expired_transaction_is_rejected_with_canonical_reason() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let recipient = sha256_bytes(b"recipient");
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"deposit-1"),
+        asset_id: 0,
+        recipient: account_id,
+        amount: 1_000,
+        l1_tx_hash: sha256_bytes(b"l1"),
+        l1_lt: 1,
+    }]);
+    sequencer.produce_block(1).expect("deposit block");
+
+    let mut tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    tx.valid_until_block = 0;
+    tx.signature = None;
+    let signature = signing_key.sign(&tx.signing_payload());
+    tx.signature = Some(hex::encode(signature.to_bytes()));
+    sequencer.submit_tx(tx);
+
+    let block = sequencer.produce_block(2).expect("block");
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+    assert_eq!(block.receipts[0].reason.as_deref(), Some("tx_expired"));
+    assert_eq!(sequencer.state.account(account_id).unwrap().nonce, 0);
+    assert!(sequencer.state.account(recipient).is_none());
+}
+
+#[test]
+fn duplicate_transaction_hash_in_same_batch_is_rejected_before_nonce_check() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let recipient = sha256_bytes(b"recipient");
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"deposit-1"),
+        asset_id: 0,
+        recipient: account_id,
+        amount: 1_000,
+        l1_tx_hash: sha256_bytes(b"l1"),
+        l1_lt: 1,
+    }]);
+    sequencer.produce_block(1).expect("deposit block");
+
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    sequencer.submit_tx(tx.clone());
+    sequencer.submit_tx(tx);
+
+    let block = sequencer.produce_block(2).expect("block");
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Applied);
+    assert_eq!(block.receipts[1].status, ReceiptStatus::Rejected);
+    assert_eq!(block.receipts[1].reason.as_deref(), Some("duplicate_tx"));
+    assert_eq!(sequencer.state.account(account_id).unwrap().nonce, 1);
+}
+
+#[test]
+fn unsupported_fee_asset_is_rejected_without_nonce_increment() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let recipient = sha256_bytes(b"recipient");
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"deposit-1"),
+        asset_id: 0,
+        recipient: account_id,
+        amount: 1_000,
+        l1_tx_hash: sha256_bytes(b"l1"),
+        l1_lt: 1,
+    }]);
+    sequencer.produce_block(1).expect("deposit block");
+
+    let mut tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    tx.fee_asset_id = 1;
+    tx.signature = None;
+    let signature = signing_key.sign(&tx.signing_payload());
+    tx.signature = Some(hex::encode(signature.to_bytes()));
+    sequencer.submit_tx(tx);
+
+    let block = sequencer.produce_block(2).expect("block");
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+    assert_eq!(
+        block.receipts[0].reason.as_deref(),
+        Some("unsupported_fee_asset")
+    );
+    assert_eq!(sequencer.state.account(account_id).unwrap().nonce, 0);
 }
 
 #[test]

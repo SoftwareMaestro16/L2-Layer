@@ -28,6 +28,9 @@ import {
   l2UserFriendlyAddress,
   isL2ZeroAddress,
   L2_NATIVE_GAS_ASSET,
+  L2_TRANSACTION_KIND_VERSION_V1,
+  L2_TX_DOMAIN_SEPARATOR,
+  L2_TX_VERSION_V2,
   L2_ZERO_ACCOUNT_ID,
   L2_ZERO_FRIENDLY_ADDRESS,
   L2_ZERO_RAW_ADDRESS,
@@ -54,7 +57,7 @@ const TON_RECIPIENT = "EQDk2VTvn04SUKJrW7rXahzdF8_Qi6utb0wj43InCu9vdjrR";
 test("unsigned transaction encoding matches Rust golden vector", () => {
   assert.equal(
     Buffer.from(encodeUnsignedTransaction(vectorTransaction())).toString("hex"),
-    "454c3243010100000010656e74726f7069732d746573746e657401aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000700000000000001f40000000000000000000000000000002a02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb00000000000000000000000000000000000003e8",
+    "454c32430101000200000011656e74726f7069732e6c322e74782e763200000010656e74726f7069732d746573746e657401aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000000000000007000000000000006300000000000001f40000000000000000000000000000002a0000000001dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd000102bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb00000000000000000000000000000000000003e8",
   );
 });
 
@@ -93,14 +96,14 @@ test("consensus hashes match Rust golden vectors", () => {
     last_lt: 9,
   };
 
-  assert.equal(txHash(tx), "c1a6de1d5b776bdd51ab0fcba6bf4ccb62fd3e317b1a3b485cb7f470d9f3a8ac");
+  assert.equal(txHash(tx), "039718f82070163d8d92c41fea4e14baf42be6b5ceb0d10a0d66d095eee77590");
   assert.equal(
     receiptLeafHash(receipt),
-    "536c7264a2bc9e0659287068183431b452c614df614bc82f0f25d37b001b8d43",
+    "bfe5c29bd52eb16667ccdb3132f1a62c081332c379ba6eb39ed4730b5d6ce244",
   );
   assert.equal(
     withdrawalLeafHash(withdrawal),
-    "00164447b3c4fb77bf5a9c2bf179782ef7cc6074ce3057ee6d68feb9d6f5c75e",
+    "978ae37e92dca1a024d86eb82b37cf474766d26c448460de0f247ffe140cd5d0",
   );
   assert.equal(
     blockHeaderHash({
@@ -114,7 +117,7 @@ test("consensus hashes match Rust golden vectors", () => {
       data_hash: dataHash,
       timestamp: 777,
     }),
-    "9ee765a283d11084ffb5f0819afbf866f70a3e44ca981048c5705f7dbb1417ba",
+    "576f1d143005485c2011b0fa55f03b1d055e913f6b1a9389f06ce9c0eecaecb3",
   );
   assert.equal(
     accountLeafHash(hash(0xaa), account),
@@ -474,11 +477,17 @@ test("withdraw helper builds canonical unsigned L2 transaction", () => {
   });
 
   assert.deepEqual(tx, {
+    tx_version: L2_TX_VERSION_V2,
+    domain_separator: L2_TX_DOMAIN_SEPARATOR,
     chain_id: "entropis-testnet",
     from: hash(0xaa),
     nonce: 7,
+    valid_until_block: Number.MAX_SAFE_INTEGER,
     gas_limit: 500,
     max_gas_price: "42",
+    fee_asset_id: L2_NATIVE_GAS_ASSET,
+    memo_hash: null,
+    transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
     kind: {
       Withdraw: {
         asset_id: 1,
@@ -627,11 +636,17 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
 
 function vectorTransaction(): SignedL2Transaction {
   return {
+    tx_version: L2_TX_VERSION_V2,
+    domain_separator: L2_TX_DOMAIN_SEPARATOR,
     chain_id: "entropis-testnet",
     from: hash(0xaa),
     nonce: 7,
+    valid_until_block: 99,
     gas_limit: 500,
     max_gas_price: "42",
+    fee_asset_id: L2_NATIVE_GAS_ASSET,
+    memo_hash: hash(0xdd),
+    transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
     kind: {
       Transfer: {
         to: hash(0xbb),

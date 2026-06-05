@@ -9,6 +9,7 @@ use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_bytes, canonical_batch_data_hash, l2_raw_address,
     l2_user_friendly_address, AccountType, L2Block, L2TransactionKind, WithdrawalLeaf,
+    L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use rand_core::OsRng;
 
@@ -67,11 +68,17 @@ fn signed_tx(
 ) -> SignedL2Transaction {
     let public_key = signing_key.verifying_key().to_bytes();
     let mut tx = SignedL2Transaction {
+        tx_version: L2_TX_VERSION_V2,
+        domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
         chain_id: "entropis-testnet".to_owned(),
         from: Some(from),
         nonce,
+        valid_until_block: u64::MAX,
         gas_limit: 1_000,
         max_gas_price: 1,
+        fee_asset_id: L2_NATIVE_GAS_ASSET,
+        memo_hash: None,
+        transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
         kind,
         public_key: Some(hex::encode(public_key)),
         signature: None,

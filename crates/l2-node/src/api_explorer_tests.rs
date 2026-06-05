@@ -4,7 +4,8 @@ use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address, L2TransactionKind,
     Receipt, SignedL2Transaction, WithdrawalLeaf, ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE,
-    ENWALLET_V5R1_LABEL, L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL,
+    ENWALLET_V5R1_LABEL, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1,
+    L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2, L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL,
     L2_ZERO_FRIENDLY_ADDRESS, L2_ZERO_RAW_ADDRESS,
 };
 
@@ -26,11 +27,17 @@ fn deposit_tx() -> SignedL2Transaction {
 
 fn user_tx(from: Hash32, nonce: u64, kind: L2TransactionKind) -> SignedL2Transaction {
     SignedL2Transaction {
+        tx_version: L2_TX_VERSION_V2,
+        domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
         chain_id: "entropis-testnet".to_owned(),
         from: Some(from),
         nonce,
+        valid_until_block: u64::MAX,
         gas_limit: 1_000,
         max_gas_price: 2,
+        fee_asset_id: L2_NATIVE_GAS_ASSET,
+        memo_hash: None,
+        transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
         kind,
         public_key: Some(hex::encode([7u8; 32])),
         signature: Some(hex::encode([8u8; 64])),

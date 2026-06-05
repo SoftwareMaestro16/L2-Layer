@@ -6,6 +6,7 @@ use crate::gas::GasSchedule;
 use crate::state::{Account, AccountType, State};
 use crate::types::{
     DepositEvent, L2Block, L2BlockHeader, L2TransactionKind, Receipt, SignedL2Transaction,
+    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -150,9 +151,15 @@ impl Sequencer {
         let mut receipts = Vec::with_capacity(queued_txs.len());
         let mut withdrawals = Vec::new();
         let mut block_gas_used = 0u64;
+        let mut seen_tx_hashes = BTreeSet::new();
 
         for queued in &queued_txs {
-            if let Err(reason) = self.verify_tx(&queued.tx, queued.origin) {
+            let tx_hash = queued.tx.tx_hash();
+            if !seen_tx_hashes.insert(tx_hash) {
+                receipts.push(Receipt::rejected(tx_hash, "duplicate_tx"));
+                continue;
+            }
+            if let Err(reason) = self.verify_tx(&queued.tx, queued.origin, block_height) {
                 receipts.push(Receipt::rejected(queued.tx.tx_hash(), reason));
                 continue;
             }
@@ -220,10 +227,12 @@ impl Sequencer {
         &self,
         tx: &SignedL2Transaction,
         origin: TransactionOrigin,
+        block_height: u64,
     ) -> Result<(), &'static str> {
         if tx.chain_id != self.config.chain_id {
             return Err("wrong_chain_id");
         }
+        validate_tx_envelope(tx, block_height)?;
 
         if origin == TransactionOrigin::System {
             if !tx.is_system() {
@@ -237,6 +246,9 @@ impl Sequencer {
 
         if tx.is_system() {
             return Err("deposit_must_be_system");
+        }
+        if tx.fee_asset_id != self.config.gas_coin_asset {
+            return Err("unsupported_fee_asset");
         }
 
         let from = tx.from.ok_or("missing_sender")?;
@@ -258,6 +270,25 @@ impl Sequencer {
 
         validate_reserved_zero_addresses(tx, false)
     }
+}
+
+pub(crate) fn validate_tx_envelope(
+    tx: &SignedL2Transaction,
+    block_height: u64,
+) -> Result<(), &'static str> {
+    if tx.tx_version != L2_TX_VERSION_V2 {
+        return Err("unsupported_tx_version");
+    }
+    if tx.domain_separator != L2_TX_DOMAIN_SEPARATOR {
+        return Err("invalid_domain_separator");
+    }
+    if tx.transaction_kind_version != L2_TRANSACTION_KIND_VERSION_V1 {
+        return Err("unsupported_transaction_kind_version");
+    }
+    if tx.valid_until_block < block_height {
+        return Err("tx_expired");
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_public_sender_account(account: &Account) -> Result<(), &'static str> {

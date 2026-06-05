@@ -8,6 +8,14 @@ pub enum MempoolError {
     WrongChainId,
     #[error("system deposit transactions are not accepted through the public mempool")]
     SystemTxNotAllowed,
+    #[error("unsupported transaction version")]
+    UnsupportedTxVersion,
+    #[error("invalid domain separator")]
+    InvalidDomainSeparator,
+    #[error("unsupported transaction kind version")]
+    UnsupportedTransactionKindVersion,
+    #[error("unsupported fee asset {asset_id}")]
+    UnsupportedFeeAsset { asset_id: u32 },
     #[error("missing sender")]
     MissingSender,
     #[error("missing public key")]
@@ -76,6 +84,10 @@ impl MempoolError {
         match self {
             Self::WrongChainId => "wrong_chain_id",
             Self::SystemTxNotAllowed => "system_tx_not_allowed",
+            Self::UnsupportedTxVersion => "unsupported_tx_version",
+            Self::InvalidDomainSeparator => "invalid_domain_separator",
+            Self::UnsupportedTransactionKindVersion => "unsupported_transaction_kind_version",
+            Self::UnsupportedFeeAsset { .. } => "unsupported_fee_asset",
             Self::MissingSender => "missing_sender",
             Self::MissingPublicKey => "missing_public_key",
             Self::MissingSignature => "missing_signature",

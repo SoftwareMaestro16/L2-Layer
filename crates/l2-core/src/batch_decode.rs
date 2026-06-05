@@ -48,21 +48,33 @@ pub fn decode_batch_data(bytes: &[u8]) -> Result<DecodedBatchData, BatchDataDeco
 fn decode_signed_transaction(bytes: &[u8]) -> Result<SignedL2Transaction, BatchDataDecodeError> {
     let mut reader = Reader::new(bytes);
     reader.read_header(TYPE_SIGNED_TX)?;
+    let tx_version = reader.read_u16()?;
+    let domain_separator = reader.read_string()?;
     let chain_id = reader.read_string()?;
     let from = reader.read_optional_hash()?;
     let nonce = reader.read_u64()?;
+    let valid_until_block = reader.read_u64()?;
     let gas_limit = reader.read_u64()?;
     let max_gas_price = reader.read_u128()?;
+    let fee_asset_id = reader.read_u32()?;
+    let memo_hash = reader.read_optional_hash()?;
+    let transaction_kind_version = reader.read_u16()?;
     let kind = decode_transaction_kind(&mut reader)?;
     let public_key = reader.read_optional_string()?;
     let signature = reader.read_optional_string()?;
     reader.finish()?;
     Ok(SignedL2Transaction {
+        tx_version,
+        domain_separator,
         chain_id,
         from,
         nonce,
+        valid_until_block,
         gas_limit,
         max_gas_price,
+        fee_asset_id,
+        memo_hash,
+        transaction_kind_version,
         kind,
         public_key,
         signature,
@@ -207,6 +219,14 @@ impl<'a> Reader<'a> {
             self.read_exact(4)?
                 .try_into()
                 .expect("fixed slice length is 4"),
+        ))
+    }
+
+    fn read_u16(&mut self) -> Result<u16, BatchDataDecodeError> {
+        Ok(u16::from_be_bytes(
+            self.read_exact(2)?
+                .try_into()
+                .expect("fixed slice length is 2"),
         ))
     }
 

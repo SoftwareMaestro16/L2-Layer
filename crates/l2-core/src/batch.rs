@@ -111,7 +111,10 @@ mod tests {
     use super::*;
     use crate::crypto::sha256_bytes;
     use crate::merkle::merkle_root;
-    use crate::types::{L2TransactionKind, ReceiptStatus, L2_NATIVE_GAS_ASSET};
+    use crate::types::{
+        L2TransactionKind, ReceiptStatus, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1,
+        L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+    };
 
     #[test]
     fn same_input_builds_same_block_hash() {
@@ -303,11 +306,17 @@ mod tests {
 
     fn deposit_tx(seed: &[u8]) -> SignedL2Transaction {
         SignedL2Transaction {
+            tx_version: L2_TX_VERSION_V2,
+            domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
             chain_id: "ton-l2-devnet".to_owned(),
             from: None,
             nonce: 0,
+            valid_until_block: u64::MAX,
             gas_limit: 0,
             max_gas_price: 0,
+            fee_asset_id: L2_NATIVE_GAS_ASSET,
+            memo_hash: None,
+            transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
             kind: L2TransactionKind::Deposit {
                 deposit_id: sha256_bytes(seed),
                 asset_id: L2_NATIVE_GAS_ASSET,

@@ -29,12 +29,7 @@ const STATUS_REJECTED: u8 = 0x02;
 
 pub fn encode_unsigned_transaction(tx: &UnsignedL2Transaction) -> Vec<u8> {
     let mut out = with_header(TYPE_UNSIGNED_TX);
-    write_string(&mut out, &tx.chain_id);
-    write_optional_hash(&mut out, tx.from);
-    write_u64(&mut out, tx.nonce);
-    write_u64(&mut out, tx.gas_limit);
-    write_u128(&mut out, tx.max_gas_price);
-    encode_transaction_kind(&mut out, &tx.kind);
+    write_unsigned_transaction_body(&mut out, tx);
     out
 }
 
@@ -47,7 +42,7 @@ pub fn encode_signed_transaction(tx: &SignedL2Transaction) -> Vec<u8> {
 }
 
 pub fn transaction_hash(tx: &SignedL2Transaction) -> Hash32 {
-    hash_domain("l2.tx.v1", &[&encode_unsigned_transaction(&tx.unsigned())])
+    hash_domain("l2.tx.v2", &[&encode_unsigned_transaction(&tx.unsigned())])
 }
 
 pub fn signing_payload(tx: &SignedL2Transaction) -> Vec<u8> {
@@ -164,11 +159,17 @@ pub fn derive_account_id(public_key: &[u8; 32]) -> Hash32 {
 }
 
 fn write_unsigned_transaction_body(out: &mut Vec<u8>, tx: &UnsignedL2Transaction) {
+    write_u16(out, tx.tx_version);
+    write_string(out, &tx.domain_separator);
     write_string(out, &tx.chain_id);
     write_optional_hash(out, tx.from);
     write_u64(out, tx.nonce);
+    write_u64(out, tx.valid_until_block);
     write_u64(out, tx.gas_limit);
     write_u128(out, tx.max_gas_price);
+    write_u32(out, tx.fee_asset_id);
+    write_optional_hash(out, tx.memo_hash);
+    write_u16(out, tx.transaction_kind_version);
     encode_transaction_kind(out, &tx.kind);
 }
 
@@ -300,6 +301,10 @@ fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_be_bytes());
 }
 
+fn write_u16(out: &mut Vec<u8>, value: u16) {
+    out.extend_from_slice(&value.to_be_bytes());
+}
+
 fn write_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_be_bytes());
 }
@@ -320,7 +325,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(encode_unsigned_transaction(&tx.unsigned())),
-            "454c3243010100000010656e74726f7069732d746573746e657401aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000000000000700000000000001f40000000000000000000000000000002a02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb00000000000000000000000000000000000003e8"
+            "454c32430101000200000011656e74726f7069732e6c322e74782e763200000010656e74726f7069732d746573746e657401aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0000000000000007000000000000006300000000000001f40000000000000000000000000000002a0000000001dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd000102bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb00000000000000000000000000000000000003e8"
         );
     }
 
@@ -357,19 +362,19 @@ mod tests {
 
         assert_eq!(
             tx.tx_hash().to_hex(),
-            "c1a6de1d5b776bdd51ab0fcba6bf4ccb62fd3e317b1a3b485cb7f470d9f3a8ac"
+            "039718f82070163d8d92c41fea4e14baf42be6b5ceb0d10a0d66d095eee77590"
         );
         assert_eq!(
             receipt.leaf_hash().to_hex(),
-            "536c7264a2bc9e0659287068183431b452c614df614bc82f0f25d37b001b8d43"
+            "bfe5c29bd52eb16667ccdb3132f1a62c081332c379ba6eb39ed4730b5d6ce244"
         );
         assert_eq!(
             withdrawal.leaf_hash().to_hex(),
-            "00164447b3c4fb77bf5a9c2bf179782ef7cc6074ce3057ee6d68feb9d6f5c75e"
+            "978ae37e92dca1a024d86eb82b37cf474766d26c448460de0f247ffe140cd5d0"
         );
         assert_eq!(
             header.block_hash().to_hex(),
-            "9ee765a283d11084ffb5f0819afbf866f70a3e44ca981048c5705f7dbb1417ba"
+            "576f1d143005485c2011b0fa55f03b1d055e913f6b1a9389f06ce9c0eecaecb3"
         );
         assert_eq!(
             account_leaf_hash(hash(0xaa), &account).to_hex(),
@@ -390,6 +395,28 @@ mod tests {
     }
 
     #[test]
+    fn envelope_fields_are_bound_to_signing_payload() {
+        let base = vector_transaction();
+        let mut changed_version = base.clone();
+        changed_version.tx_version = 3;
+        let mut changed_expiration = base.clone();
+        changed_expiration.valid_until_block += 1;
+        let mut changed_fee_asset = base.clone();
+        changed_fee_asset.fee_asset_id = 1;
+        let mut without_memo = base.clone();
+        without_memo.memo_hash = None;
+
+        assert_ne!(
+            encode_unsigned_transaction(&base.unsigned()),
+            encode_unsigned_transaction(&changed_version.unsigned())
+        );
+        assert_ne!(base.tx_hash(), changed_version.tx_hash());
+        assert_ne!(base.tx_hash(), changed_expiration.tx_hash());
+        assert_ne!(base.tx_hash(), changed_fee_asset.tx_hash());
+        assert_ne!(base.tx_hash(), without_memo.tx_hash());
+    }
+
+    #[test]
     fn signed_auth_fields_do_not_change_transaction_hash() {
         let mut first = vector_transaction();
         let mut second = first.clone();
@@ -407,11 +434,17 @@ mod tests {
 
     fn vector_transaction() -> SignedL2Transaction {
         SignedL2Transaction {
+            tx_version: crate::types::L2_TX_VERSION_V2,
+            domain_separator: crate::types::L2_TX_DOMAIN_SEPARATOR.to_owned(),
             chain_id: "entropis-testnet".to_owned(),
             from: Some(hash(0xaa)),
             nonce: 7,
+            valid_until_block: 99,
             gas_limit: 500,
             max_gas_price: 42,
+            fee_asset_id: L2_NATIVE_GAS_ASSET,
+            memo_hash: Some(hash(0xdd)),
+            transaction_kind_version: crate::types::L2_TRANSACTION_KIND_VERSION_V1,
             kind: L2TransactionKind::Transfer {
                 to: hash(0xbb),
                 asset_id: L2_NATIVE_GAS_ASSET,

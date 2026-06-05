@@ -2,6 +2,9 @@ import { Address, beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
 import {
   deriveAccountId as deriveAccountIdFromBytes,
+  L2_TRANSACTION_KIND_VERSION_V1,
+  L2_TX_DOMAIN_SEPARATOR,
+  L2_TX_VERSION_V2,
   signingPayload,
 } from "./consensus.js";
 import {
@@ -113,6 +116,9 @@ export {
   encodeUnsignedTransaction,
   encodeWithdrawalLeaf,
   hashDomain,
+  L2_TRANSACTION_KIND_VERSION_V1,
+  L2_TX_DOMAIN_SEPARATOR,
+  L2_TX_VERSION_V2,
   receiptLeafHash,
   sha256Hex,
   signingPayload,
@@ -150,11 +156,17 @@ export type L2TransactionKind =
   | { CallContract: { contract: Hash32; body_boc_base64: string } };
 
 export interface SignedL2Transaction {
+  tx_version: number;
+  domain_separator: string;
   chain_id: string;
   from: Hash32 | null;
   nonce: number;
+  valid_until_block: number;
   gas_limit: number;
   max_gas_price: string;
+  fee_asset_id: number;
+  memo_hash: Hash32 | null;
+  transaction_kind_version: number;
   kind: L2TransactionKind;
   public_key: string | null;
   signature: string | null;
@@ -207,6 +219,9 @@ export interface TransferTransactionParams {
   amount: UIntLike;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
 }
 
 export interface RotatePublicKeyTransactionParams {
@@ -216,6 +231,9 @@ export interface RotatePublicKeyTransactionParams {
   newPublicKey: Uint8Array | string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
 }
 
 export interface WithdrawTransactionParams {
@@ -227,6 +245,9 @@ export interface WithdrawTransactionParams {
   l1Recipient: string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
 }
 
 export interface SigningParams {
@@ -382,6 +403,7 @@ export function buildTransferTransaction(
   const from = requireNonZeroL2Address(params.from, "from");
   const to = requireNonZeroL2Address(params.to, "to");
   return {
+    ...buildEnvelopeFields(params),
     chain_id: params.chainId,
     from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
@@ -412,6 +434,7 @@ export function buildRotatePublicKeyTransaction(
       ? normalizePublicKeyHex(params.newPublicKey)
       : normalizePublicKeyBytes(params.newPublicKey);
   return {
+    ...buildEnvelopeFields(params),
     chain_id: params.chainId,
     from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
@@ -437,6 +460,7 @@ export function buildWithdrawTransaction(
   const from = requireNonZeroL2Address(params.from, "from");
   parseTonAddress(params.l1Recipient);
   return {
+    ...buildEnvelopeFields(params),
     chain_id: params.chainId,
     from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
@@ -721,6 +745,29 @@ function requireNonZeroL2Address(value: string, field: string): Hash32 {
     throw new Error(`${field} cannot be the reserved zero address`);
   }
   return parsed;
+}
+
+function buildEnvelopeFields(params: {
+  validUntilBlock?: UIntLike;
+  feeAssetId?: UIntLike;
+  memoHash?: Hash32 | null;
+}) {
+  return {
+    tx_version: L2_TX_VERSION_V2,
+    domain_separator: L2_TX_DOMAIN_SEPARATOR,
+    valid_until_block: toSafeNumber(
+      toUint(params.validUntilBlock ?? Number.MAX_SAFE_INTEGER, "validUntilBlock", 64),
+      "validUntilBlock",
+    ),
+    fee_asset_id: toSafeNumber(
+      toUint(params.feeAssetId ?? L2_NATIVE_GAS_ASSET, "feeAssetId", 32),
+      "feeAssetId",
+    ),
+    memo_hash: params.memoHash === undefined || params.memoHash === null
+      ? null
+      : normalizeHash32(params.memoHash),
+    transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
+  };
 }
 
 function toUint(value: UIntLike, field: string, bits: number): bigint {

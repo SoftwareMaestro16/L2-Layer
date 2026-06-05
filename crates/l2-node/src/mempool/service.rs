@@ -1,7 +1,10 @@
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use l2_core::address::is_l2_zero_address;
 use l2_core::crypto::{decode_public_key, verify_signature, Hash32};
-use l2_core::{L2TransactionKind, SignedL2Transaction};
+use l2_core::{
+    L2TransactionKind, SignedL2Transaction, L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1,
+    L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
+};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -138,6 +141,7 @@ impl MempoolService {
         if matches!(tx.kind, L2TransactionKind::Deposit { .. }) {
             return Err(MempoolError::SystemTxNotAllowed);
         }
+        self.validate_envelope(&tx)?;
         self.validate_admission_policy(&tx)?;
 
         let from = tx.from.ok_or(MempoolError::MissingSender)?;
@@ -160,6 +164,24 @@ impl MempoolService {
             account_id: from,
             tx,
         })
+    }
+
+    fn validate_envelope(&self, tx: &SignedL2Transaction) -> Result<(), MempoolError> {
+        if tx.tx_version != L2_TX_VERSION_V2 {
+            return Err(MempoolError::UnsupportedTxVersion);
+        }
+        if tx.domain_separator != L2_TX_DOMAIN_SEPARATOR {
+            return Err(MempoolError::InvalidDomainSeparator);
+        }
+        if tx.transaction_kind_version != L2_TRANSACTION_KIND_VERSION_V1 {
+            return Err(MempoolError::UnsupportedTransactionKindVersion);
+        }
+        if tx.fee_asset_id != L2_NATIVE_GAS_ASSET {
+            return Err(MempoolError::UnsupportedFeeAsset {
+                asset_id: tx.fee_asset_id,
+            });
+        }
+        Ok(())
     }
 
     fn validate_admission_policy(&self, tx: &SignedL2Transaction) -> Result<(), MempoolError> {

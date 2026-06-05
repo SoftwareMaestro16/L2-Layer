@@ -4,6 +4,9 @@ use crate::merkle::{merkle_root, MerkleProof};
 use serde::{Deserialize, Serialize};
 
 pub const L2_NATIVE_GAS_ASSET: u32 = 0;
+pub const L2_TX_VERSION_V2: u16 = 2;
+pub const L2_TRANSACTION_KIND_VERSION_V1: u16 = 1;
+pub const L2_TX_DOMAIN_SEPARATOR: &str = "entropis.l2.tx.v2";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum L2TransactionKind {
@@ -42,12 +45,24 @@ pub enum L2TransactionKind {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SignedL2Transaction {
+    #[serde(default = "default_tx_version")]
+    pub tx_version: u16,
+    #[serde(default = "default_tx_domain_separator")]
+    pub domain_separator: String,
     pub chain_id: String,
     pub from: Option<Hash32>,
     pub nonce: u64,
+    #[serde(default = "default_valid_until_block")]
+    pub valid_until_block: u64,
     pub gas_limit: u64,
     #[serde(with = "serde_u128_string")]
     pub max_gas_price: u128,
+    #[serde(default)]
+    pub fee_asset_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memo_hash: Option<Hash32>,
+    #[serde(default = "default_transaction_kind_version")]
+    pub transaction_kind_version: u16,
     pub kind: L2TransactionKind,
     pub public_key: Option<String>,
     pub signature: Option<String>,
@@ -55,12 +70,24 @@ pub struct SignedL2Transaction {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UnsignedL2Transaction {
+    #[serde(default = "default_tx_version")]
+    pub tx_version: u16,
+    #[serde(default = "default_tx_domain_separator")]
+    pub domain_separator: String,
     pub chain_id: String,
     pub from: Option<Hash32>,
     pub nonce: u64,
+    #[serde(default = "default_valid_until_block")]
+    pub valid_until_block: u64,
     pub gas_limit: u64,
     #[serde(with = "serde_u128_string")]
     pub max_gas_price: u128,
+    #[serde(default)]
+    pub fee_asset_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memo_hash: Option<Hash32>,
+    #[serde(default = "default_transaction_kind_version")]
+    pub transaction_kind_version: u16,
     pub kind: L2TransactionKind,
 }
 
@@ -73,11 +100,17 @@ impl SignedL2Transaction {
         amount: u128,
     ) -> Self {
         Self {
+            tx_version: L2_TX_VERSION_V2,
+            domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
             chain_id: chain_id.into(),
             from: None,
             nonce: 0,
+            valid_until_block: u64::MAX,
             gas_limit: 0,
             max_gas_price: 0,
+            fee_asset_id: L2_NATIVE_GAS_ASSET,
+            memo_hash: None,
+            transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
             kind: L2TransactionKind::Deposit {
                 deposit_id,
                 asset_id,
@@ -91,11 +124,17 @@ impl SignedL2Transaction {
 
     pub fn unsigned(&self) -> UnsignedL2Transaction {
         UnsignedL2Transaction {
+            tx_version: self.tx_version,
+            domain_separator: self.domain_separator.clone(),
             chain_id: self.chain_id.clone(),
             from: self.from,
             nonce: self.nonce,
+            valid_until_block: self.valid_until_block,
             gas_limit: self.gas_limit,
             max_gas_price: self.max_gas_price,
+            fee_asset_id: self.fee_asset_id,
+            memo_hash: self.memo_hash,
+            transaction_kind_version: self.transaction_kind_version,
             kind: self.kind.clone(),
         }
     }
@@ -111,6 +150,22 @@ impl SignedL2Transaction {
     pub fn is_system(&self) -> bool {
         matches!(self.kind, L2TransactionKind::Deposit { .. })
     }
+}
+
+pub fn default_tx_version() -> u16 {
+    L2_TX_VERSION_V2
+}
+
+pub fn default_tx_domain_separator() -> String {
+    L2_TX_DOMAIN_SEPARATOR.to_owned()
+}
+
+pub fn default_valid_until_block() -> u64 {
+    u64::MAX
+}
+
+pub fn default_transaction_kind_version() -> u16 {
+    L2_TRANSACTION_KIND_VERSION_V1
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

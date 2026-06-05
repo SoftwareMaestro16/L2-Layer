@@ -7,6 +7,7 @@ use crate::{
     GasSchedule, TvmAdapterError, TvmExecutionAdapter, TvmExecutionInput, TvmExecutionOutput,
     TvmExecutionStatus, TvmInternalMessage, TvmStateDelta, SAMPLE_COUNTER_INCREMENT_OPCODE,
 };
+use crate::{L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use tonlib_core::cell::{BagOfCells, CellBuilder};
@@ -25,11 +26,17 @@ fn tx(
     kind: L2TransactionKind,
 ) -> SignedL2Transaction {
     SignedL2Transaction {
+        tx_version: L2_TX_VERSION_V2,
+        domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
         chain_id: CHAIN_ID.to_owned(),
         from: Some(from),
         nonce,
+        valid_until_block: u64::MAX,
         gas_limit,
         max_gas_price,
+        fee_asset_id: L2_NATIVE_GAS_ASSET,
+        memo_hash: None,
+        transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
         kind,
         public_key: None,
         signature: None,

@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import type { Hash32, SignedL2Transaction } from "./index.js";
 
 export const CONSENSUS_ENCODING_VERSION = 1;
+export const L2_TX_VERSION_V2 = 2;
+export const L2_TRANSACTION_KIND_VERSION_V1 = 1;
+export const L2_TX_DOMAIN_SEPARATOR = "entropis.l2.tx.v2";
 
 const MAGIC = Buffer.from("EL2C");
 const TYPE_UNSIGNED_TX = 0x01;
@@ -120,7 +123,7 @@ export function signingPayload(tx: SignedL2Transaction): Uint8Array {
 }
 
 export function txHash(tx: SignedL2Transaction): Hash32 {
-  return hashDomain("l2.tx.v1", [signingPayload(tx)]);
+  return hashDomain("l2.tx.v2", [signingPayload(tx)]);
 }
 
 export function encodeReceipt(receipt: Receipt): Uint8Array {
@@ -236,11 +239,17 @@ export function canonicalBatchDataHash(
 }
 
 function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transaction) {
+  out.u16(tx.tx_version);
+  out.string(tx.domain_separator);
   out.string(tx.chain_id);
   writeOptionalHash(out, tx.from);
   out.u64(tx.nonce);
+  out.u64(tx.valid_until_block);
   out.u64(tx.gas_limit);
   out.u128(tx.max_gas_price);
+  out.u32(tx.fee_asset_id);
+  writeOptionalHash(out, tx.memo_hash);
+  out.u16(tx.transaction_kind_version);
 
   if ("Deposit" in tx.kind) {
     out.u8(KIND_DEPOSIT);
@@ -362,6 +371,15 @@ class ConsensusWriter {
     }
     const out = Buffer.alloc(4);
     out.writeUInt32BE(value);
+    this.chunks.push(out);
+  }
+
+  u16(value: number) {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+      throw new Error("expected uint16");
+    }
+    const out = Buffer.alloc(2);
+    out.writeUInt16BE(value);
     this.chunks.push(out);
   }
 

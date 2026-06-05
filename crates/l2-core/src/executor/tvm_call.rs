@@ -135,7 +135,7 @@ fn validate_max_call_fee(
     let Some(account) = state.account(from) else {
         return Err("unknown_sender");
     };
-    if account.balance(config.gas_coin_asset) < max_fee.amount {
+    if account.balance(tx.fee_asset_id) < max_fee.amount {
         return Err("insufficient_gas_coin");
     }
     Ok(())
@@ -170,10 +170,10 @@ fn charge_call_fee(
         .fee_for_units(gas_used, tx.max_gas_price)
         .map_err(|error| error.rejection_reason())?;
     let account = state.account_mut(from);
-    if account.balance(config.gas_coin_asset) < fee.amount {
+    if account.balance(tx.fee_asset_id) < fee.amount {
         return Err("insufficient_gas_coin");
     }
-    if !account.debit(config.gas_coin_asset, fee.amount) {
+    if !account.debit(tx.fee_asset_id, fee.amount) {
         return Err("insufficient_gas_coin");
     }
     mark_sender_attempt(account, tx, config.block_height);
