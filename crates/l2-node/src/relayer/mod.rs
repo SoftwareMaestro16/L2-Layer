@@ -207,11 +207,19 @@ where
             let Some(message_hash) = record.message_hash_norm.or(record.message_hash) else {
                 continue;
             };
-            if self.provider.message_confirmed(message_hash).await? {
-                record.status = BatchCommitStatus::Confirmed;
-                record.last_error = None;
-                self.storage.save_batch_commit(record).await?;
-                confirmed += 1;
+            match self.provider.message_confirmed(message_hash).await {
+                Ok(true) => {
+                    record.status = BatchCommitStatus::Confirmed;
+                    record.last_error = None;
+                    self.storage.save_batch_commit(record).await?;
+                    confirmed += 1;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    record.last_error = Some("ton provider commit confirm failed".to_owned());
+                    self.storage.save_batch_commit(record).await?;
+                    return Err(error);
+                }
             }
         }
         Ok(confirmed)
@@ -386,6 +394,10 @@ fn signer_validation_reason(error: &SignerValidationError) -> &'static str {
         | SignerValidationError::InvalidFinalizeRequest => "commit signer invalid response",
     }
 }
+
+#[cfg(test)]
+#[path = "security_tests.rs"]
+mod security_tests;
 
 #[cfg(test)]
 #[path = "tests.rs"]

@@ -2,7 +2,7 @@ use crate::config::NodeConfig;
 use crate::storage::{DynStorage, StorageError, StoredBatchPayload};
 use async_trait::async_trait;
 use l2_core::{canonical_batch_data_bytes, canonical_batch_data_hash, Hash32, L2Block};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::fs;
@@ -132,7 +132,7 @@ impl StorageDaStore {
         };
         let public_ref =
             public_payload_ref(record.block_height, record.block_hash, record.data_hash);
-        let path = public_payload_path(root_dir, &public_ref);
+        let path = public_payload_path(root_dir, &public_ref)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -153,7 +153,7 @@ impl StorageDaStore {
                 expected.data_hash,
             )
         });
-        let path = public_payload_path(root_dir, &public_ref);
+        let path = public_payload_path(root_dir, &public_ref)?;
         let payload = read_public_payload_file(&path, self.config.max_payload_bytes).await?;
         verify_payload_bytes(expected.data_hash, &payload)?;
         if payload != expected.payload_bytes {
@@ -281,7 +281,7 @@ impl DaVerifier for StorageDaStore {
                 actual,
             });
         }
-        self.verify_public_payload(&expected).await?;
+        self.verify_public_payload(&stored).await?;
         Ok(BatchDaRef {
             block_height: expected.block_height,
             block_hash: expected.block_hash,
@@ -302,12 +302,20 @@ fn public_payload_ref(block_height: u64, block_hash: Hash32, data_hash: Hash32) 
     )
 }
 
-fn public_payload_path(root_dir: &Path, public_ref: &str) -> PathBuf {
+fn public_payload_path(root_dir: &Path, public_ref: &str) -> Result<PathBuf, DaError> {
     let mut path = root_dir.to_path_buf();
     for segment in public_ref.split('/') {
+        let mut components = Path::new(segment).components();
+        if segment.is_empty()
+            || segment.contains('\\')
+            || !matches!(components.next(), Some(Component::Normal(_)))
+            || components.next().is_some()
+        {
+            return Err(DaError::InvalidPublicReference);
+        }
         path.push(segment);
     }
-    path
+    Ok(path)
 }
 
 fn public_uri(base_url: Option<&str>, public_ref: &str) -> Option<String> {
@@ -406,6 +414,10 @@ pub enum DaError {
     #[error("storage failed: {0}")]
     Storage(#[from] StorageError),
 }
+
+#[cfg(test)]
+#[path = "security_tests.rs"]
+mod security_tests;
 
 #[cfg(test)]
 #[path = "tests.rs"]
