@@ -34,6 +34,7 @@ mod error;
 mod explorer;
 mod mempool_ingress;
 mod operator;
+mod receipt;
 mod sample;
 mod stream;
 #[cfg(test)]
@@ -54,6 +55,7 @@ use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
 };
+use receipt::{get_block_finality, get_receipt, get_tx_receipt};
 use sample::post_contract_get_method;
 use sample::{get_contract_method, get_sample_counter};
 use stream::stream;
@@ -192,7 +194,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/readyz", get(readyz))
         .route("/v1/tx", post(submit_tx))
         .route("/v1/tx/:hash", get(get_tx))
+        .route("/v1/tx/:hash/receipt", get(get_tx_receipt))
+        .route("/v1/receipt/:hash", get(get_receipt))
         .route("/v1/block/:height", get(get_block))
+        .route("/v1/block/:height/finality", get(get_block_finality))
         .route("/v1/account/:id", get(get_account))
         .route("/v1/account/:id/metadata", get(get_account_metadata))
         .route("/v1/sample-counter/:id", get(get_sample_counter))

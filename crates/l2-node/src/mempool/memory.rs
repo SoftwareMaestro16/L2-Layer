@@ -99,6 +99,19 @@ impl MempoolStore for MemoryMempoolStore {
         Ok(())
     }
 
+    async fn get_pending(
+        &self,
+        tx_hash: Hash32,
+    ) -> Result<Option<SignedL2Transaction>, MempoolError> {
+        let mut state = self.state.lock().await;
+        state.cleanup_expired();
+        Ok(state
+            .queue
+            .iter()
+            .find(|queued| queued.tx_hash == tx_hash)
+            .map(|queued| queued.tx.clone()))
+    }
+
     async fn pop_batch(&self, max_txs: usize) -> Result<Vec<SignedL2Transaction>, MempoolError> {
         let mut state = self.state.lock().await;
         let snapshot = state.queue.iter().cloned().collect::<Vec<_>>();

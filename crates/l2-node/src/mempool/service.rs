@@ -110,6 +110,13 @@ impl MempoolService {
         self.store.pop_batch(max_txs).await
     }
 
+    pub async fn get_pending(
+        &self,
+        tx_hash: Hash32,
+    ) -> Result<Option<SignedL2Transaction>, MempoolError> {
+        self.store.get_pending(tx_hash).await
+    }
+
     pub async fn acquire_leader_lock(&self, owner: &str) -> Result<bool, MempoolError> {
         self.store
             .acquire_leader_lock(owner, self.config.leader_ttl)

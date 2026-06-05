@@ -8,7 +8,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_bytes, canonical_batch_data_hash, l2_raw_address,
-    l2_user_friendly_address, AccountType, L2Block, L2TransactionKind, WithdrawalLeaf,
+    l2_user_friendly_address, AccountType, L2Block, L2TransactionKind, Receipt, WithdrawalLeaf,
     L2_NATIVE_GAS_ASSET, L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use rand_core::OsRng;
@@ -540,6 +540,157 @@ async fn submit_tx_rejects_operator_banned_ip() {
     assert_eq!(error.message, "ip_banned");
     let metrics = state.mempool.metrics().await.expect("metrics");
     assert_eq!(metrics.rejected.get("ip_banned"), Some(&1));
+}
+
+#[tokio::test]
+async fn tx_receipt_reports_pending_mempool_transaction() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"receipt-pending-recipient"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    let tx_hash = submit_tx(State(state.clone()), peer(10006), Json(tx))
+        .await
+        .expect("submitted")
+        .0
+        .tx_hash;
+
+    let response = get_receipt(State(state), Path(tx_hash.to_hex()))
+        .await
+        .expect("pending receipt")
+        .0;
+
+    assert_eq!(response.status, "pending");
+    assert!(response.transaction.is_some());
+    assert!(response.receipt.is_none());
+    assert!(response.block.is_none());
+    assert!(response.finality.is_none());
+}
+
+#[tokio::test]
+async fn tx_receipt_reports_rejected_reason_and_gas() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"receipt-rejected-recipient"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    let receipt = Receipt::rejected_with_gas(tx.tx_hash(), "insufficient_balance", 7);
+    let block = L2Block::new(
+        0,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"receipt-rejected-state"),
+        vec![tx.clone()],
+        vec![receipt],
+        vec![],
+        canonical_batch_data_hash(
+            std::slice::from_ref(&tx),
+            &[Receipt::rejected_with_gas(
+                tx.tx_hash(),
+                "insufficient_balance",
+                7,
+            )],
+        ),
+        10,
+    );
+    state.storage.save_block(block).await.unwrap();
+
+    let response = get_tx_receipt(State(state), Path(tx.tx_hash().to_hex()))
+        .await
+        .expect("rejected receipt")
+        .0;
+
+    assert_eq!(response.status, "rejected");
+    let receipt = response.receipt.expect("receipt detail");
+    assert_eq!(receipt.status, "rejected");
+    assert_eq!(receipt.gas_charged, 7);
+    assert_eq!(receipt.reason.as_deref(), Some("insufficient_balance"));
+    assert!(receipt.contract_logs.is_empty());
+}
+
+#[tokio::test]
+async fn tx_receipt_and_block_finality_report_finalized_batch() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"receipt-finalized-recipient"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    let receipt = Receipt::applied(tx.tx_hash(), 3, None);
+    let data_hash =
+        canonical_batch_data_hash(std::slice::from_ref(&tx), std::slice::from_ref(&receipt));
+    let block = L2Block::new(
+        0,
+        Hash32::ZERO,
+        Hash32::ZERO,
+        sha256_bytes(b"receipt-finalized-state"),
+        vec![tx.clone()],
+        vec![receipt],
+        vec![],
+        data_hash,
+        11,
+    );
+    state.storage.save_block(block).await.unwrap();
+    let mut commit = state.storage.get_batch_commit(1).await.unwrap().unwrap();
+    commit.status = crate::storage::BatchCommitStatus::Confirmed;
+    commit.attempts = 1;
+    commit.message_hash_norm = Some(sha256_bytes(b"commit-norm"));
+    state
+        .storage
+        .save_batch_commit(commit.clone())
+        .await
+        .unwrap();
+    let mut finalization = crate::storage::BatchFinalizationRecord::pending(&commit, 12);
+    finalization.status = crate::storage::BatchFinalizationStatus::Finalized;
+    finalization.attempts = 1;
+    finalization.message_hash_norm = Some(sha256_bytes(b"finalize-norm"));
+    state
+        .storage
+        .save_batch_finalization(finalization)
+        .await
+        .unwrap();
+
+    let receipt_response = get_receipt(State(state.clone()), Path(tx.tx_hash().to_hex()))
+        .await
+        .expect("finalized receipt")
+        .0;
+    assert_eq!(receipt_response.status, "finalized");
+    let finality = receipt_response.finality.expect("finality");
+    assert!(finality.committed);
+    assert!(finality.finalized);
+    assert_eq!(finality.commit.unwrap().status, "confirmed");
+    assert_eq!(finality.finalization.unwrap().status, "finalized");
+
+    let block_finality = get_block_finality(State(state), Path(0))
+        .await
+        .expect("block finality")
+        .0;
+    assert_eq!(block_finality.batch_no, 1);
+    assert!(block_finality.committed);
+    assert!(block_finality.finalized);
 }
 
 #[tokio::test]

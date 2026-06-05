@@ -196,6 +196,69 @@ export interface SubmitTxResponse {
   tx_hash: Hash32;
 }
 
+export type TxLifecycleStatus = "pending" | "included" | "rejected" | "committed" | "finalized";
+
+export interface TxContractLog {
+  contract: Hash32 | null;
+  level: string;
+  message: string;
+}
+
+export interface TxReceiptDetail {
+  status: "applied" | "rejected";
+  gas_charged: string;
+  reason: string | null;
+  withdrawal_id: Hash32 | null;
+  contract_logs: TxContractLog[];
+}
+
+export interface TxReceiptBlockRef {
+  height: number;
+  timestamp: number;
+  block_hash: Hash32;
+  tx_index: number;
+}
+
+export interface L1CommitStatus {
+  status: "pending" | "submitted" | "confirmed" | "failed";
+  attempts: number;
+  message_hash: Hash32 | null;
+  message_hash_norm: Hash32 | null;
+}
+
+export interface L1FinalizationStatus {
+  status: "pending" | "submitted" | "finalized" | "failed";
+  attempts: number;
+  finalize_after_unix: number;
+  message_hash: Hash32 | null;
+  message_hash_norm: Hash32 | null;
+}
+
+export interface BlockFinalityResponse {
+  block_height: number;
+  block_hash: Hash32;
+  batch_no: number;
+  committed: boolean;
+  finalized: boolean;
+  commit: L1CommitStatus | null;
+  finalization: L1FinalizationStatus | null;
+}
+
+export interface TxReceiptResponse {
+  tx_hash: Hash32;
+  status: TxLifecycleStatus;
+  transaction: SignedL2Transaction | null;
+  receipt: TxReceiptDetail | null;
+  block: TxReceiptBlockRef | null;
+  finality: BlockFinalityResponse | null;
+}
+
+export interface WaitForTxReceiptOptions {
+  desiredStatus?: Exclude<TxLifecycleStatus, "pending" | "rejected">;
+  intervalMs?: number;
+  timeoutMs?: number;
+}
+
 export interface L2Account {
   account_type?: "user" | "contract" | "system" | "operator";
   flags?: AccountFlags;
@@ -678,6 +741,45 @@ export class TonL2Client {
     return this.getJson(`/v1/block/${height}`);
   }
 
+  async getBlockFinality(height: number): Promise<BlockFinalityResponse> {
+    return this.getJson(`/v1/block/${height}/finality`);
+  }
+
+  async getTxReceipt(txHashValue: Hash32): Promise<TxReceiptResponse> {
+    return this.getJson(`/v1/receipt/${normalizeHash32(txHashValue)}`);
+  }
+
+  async waitForTxReceipt(
+    txHashValue: Hash32,
+    options: WaitForTxReceiptOptions = {},
+  ): Promise<TxReceiptResponse> {
+    const desiredStatus = options.desiredStatus ?? "included";
+    const intervalMs = boundedPollInterval(options.intervalMs ?? 1_000);
+    const timeoutMs = boundedPollTimeout(options.timeoutMs ?? 60_000);
+    const deadline = Date.now() + timeoutMs;
+    const txHashValueNormalized = normalizeHash32(txHashValue);
+    let lastError: unknown;
+
+    while (Date.now() <= deadline) {
+      try {
+        const receipt = await this.getTxReceipt(txHashValueNormalized);
+        if (receipt.status === "rejected" || lifecycleReached(receipt.status, desiredStatus)) {
+          return receipt;
+        }
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof EntropisApiError) || error.status !== 404) {
+          throw error;
+        }
+      }
+      await sleep(intervalMs);
+    }
+
+    const suffix =
+      lastError instanceof EntropisApiError ? `; last API error: ${lastError.publicMessage}` : "";
+    throw new Error(`timed out waiting for tx ${txHashValueNormalized} to reach ${desiredStatus}${suffix}`);
+  }
+
   async getWithdrawalProof(withdrawalId: Hash32): Promise<WithdrawalProofResponse> {
     return this.getJson(`/v1/proof/withdrawal/${normalizeHash32(withdrawalId)}`);
   }
@@ -767,6 +869,45 @@ export class TonL2Client {
 }
 
 export class EntropisClient extends TonL2Client {}
+
+function lifecycleReached(
+  actual: TxLifecycleStatus,
+  desired: Exclude<TxLifecycleStatus, "pending" | "rejected">,
+): boolean {
+  return lifecycleRank(actual) >= lifecycleRank(desired);
+}
+
+function lifecycleRank(status: TxLifecycleStatus): number {
+  switch (status) {
+    case "pending":
+      return 0;
+    case "included":
+    case "rejected":
+      return 1;
+    case "committed":
+      return 2;
+    case "finalized":
+      return 3;
+  }
+}
+
+function boundedPollInterval(intervalMs: number): number {
+  if (!Number.isFinite(intervalMs) || intervalMs < 1) {
+    throw new Error("intervalMs must be a positive number");
+  }
+  return Math.min(Math.floor(intervalMs), 60_000);
+}
+
+function boundedPollTimeout(timeoutMs: number): number {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {
+    throw new Error("timeoutMs must be a positive number");
+  }
+  return Math.min(Math.floor(timeoutMs), 24 * 60 * 60 * 1_000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function parseTonAddress(value: string): Address {
   return Address.parse(value);

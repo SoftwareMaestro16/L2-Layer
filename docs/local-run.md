@@ -44,7 +44,10 @@ Useful endpoints:
 - `POST /v1/admin/produce-block`
 - `GET /v1/account/{account_id_hex}`
 - `GET /v1/block/{height}`
+- `GET /v1/block/{height}/finality`
 - `GET /v1/tx/{tx_hash_hex}`
+- `GET /v1/tx/{tx_hash_hex}/receipt`
+- `GET /v1/receipt/{tx_hash_hex}`
 - `GET /v1/contract/{contract_id}/state`
 - `POST /v1/contract/{contract_id}/get-method`
 - `GET /v1/da/batch/{height}`
@@ -72,6 +75,20 @@ come from the TON deposit indexer. Admin endpoints require:
 ```text
 Authorization: Bearer <L2_ADMIN_TOKEN>
 ```
+
+## Transaction lifecycle
+
+Use `GET /v1/receipt/{tx_hash_hex}` or
+`GET /v1/tx/{tx_hash_hex}/receipt` for explorer-grade transaction status.
+The response reports one of `pending`, `included`, `rejected`, `committed`, or
+`finalized`, includes gas charged, safe rejection reason, withdrawal id when
+present, and an empty `contract_logs` array until contract log capture is added
+to consensus receipts.
+
+`GET /v1/block/{height}/finality` reports the L1 batch number, sanitized commit
+status, sanitized finalization status, message hashes, and attempt counts. Raw
+provider errors, signer details, and operator failure internals remain available
+only under authenticated `/v1/operator/*` endpoints.
 
 Postgres migrations run on startup and create tables for blocks, transactions,
 receipts, deposits, withdrawals, L1 cursors, batch DA payloads, L1 batch commit

@@ -114,6 +114,26 @@ impl MempoolStore for RedisMempoolStore {
         }
     }
 
+    async fn get_pending(
+        &self,
+        tx_hash: Hash32,
+    ) -> Result<Option<SignedL2Transaction>, MempoolError> {
+        let mut connection = self.connection.lock().await;
+        let payloads: Vec<String> = redis::cmd("LRANGE")
+            .arg(self.queue_key())
+            .arg(0)
+            .arg(-1)
+            .query_async(&mut *connection)
+            .await?;
+        for payload in payloads {
+            let decoded: QueuedRedisTx = serde_json::from_str(&payload)?;
+            if decoded.tx.tx_hash() == tx_hash {
+                return Ok(Some(decoded.tx));
+            }
+        }
+        Ok(None)
+    }
+
     async fn pop_batch(&self, max_txs: usize) -> Result<Vec<SignedL2Transaction>, MempoolError> {
         let mut connection = self.connection.lock().await;
         let payloads: Vec<String> = redis::cmd("LRANGE")

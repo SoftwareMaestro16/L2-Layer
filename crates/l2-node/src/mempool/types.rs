@@ -59,6 +59,10 @@ pub trait MempoolStore: Send + Sync {
         limits: MempoolStoreLimits,
     ) -> Result<(), MempoolError>;
 
+    async fn get_pending(
+        &self,
+        tx_hash: Hash32,
+    ) -> Result<Option<SignedL2Transaction>, MempoolError>;
     async fn pop_batch(&self, max_txs: usize) -> Result<Vec<SignedL2Transaction>, MempoolError>;
     async fn acquire_leader_lock(&self, owner: &str, ttl: Duration) -> Result<bool, MempoolError>;
     async fn release_leader_lock(&self, owner: &str) -> Result<bool, MempoolError>;

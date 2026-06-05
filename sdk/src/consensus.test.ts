@@ -634,6 +634,92 @@ test("Entropis client maps faucet requests and API errors safely", async () => {
   }
 });
 
+test("Entropis client polls transaction receipt lifecycle", async () => {
+  const previousFetch = globalThis.fetch;
+  const txHashValue = hash(0xab);
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    calls.push(input.toString());
+    if (calls.length === 1) {
+      return new Response(JSON.stringify({ error: "transaction not found" }), { status: 404 });
+    }
+    if (calls.length === 2) {
+      return new Response(
+        JSON.stringify({
+          tx_hash: txHashValue,
+          status: "pending",
+          transaction: null,
+          receipt: null,
+          block: null,
+          finality: null,
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        tx_hash: txHashValue,
+        status: "finalized",
+        transaction: null,
+        receipt: {
+          status: "applied",
+          gas_charged: "10",
+          reason: null,
+          withdrawal_id: null,
+          contract_logs: [],
+        },
+        block: {
+          height: 7,
+          timestamp: 123,
+          block_hash: hash(0xbc),
+          tx_index: 0,
+        },
+        finality: {
+          block_height: 7,
+          block_hash: hash(0xbc),
+          batch_no: 8,
+          committed: true,
+          finalized: true,
+          commit: {
+            status: "confirmed",
+            attempts: 1,
+            message_hash: null,
+            message_hash_norm: hash(0xcd),
+          },
+          finalization: {
+            status: "finalized",
+            attempts: 1,
+            finalize_after_unix: 124,
+            message_hash: null,
+            message_hash_norm: hash(0xde),
+          },
+        },
+      }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+
+  try {
+    const client = new EntropisClient("http://127.0.0.1:8080/");
+    const receipt = await client.waitForTxReceipt(txHashValue, {
+      desiredStatus: "finalized",
+      intervalMs: 1,
+      timeoutMs: 500,
+    });
+
+    assert.equal(receipt.status, "finalized");
+    assert.equal(receipt.receipt?.gas_charged, "10");
+    assert.equal(receipt.finality?.finalization?.status, "finalized");
+    assert.deepEqual(calls, [
+      `http://127.0.0.1:8080/v1/receipt/${txHashValue}`,
+      `http://127.0.0.1:8080/v1/receipt/${txHashValue}`,
+      `http://127.0.0.1:8080/v1/receipt/${txHashValue}`,
+    ]);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 function vectorTransaction(): SignedL2Transaction {
   return {
     tx_version: L2_TX_VERSION_V2,
