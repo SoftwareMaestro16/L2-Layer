@@ -444,3 +444,7 @@ mod tests;
 #[cfg(test)]
 #[path = "internal_tests.rs"]
 mod internal_tests;
+
+#[cfg(test)]
+#[path = "security_tests.rs"]
+mod security_tests;

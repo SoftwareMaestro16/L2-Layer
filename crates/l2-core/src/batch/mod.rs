@@ -329,6 +329,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn oversized_receipt_event_payload_is_rejected_before_block_root() {
+        let tx = deposit_tx(b"deposit-large-event");
+        let mut receipt = Receipt::applied(tx.tx_hash(), 0, None);
+        receipt.events = vec![L2Event::WithdrawalCreated {
+            withdrawal_id: sha256_bytes(b"withdrawal"),
+            asset_id: L2_NATIVE_GAS_ASSET,
+            amount: 1,
+            l2_sender: sha256_bytes(b"sender"),
+            l1_recipient: "E".repeat(600),
+        }];
+
+        let error =
+            BatchBuilder::build(input_with(vec![tx], vec![receipt])).expect_err("event size");
+
+        assert_eq!(
+            error,
+            BatchBuildError::InvalidReceiptEvents {
+                reason: "receipt_event_too_large"
+            }
+        );
+    }
+
     fn input_with(
         ordered_transactions: Vec<SignedL2Transaction>,
         receipts: Vec<Receipt>,
