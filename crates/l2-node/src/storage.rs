@@ -583,6 +583,7 @@ fn transaction_touches_account(transaction: &SignedL2Transaction, account_id: Ha
         l2_core::L2TransactionKind::Withdraw { .. } => false,
         l2_core::L2TransactionKind::DeployContract { contract, .. } => *contract == account_id,
         l2_core::L2TransactionKind::CallContract { contract, .. } => *contract == account_id,
+        l2_core::L2TransactionKind::RotatePublicKey { .. } => false,
     }
 }
 

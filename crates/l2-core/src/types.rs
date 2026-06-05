@@ -20,6 +20,9 @@ pub enum L2TransactionKind {
         #[serde(with = "serde_u128_string")]
         amount: u128,
     },
+    RotatePublicKey {
+        new_public_key: String,
+    },
     Withdraw {
         asset_id: u32,
         #[serde(with = "serde_u128_string")]

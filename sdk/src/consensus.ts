@@ -17,6 +17,7 @@ const KIND_TRANSFER = 0x02;
 const KIND_WITHDRAW = 0x03;
 const KIND_CALL_CONTRACT = 0x04;
 const KIND_DEPLOY_CONTRACT = 0x05;
+const KIND_ROTATE_PUBLIC_KEY = 0x06;
 
 const STATUS_APPLIED = 0x01;
 const STATUS_REJECTED = 0x02;
@@ -51,7 +52,24 @@ export interface L2BlockHeader {
   timestamp: number | bigint;
 }
 
+export type AccountType = "user" | "contract" | "system" | "operator";
+
+export interface AccountFlags {
+  disabled?: boolean;
+  contract_only?: boolean;
+  system_only?: boolean;
+}
+
+export interface AccountRecoveryLock {
+  locked: boolean;
+  admin: Hash32 | null;
+}
+
 export interface AccountLeaf {
+  account_type?: AccountType;
+  flags?: AccountFlags;
+  active_public_key?: Hash32 | null;
+  recovery_lock?: AccountRecoveryLock | null;
   nonce: number | bigint;
   balances: Array<{ asset_id: number; balance: string | number | bigint }>;
   code_hash: Hash32;
@@ -152,6 +170,10 @@ export function withdrawalLeafHash(leaf: WithdrawalLeaf): Hash32 {
 export function encodeAccountLeaf(account_id: Hash32, account: AccountLeaf): Uint8Array {
   const out = writer(TYPE_ACCOUNT_LEAF);
   out.hash(account_id);
+  out.u8(accountTypeTag(account.account_type ?? "user"));
+  out.u8(accountFlagsBits(account.flags ?? {}));
+  writeOptionalHash(out, account.active_public_key ?? null);
+  writeOptionalRecoveryLock(out, account.recovery_lock ?? null);
   out.u64(account.nonce);
   const balances = [...account.balances].sort((a, b) => a.asset_id - b.asset_id);
   out.len(balances.length);
@@ -231,6 +253,9 @@ function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transact
     out.hash(tx.kind.Transfer.to);
     out.u32(tx.kind.Transfer.asset_id);
     out.u128(tx.kind.Transfer.amount);
+  } else if ("RotatePublicKey" in tx.kind) {
+    out.u8(KIND_ROTATE_PUBLIC_KEY);
+    out.string(tx.kind.RotatePublicKey.new_public_key);
   } else if ("Withdraw" in tx.kind) {
     out.u8(KIND_WITHDRAW);
     out.u32(tx.kind.Withdraw.asset_id);
@@ -248,6 +273,35 @@ function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transact
   }
 }
 
+function accountTypeTag(accountType: AccountType): number {
+  switch (accountType) {
+    case "user":
+      return 1;
+    case "contract":
+      return 2;
+    case "system":
+      return 3;
+    case "operator":
+      return 4;
+    default:
+      throw new Error("unknown account type");
+  }
+}
+
+function accountFlagsBits(flags: AccountFlags): number {
+  let bits = 0;
+  if (flags.disabled) {
+    bits |= 1 << 0;
+  }
+  if (flags.contract_only) {
+    bits |= 1 << 1;
+  }
+  if (flags.system_only) {
+    bits |= 1 << 2;
+  }
+  return bits;
+}
+
 function writeOptionalHash(out: ConsensusWriter, value: Hash32 | null) {
   if (value !== null) {
     out.u8(1);
@@ -261,6 +315,16 @@ function writeOptionalString(out: ConsensusWriter, value: string | null) {
   if (value !== null) {
     out.u8(1);
     out.string(value);
+  } else {
+    out.u8(0);
+  }
+}
+
+function writeOptionalRecoveryLock(out: ConsensusWriter, value: AccountRecoveryLock | null) {
+  if (value !== null) {
+    out.u8(1);
+    out.u8(value.locked ? 1 : 0);
+    writeOptionalHash(out, value.admin);
   } else {
     out.u8(0);
   }

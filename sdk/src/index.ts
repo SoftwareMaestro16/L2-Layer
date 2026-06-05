@@ -138,6 +138,7 @@ export type L2TransactionKind =
       };
     }
   | { Transfer: { to: Hash32; asset_id: number; amount: string } }
+  | { RotatePublicKey: { new_public_key: string } }
   | { Withdraw: { asset_id: number; amount: string; l1_recipient: string } }
   | {
       DeployContract: {
@@ -173,6 +174,10 @@ export interface SubmitTxResponse {
 }
 
 export interface L2Account {
+  account_type?: "user" | "contract" | "system" | "operator";
+  flags?: AccountFlags;
+  active_public_key?: Hash32;
+  recovery_lock?: AccountRecoveryLock;
   nonce: number;
   balances: Record<string, string | number>;
   code_hash: Hash32;
@@ -200,6 +205,15 @@ export interface TransferTransactionParams {
   to: Hash32;
   assetId: UIntLike;
   amount: UIntLike;
+  gasLimit: UIntLike;
+  maxGasPrice: UIntLike;
+}
+
+export interface RotatePublicKeyTransactionParams {
+  chainId: string;
+  from: Hash32;
+  nonce: UIntLike;
+  newPublicKey: Uint8Array | string;
   gasLimit: UIntLike;
   maxGasPrice: UIntLike;
 }
@@ -256,6 +270,36 @@ export interface ContractGetMethodResponse {
   method: string;
   result: unknown;
   source: string;
+}
+
+export interface AccountFlags {
+  disabled: boolean;
+  contract_only: boolean;
+  system_only: boolean;
+}
+
+export interface AccountRecoveryLock {
+  locked: boolean;
+  admin: Hash32 | null;
+}
+
+export interface AccountMetadataResponse {
+  account_id: Hash32;
+  raw_address: string;
+  user_friendly_address: string;
+  status: string;
+  account_type: "user" | "contract" | "system" | "operator";
+  flags: AccountFlags;
+  active_public_key: Hash32 | null;
+  active_public_key_set: boolean;
+  recovery_lock: AccountRecoveryLock | null;
+  nonce: number;
+  code_hash: Hash32;
+  data_hash: Hash32;
+  storage_root: Hash32;
+  has_code: boolean;
+  has_data: boolean;
+  last_lt: number;
 }
 
 export interface ExplorerInterface {
@@ -357,6 +401,34 @@ export function signTransferTransaction(
   params: TransferTransactionParams & SigningParams,
 ): SignedL2Transaction {
   return signTransaction(buildTransferTransaction(params), params.keyPair);
+}
+
+export function buildRotatePublicKeyTransaction(
+  params: RotatePublicKeyTransactionParams,
+): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  const from = requireNonZeroL2Address(params.from, "from");
+  const newPublicKey =
+    typeof params.newPublicKey === "string"
+      ? normalizePublicKeyHex(params.newPublicKey)
+      : normalizePublicKeyBytes(params.newPublicKey);
+  return {
+    chain_id: params.chainId,
+    from,
+    nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
+    gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
+    max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
+    kind: {
+      RotatePublicKey: {
+        new_public_key: newPublicKey,
+      },
+    },
+  };
+}
+
+export function signRotatePublicKeyTransaction(
+  params: RotatePublicKeyTransactionParams & SigningParams,
+): SignedL2Transaction {
+  return signTransaction(buildRotatePublicKeyTransaction(params), params.keyPair);
 }
 
 export function buildWithdrawTransaction(
@@ -474,6 +546,11 @@ export class TonL2Client {
     return this.getJson(`/v1/account/${address}`);
   }
 
+  async getAccountMetadata(accountId: Hash32): Promise<AccountMetadataResponse> {
+    const address = encodeURIComponent(l2RawAddress(parseL2Address(accountId)));
+    return this.getJson(`/v1/account/${address}/metadata`);
+  }
+
   async getSampleCounter(contractId: Hash32): Promise<SampleCounterReadResponse> {
     return this.getJson(
       `/v1/sample-counter/${encodeURIComponent(l2RawAddress(parseL2Address(contractId)))}`,
@@ -548,6 +625,12 @@ export class TonL2Client {
     params: WithdrawTransactionParams & SigningParams,
   ): Promise<SubmitTxResponse> {
     return this.submitTx(signWithdrawTransaction(params));
+  }
+
+  async submitSignedRotatePublicKey(
+    params: RotatePublicKeyTransactionParams & SigningParams,
+  ): Promise<SubmitTxResponse> {
+    return this.submitTx(signRotatePublicKeyTransaction(params));
   }
 
   async submitSignedDeployContract(
@@ -692,6 +775,21 @@ function hexToBytes(value: string, field: string): Uint8Array {
     throw new Error(`${field} must be hex`);
   }
   return Buffer.from(cleaned, "hex");
+}
+
+function normalizePublicKeyBytes(value: Uint8Array): string {
+  if (value.length !== 32) {
+    throw new Error("newPublicKey must be 32 bytes");
+  }
+  return Buffer.from(value).toString("hex");
+}
+
+function normalizePublicKeyHex(value: string): string {
+  const bytes = hexToBytes(value, "newPublicKey");
+  if (bytes.length !== 32) {
+    throw new Error("newPublicKey must be 32 bytes");
+  }
+  return Buffer.from(bytes).toString("hex");
 }
 
 async function apiError(response: Response): Promise<EntropisApiError> {

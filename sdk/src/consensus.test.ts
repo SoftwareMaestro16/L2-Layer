@@ -9,6 +9,7 @@ import {
   accountLeafHash,
   blockHeaderHash,
   buildClaimWithdrawalBody,
+  buildRotatePublicKeyTransaction,
   buildTransferTransaction,
   buildWithdrawTransaction,
   canonicalBatchDataHash,
@@ -34,6 +35,7 @@ import {
   receiptLeafHash,
   releaseAuthorizedCell,
   RollupRootL1,
+  signRotatePublicKeyTransaction,
   signTransferTransaction,
   tonDepositForwardPayload,
   txHash,
@@ -116,7 +118,7 @@ test("consensus hashes match Rust golden vectors", () => {
   );
   assert.equal(
     accountLeafHash(hash(0xaa), account),
-    "191eda257e6182c35676db70e20e54180e2a7f9eec6cddd4ae5c72a2882f97e9",
+    "2b283b553c4d56e5ee8054b55601397d27c9ce00b4620a7001f2f44c538e9331",
   );
 });
 
@@ -410,6 +412,52 @@ test("transfer helper signs chain-id-bound L2 transactions", () => {
         nonce: Number.MAX_SAFE_INTEGER + 1,
       }),
     /nonce must be a non-negative safe integer/,
+  );
+});
+
+test("public key rotation helper keeps account id and signs new key binding", () => {
+  const oldKeyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(32).fill(1));
+  const newKeyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(32).fill(2));
+  const accountId = accountIdFromKeyPair(oldKeyPair);
+  const newPublicKey = Buffer.from(newKeyPair.publicKey).toString("hex");
+
+  const unsigned = buildRotatePublicKeyTransaction({
+    chainId: "entropis-testnet",
+    from: accountId,
+    nonce: 4,
+    newPublicKey,
+    gasLimit: 10,
+    maxGasPrice: 1,
+  });
+  const signed = signRotatePublicKeyTransaction({
+    chainId: "entropis-testnet",
+    from: accountId,
+    nonce: 4,
+    newPublicKey: newKeyPair.publicKey,
+    gasLimit: 10,
+    maxGasPrice: 1,
+    keyPair: oldKeyPair,
+  });
+
+  assert.deepEqual(unsigned.kind, { RotatePublicKey: { new_public_key: newPublicKey } });
+  assert.equal(signed.from, accountId);
+  assert.equal("RotatePublicKey" in signed.kind, true);
+  if (!("RotatePublicKey" in signed.kind)) {
+    throw new Error("expected RotatePublicKey transaction");
+  }
+  assert.equal(signed.kind.RotatePublicKey.new_public_key, newPublicKey);
+  assert.notEqual(signed.public_key, signed.kind.RotatePublicKey.new_public_key);
+  assert.throws(
+    () =>
+      buildRotatePublicKeyTransaction({
+        chainId: "entropis-testnet",
+        from: accountId,
+        nonce: 4,
+        newPublicKey: "aa",
+        gasLimit: 10,
+        maxGasPrice: 1,
+      }),
+    /newPublicKey must be 32 bytes/,
   );
 });
 

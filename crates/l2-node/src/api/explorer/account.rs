@@ -324,6 +324,7 @@ fn kind_name(kind: &L2TransactionKind) -> &'static str {
         L2TransactionKind::Withdraw { .. } => "withdraw",
         L2TransactionKind::DeployContract { .. } => "deploy_contract",
         L2TransactionKind::CallContract { .. } => "call_contract",
+        L2TransactionKind::RotatePublicKey { .. } => "rotate_public_key",
     }
 }
 
@@ -349,6 +350,7 @@ fn recipient(tx: &SignedL2Transaction) -> Option<Hash32> {
         L2TransactionKind::Transfer { to, .. } => Some(*to),
         L2TransactionKind::DeployContract { contract, .. } => Some(*contract),
         L2TransactionKind::CallContract { contract, .. } => Some(*contract),
+        L2TransactionKind::RotatePublicKey { .. } => None,
         L2TransactionKind::Withdraw { .. } => None,
     }
 }
@@ -358,7 +360,9 @@ fn asset_id(kind: &L2TransactionKind) -> Option<u32> {
         L2TransactionKind::Deposit { asset_id, .. }
         | L2TransactionKind::Transfer { asset_id, .. }
         | L2TransactionKind::Withdraw { asset_id, .. } => Some(*asset_id),
-        L2TransactionKind::DeployContract { .. } | L2TransactionKind::CallContract { .. } => None,
+        L2TransactionKind::DeployContract { .. }
+        | L2TransactionKind::CallContract { .. }
+        | L2TransactionKind::RotatePublicKey { .. } => None,
     }
 }
 
@@ -367,7 +371,9 @@ fn amount(kind: &L2TransactionKind) -> Option<u128> {
         L2TransactionKind::Deposit { amount, .. }
         | L2TransactionKind::Transfer { amount, .. }
         | L2TransactionKind::Withdraw { amount, .. } => Some(*amount),
-        L2TransactionKind::DeployContract { .. } | L2TransactionKind::CallContract { .. } => None,
+        L2TransactionKind::DeployContract { .. }
+        | L2TransactionKind::CallContract { .. }
+        | L2TransactionKind::RotatePublicKey { .. } => None,
     }
 }
 
@@ -393,6 +399,7 @@ fn participants(tx: &SignedL2Transaction) -> Vec<ExplorerParticipant> {
         | L2TransactionKind::CallContract { contract, .. } => {
             out.push(participant("contract", *contract))
         }
+        L2TransactionKind::RotatePublicKey { .. } => {}
         L2TransactionKind::Withdraw { .. } => {}
     }
     out

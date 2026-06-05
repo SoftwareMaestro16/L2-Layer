@@ -23,6 +23,7 @@ use tokio::time::{sleep, Duration, Instant};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+mod account;
 mod auth;
 mod challenge;
 mod da;
@@ -34,6 +35,7 @@ mod stream;
 #[cfg(test)]
 mod test_support;
 
+use account::get_account_metadata;
 use auth::AdminAuth;
 use challenge::{operator_observer_checkpoint, operator_observer_replay};
 use da::{get_batch_da_payload, get_batch_da_payload_by_hash};
@@ -151,6 +153,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/tx/:hash", get(get_tx))
         .route("/v1/block/:height", get(get_block))
         .route("/v1/account/:id", get(get_account))
+        .route("/v1/account/:id/metadata", get(get_account_metadata))
         .route("/v1/sample-counter/:id", get(get_sample_counter))
         .route("/v1/contract/:id/get/:method", get(get_contract_method))
         .route("/v1/da/batch/:height", get(get_batch_da_payload))

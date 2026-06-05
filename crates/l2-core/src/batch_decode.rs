@@ -14,6 +14,7 @@ const KIND_TRANSFER: u8 = 0x02;
 const KIND_WITHDRAW: u8 = 0x03;
 const KIND_CALL_CONTRACT: u8 = 0x04;
 const KIND_DEPLOY_CONTRACT: u8 = 0x05;
+const KIND_ROTATE_PUBLIC_KEY: u8 = 0x06;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
@@ -82,6 +83,9 @@ fn decode_transaction_kind(
             to: reader.read_hash()?,
             asset_id: reader.read_u32()?,
             amount: reader.read_u128()?,
+        },
+        KIND_ROTATE_PUBLIC_KEY => L2TransactionKind::RotatePublicKey {
+            new_public_key: reader.read_string()?,
         },
         KIND_WITHDRAW => L2TransactionKind::Withdraw {
             asset_id: reader.read_u32()?,

@@ -1,7 +1,7 @@
 use crate::address::is_l2_zero_address;
-use crate::crypto::Hash32;
+use crate::crypto::{decode_public_key, Hash32};
 use crate::gas::{GasFee, GasSchedule};
-use crate::state::State;
+use crate::state::{Account, AccountType, State};
 use crate::tvm::{
     decode_contract_cell_boc_base64, ContractCellField, TvmExecutionAdapter, TvmInternalMessage,
     DEFAULT_MAX_TVM_BOC_BYTES,
@@ -138,13 +138,54 @@ impl DeterministicExecutor {
 
                 {
                     let sender = state.account_mut(from);
-                    mark_sender_attempt(sender, config.block_height);
+                    mark_sender_attempt(sender, tx, config.block_height);
                 }
                 let recipient = state.account_mut(*to);
                 if !recipient.credit(*asset_id, *amount) {
                     return rejected_attempt(state, tx, from, config, "balance_overflow");
                 }
                 recipient.last_lt = config.block_height;
+
+                ExecutionOutcome {
+                    receipt: Receipt::applied(tx_hash, fee.amount, None),
+                    withdrawals: vec![],
+                    internal_messages: vec![],
+                }
+            }
+            L2TransactionKind::RotatePublicKey { new_public_key } => {
+                let from = match authenticated_sender(state, tx) {
+                    Ok(from) => from,
+                    Err(reason) => return rejected(tx_hash, reason),
+                };
+                let fee = match execution_fee(tx, config) {
+                    Ok(fee) => fee,
+                    Err(error) => {
+                        return rejected_attempt(state, tx, from, config, error.rejection_reason());
+                    }
+                };
+                if !can_increment_nonce(state, from) {
+                    return rejected(tx_hash, "nonce_overflow");
+                }
+                let new_public_key = match decode_public_key(new_public_key) {
+                    Ok(public_key) => public_key,
+                    Err(_) => {
+                        return rejected_attempt(state, tx, from, config, "invalid_public_key");
+                    }
+                };
+                if state
+                    .account(from)
+                    .is_none_or(|account| account.balance(config.gas_coin_asset) < fee.amount)
+                {
+                    return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
+                }
+                {
+                    let sender = state.account_mut(from);
+                    if !sender.debit(config.gas_coin_asset, fee.amount) {
+                        return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
+                    }
+                    mark_sender_attempt(sender, tx, config.block_height);
+                    sender.active_public_key = Some(Hash32::new(new_public_key));
+                }
 
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, fee.amount, None),
@@ -191,7 +232,7 @@ impl DeterministicExecutor {
                     WithdrawalLeaf::new(tx_hash, *asset_id, *amount, from, l1_recipient.clone());
                 {
                     let sender = state.account_mut(from);
-                    mark_sender_attempt(sender, config.block_height);
+                    mark_sender_attempt(sender, tx, config.block_height);
                 }
 
                 ExecutionOutcome {
@@ -268,9 +309,10 @@ impl DeterministicExecutor {
                     if !sender.debit(config.gas_coin_asset, fee.amount) {
                         return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                     }
-                    mark_sender_attempt(sender, config.block_height);
+                    mark_sender_attempt(sender, tx, config.block_height);
                 }
                 let deployed = state.account_mut(*contract);
+                deployed.mark_contract_account();
                 deployed.code_hash = code_cell.cell_hash;
                 deployed.data_hash = data_cell.cell_hash;
                 deployed.storage_root = data_cell.cell_hash;
@@ -344,10 +386,30 @@ fn authenticated_sender(state: &State, tx: &SignedL2Transaction) -> Result<Hash3
     if is_l2_zero_address(from) {
         return Err("reserved_zero_address");
     }
-    if state.account(from).is_none() {
-        return Err("unknown_sender");
+    let account = state.account(from).ok_or("unknown_sender")?;
+    if let Some(reason) = public_sender_rejection(account) {
+        return Err(reason);
     }
     Ok(from)
+}
+
+fn public_sender_rejection(account: &Account) -> Option<&'static str> {
+    if account.flags.disabled {
+        return Some("account_disabled");
+    }
+    if account.is_recovery_locked() {
+        return Some("account_recovery_locked");
+    }
+    if account.flags.system_only || matches!(account.account_type, AccountType::System) {
+        return Some("sender_system_only");
+    }
+    if account.flags.contract_only || matches!(account.account_type, AccountType::Contract) {
+        return Some("sender_contract_only");
+    }
+    if !account.can_send_public_transaction() {
+        return Some("sender_not_public");
+    }
+    None
 }
 
 fn can_increment_nonce(state: &State, from: Hash32) -> bool {
@@ -356,7 +418,20 @@ fn can_increment_nonce(state: &State, from: Hash32) -> bool {
         .is_some_and(|account| account.nonce < u64::MAX)
 }
 
-fn mark_sender_attempt(account: &mut crate::state::Account, block_height: u64) {
+fn mark_sender_attempt(
+    account: &mut crate::state::Account,
+    tx: &SignedL2Transaction,
+    block_height: u64,
+) {
+    if account.active_public_key.is_none() {
+        if let Some(public_key) = tx
+            .public_key
+            .as_deref()
+            .and_then(|public_key| decode_public_key(public_key).ok())
+        {
+            account.active_public_key = Some(Hash32::new(public_key));
+        }
+    }
     account.nonce += 1;
     account.last_lt = block_height;
 }
@@ -384,7 +459,7 @@ fn charge_rejection_fee(
     } else {
         0
     };
-    mark_sender_attempt(account, config.block_height);
+    mark_sender_attempt(account, tx, config.block_height);
     gas_charged
 }
 

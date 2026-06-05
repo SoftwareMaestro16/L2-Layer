@@ -5,11 +5,11 @@ use crate::da::{DaError, DataAvailability};
 use crate::signer::BatchCommitment;
 use crate::storage::ObserverCheckpoint;
 use l2_core::address::is_l2_zero_address;
-use l2_core::crypto::{decode_fixed, derive_account_id, hash_domain, verify_signature};
+use l2_core::crypto::{decode_public_key, derive_account_id, hash_domain, verify_signature};
 use l2_core::{
-    canonical_batch_data_hash, decode_batch_data, merkle_root, withdrawal_merkle_root,
-    BatchDataDecodeError, DeterministicExecutor, ExecutionConfig, Hash32, L2TransactionKind,
-    Receipt, SignedL2Transaction, State, WithdrawalLeaf,
+    canonical_batch_data_hash, decode_batch_data, merkle_root, withdrawal_merkle_root, Account,
+    AccountType, BatchDataDecodeError, DeterministicExecutor, ExecutionConfig, Hash32,
+    L2TransactionKind, Receipt, SignedL2Transaction, State, WithdrawalLeaf,
 };
 
 pub(super) struct ReplayOutcome {
@@ -254,18 +254,53 @@ fn verify_tx(
     }
     let public_key_hex = tx.public_key.as_deref().ok_or("missing_public_key")?;
     let signature_hex = tx.signature.as_deref().ok_or("missing_signature")?;
-    let public_key = decode_fixed::<32>(public_key_hex).map_err(|_| "invalid_public_key")?;
-    if derive_account_id(&public_key) != from {
-        return Err("public_key_sender_mismatch");
-    }
+    let account = state.account(from).ok_or("unknown_sender")?;
+    validate_public_sender_account(account)?;
+    let public_key = decode_public_key(public_key_hex).map_err(|_| "invalid_public_key")?;
+    validate_account_public_key(from, account, &public_key)?;
     if !verify_signature(public_key_hex, signature_hex, &tx.signing_payload()) {
         return Err("bad_signature");
     }
-    let account = state.account(from).ok_or("unknown_sender")?;
     if account.nonce != tx.nonce {
         return Err("bad_nonce");
     }
     validate_reserved_zero_addresses(tx, false)
+}
+
+fn validate_public_sender_account(account: &Account) -> Result<(), &'static str> {
+    if account.flags.disabled {
+        return Err("account_disabled");
+    }
+    if account.is_recovery_locked() {
+        return Err("account_recovery_locked");
+    }
+    if account.flags.system_only || matches!(account.account_type, AccountType::System) {
+        return Err("sender_system_only");
+    }
+    if account.flags.contract_only || matches!(account.account_type, AccountType::Contract) {
+        return Err("sender_contract_only");
+    }
+    if !account.can_send_public_transaction() {
+        return Err("sender_not_public");
+    }
+    Ok(())
+}
+
+fn validate_account_public_key(
+    from: Hash32,
+    account: &Account,
+    public_key: &[u8; 32],
+) -> Result<(), &'static str> {
+    if let Some(active_public_key) = account.active_public_key {
+        if active_public_key.as_bytes() == public_key {
+            return Ok(());
+        }
+        return Err("public_key_sender_mismatch");
+    }
+    if derive_account_id(public_key) != from {
+        return Err("public_key_sender_mismatch");
+    }
+    Ok(())
 }
 
 fn is_canonical_system_deposit(tx: &SignedL2Transaction) -> bool {

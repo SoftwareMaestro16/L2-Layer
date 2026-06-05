@@ -1,6 +1,6 @@
 use super::*;
 use crate::crypto::{sha256_bytes, Hash32};
-use crate::state::State;
+use crate::state::{AccountFlags, AccountType, State};
 use crate::types::{L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET};
 use crate::{sample_counter_initial_state, GasSchedule};
 
@@ -72,6 +72,11 @@ fn deploy_contract_sets_hashes_and_charges_call_gas() {
         state.account(contract).unwrap().storage_root,
         sample.storage_root
     );
+    assert_eq!(
+        state.account(contract).unwrap().account_type,
+        AccountType::Contract
+    );
+    assert!(state.account(contract).unwrap().flags.contract_only);
 }
 
 #[test]
@@ -149,6 +154,120 @@ fn deploy_contract_initializes_prefunded_uninitialized_account() {
     assert_eq!(deployed.code_hash, sample.code_hash);
     assert_eq!(deployed.data_hash, sample.data_hash);
     assert_eq!(deployed.storage_root, sample.storage_root);
+    assert_eq!(deployed.account_type, AccountType::Contract);
+    assert!(deployed.flags.contract_only);
+}
+
+#[test]
+fn deploy_contract_rejects_claimed_user_account() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let claimed_user = account(b"claimed-user");
+    let sample = sample_counter_initial_state(0);
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+    let account = state.account_mut(claimed_user);
+    account.active_public_key = Some(Hash32::new([7; 32]));
+    account.credit(L2_NATIVE_GAS_ASSET, 25);
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            GasSchedule::default().call_contract_gas,
+            1,
+            L2TransactionKind::DeployContract {
+                contract: claimed_user,
+                code_boc_base64: sample.code_boc_base64,
+                data_boc_base64: sample.data_boc_base64,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    let account = state.account(claimed_user).unwrap();
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        outcome.receipt.reason.as_deref(),
+        Some("contract_already_exists")
+    );
+    assert_eq!(account.account_type, AccountType::User);
+    assert_eq!(account.code_hash, Hash32::ZERO);
+    assert_eq!(account.data_hash, Hash32::ZERO);
+    assert_eq!(account.storage_root, Hash32::ZERO);
+}
+
+#[test]
+fn disabled_user_account_cannot_send_public_transaction() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let recipient = account(b"recipient");
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 100));
+    state.account_mut(sender).flags.disabled = true;
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            10,
+            1,
+            L2TransactionKind::Transfer {
+                to: recipient,
+                asset_id: L2_NATIVE_GAS_ASSET,
+                amount: 1,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(outcome.receipt.reason.as_deref(), Some("account_disabled"));
+    assert_eq!(state.account(sender).unwrap().nonce, 0);
+    assert!(state.account(recipient).is_none());
+}
+
+#[test]
+fn contract_only_account_cannot_send_public_transaction() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let contract_sender = account(b"contract-sender");
+    let recipient = account(b"recipient");
+    assert!(state
+        .account_mut(contract_sender)
+        .credit(L2_NATIVE_GAS_ASSET, 100));
+    let account = state.account_mut(contract_sender);
+    account.account_type = AccountType::Contract;
+    account.flags = AccountFlags {
+        contract_only: true,
+        ..AccountFlags::default()
+    };
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            contract_sender,
+            0,
+            10,
+            1,
+            L2TransactionKind::Transfer {
+                to: recipient,
+                asset_id: L2_NATIVE_GAS_ASSET,
+                amount: 1,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        outcome.receipt.reason.as_deref(),
+        Some("sender_contract_only")
+    );
+    assert_eq!(state.account(contract_sender).unwrap().nonce, 0);
+    assert!(state.account(recipient).is_none());
 }
 
 #[test]

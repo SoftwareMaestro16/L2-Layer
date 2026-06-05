@@ -8,7 +8,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_bytes, canonical_batch_data_hash, l2_raw_address,
-    l2_user_friendly_address, L2Block, L2TransactionKind, WithdrawalLeaf,
+    l2_user_friendly_address, AccountType, L2Block, L2TransactionKind, WithdrawalLeaf,
 };
 use rand_core::OsRng;
 
@@ -589,4 +589,43 @@ async fn admin_ent_faucet_is_idempotent_and_credits_ent_base_units() {
     get_account(State(state), Path(l2_user_friendly_address(account_id)))
         .await
         .expect("friendly account path");
+}
+
+#[tokio::test]
+async fn account_metadata_reports_lifecycle_without_private_fields() {
+    let state = test_state(Some(ADMIN_TOKEN));
+    let account_id = sha256_bytes(b"metadata-account");
+    {
+        let mut sequencer = state.sequencer.write().await;
+        let account = sequencer.state.account_mut(account_id);
+        account.account_type = AccountType::Operator;
+        account.flags.disabled = true;
+        account.active_public_key = Some(Hash32::new([9; 32]));
+        account.credit(0, 100);
+        account.last_lt = 5;
+    }
+
+    let metadata = get_account_metadata(State(state.clone()), Path(l2_raw_address(account_id)))
+        .await
+        .expect("metadata")
+        .0;
+
+    assert_eq!(metadata.account_id, account_id);
+    assert_eq!(metadata.status, "disabled");
+    assert_eq!(metadata.account_type, AccountType::Operator);
+    assert!(metadata.flags.disabled);
+    assert!(metadata.active_public_key_set);
+    assert_eq!(metadata.active_public_key, Some(Hash32::new([9; 32])));
+    assert_eq!(metadata.has_code, false);
+    assert_eq!(metadata.has_data, false);
+    assert_eq!(metadata.last_lt, 5);
+
+    let zero = get_account_metadata(State(state), Path(l2_user_friendly_address(Hash32::ZERO)))
+        .await
+        .expect("zero metadata")
+        .0;
+    assert_eq!(zero.status, "reserved");
+    assert_eq!(zero.account_type, AccountType::System);
+    assert!(zero.flags.system_only);
+    assert!(zero.flags.disabled);
 }

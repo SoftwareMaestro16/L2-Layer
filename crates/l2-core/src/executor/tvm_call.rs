@@ -176,7 +176,7 @@ fn charge_call_fee(
     if !account.debit(config.gas_coin_asset, fee.amount) {
         return Err("insufficient_gas_coin");
     }
-    mark_sender_attempt(account, config.block_height);
+    mark_sender_attempt(account, tx, config.block_height);
     Ok(fee.amount)
 }
 

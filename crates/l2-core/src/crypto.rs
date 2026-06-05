@@ -90,7 +90,7 @@ pub fn derive_account_id(public_key: &[u8; 32]) -> Hash32 {
 }
 
 pub fn verify_signature(public_key_hex: &str, signature_hex: &str, payload: &[u8]) -> bool {
-    let public_key = match decode_fixed::<32>(public_key_hex) {
+    let public_key = match decode_public_key(public_key_hex) {
         Ok(value) => value,
         Err(_) => return false,
     };
@@ -107,6 +107,12 @@ pub fn verify_signature(public_key_hex: &str, signature_hex: &str, payload: &[u8
     verifying_key.verify(payload, &signature).is_ok()
 }
 
+pub fn decode_public_key(value: &str) -> Result<[u8; 32], PublicKeyError> {
+    let public_key = decode_fixed::<32>(value).map_err(PublicKeyError::Hex)?;
+    VerifyingKey::from_bytes(&public_key).map_err(|_| PublicKeyError::Invalid)?;
+    Ok(public_key)
+}
+
 pub fn decode_fixed<const N: usize>(value: &str) -> Result<[u8; N], hex::FromHexError> {
     let cleaned = value.strip_prefix("0x").unwrap_or(value);
     let bytes = hex::decode(cleaned)?;
@@ -117,4 +123,12 @@ pub fn decode_fixed<const N: usize>(value: &str) -> Result<[u8; N], hex::FromHex
     let mut out = [0u8; N];
     out.copy_from_slice(&bytes);
     Ok(out)
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum PublicKeyError {
+    #[error("public key must be fixed-length hex")]
+    Hex(#[from] hex::FromHexError),
+    #[error("public key is not a valid Ed25519 verifying key")]
+    Invalid,
 }

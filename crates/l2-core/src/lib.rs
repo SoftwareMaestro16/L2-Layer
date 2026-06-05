@@ -23,7 +23,7 @@ pub use batch::{
     BatchBuilder, BatchDataPayload,
 };
 pub use batch_decode::{decode_batch_data, BatchDataDecodeError, DecodedBatchData};
-pub use crypto::{derive_account_id, verify_signature, Hash32};
+pub use crypto::{decode_public_key, derive_account_id, verify_signature, Hash32};
 pub use enwallet::{
     decode_enwallet_v5_data_boc, interface_for_code_hash, is_enwallet_v5r1_code_hash,
     read_enwallet_v5_state, EnWalletReadError, EnWalletV5State, ENWALLET_V5R1_CODE_HASH,
@@ -37,7 +37,7 @@ pub use gas::{
 };
 pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};
-pub use state::{Account, State};
+pub use state::{Account, AccountFlags, AccountRecoveryLock, AccountType, State};
 pub use tvm::{
     boc_single_root_hash, decode_call_body_boc_base64, decode_contract_cell_boc_base64,
     read_sample_counter_value, sample_counter_code_boc_base64, sample_counter_code_hash,

@@ -55,6 +55,7 @@ impl GasSchedule {
         match kind {
             L2TransactionKind::Deposit { .. } => 0,
             L2TransactionKind::Transfer { .. } => self.transfer_gas,
+            L2TransactionKind::RotatePublicKey { .. } => self.transfer_gas,
             L2TransactionKind::Withdraw { .. } => self.withdraw_gas,
             L2TransactionKind::DeployContract { .. } => self.call_contract_gas,
             L2TransactionKind::CallContract { .. } => self.call_contract_gas,

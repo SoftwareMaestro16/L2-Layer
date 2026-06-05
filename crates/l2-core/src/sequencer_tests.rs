@@ -1,5 +1,6 @@
 use super::*;
 use crate::crypto::{derive_account_id, sha256_bytes};
+use crate::state::AccountType;
 use crate::types::{L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET};
 use crate::withdrawal::verify_withdrawal_merkle_proof;
 use ed25519_dalek::{Signer, SigningKey};
@@ -296,4 +297,105 @@ fn overflowing_deposit_is_rejected_without_panic() {
         sequencer.state.account(recipient).unwrap().balance(0),
         u128::MAX
     );
+}
+
+#[test]
+fn public_key_rotation_changes_authorized_signer_without_changing_account_id() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let old_key = SigningKey::generate(&mut OsRng);
+    let new_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&old_key.verifying_key().to_bytes());
+    let recipient = sha256_bytes(b"recipient");
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"deposit-1"),
+        asset_id: 0,
+        recipient: account_id,
+        amount: 1_000,
+        l1_tx_hash: sha256_bytes(b"l1"),
+        l1_lt: 1,
+    }]);
+    sequencer.produce_block(1).expect("deposit block");
+
+    sequencer.submit_tx(signed_tx(
+        &old_key,
+        account_id,
+        0,
+        L2TransactionKind::RotatePublicKey {
+            new_public_key: hex::encode(new_key.verifying_key().to_bytes()),
+        },
+    ));
+    let rotation_block = sequencer.produce_block(2).expect("rotation block");
+    assert_eq!(rotation_block.receipts[0].status, ReceiptStatus::Applied);
+    assert_eq!(
+        sequencer
+            .state
+            .account(account_id)
+            .unwrap()
+            .active_public_key,
+        Some(Hash32::new(new_key.verifying_key().to_bytes()))
+    );
+
+    sequencer.submit_tx(signed_tx(
+        &new_key,
+        account_id,
+        1,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 10,
+        },
+    ));
+    let new_key_block = sequencer.produce_block(3).expect("new key block");
+    assert_eq!(new_key_block.receipts[0].status, ReceiptStatus::Applied);
+
+    sequencer.submit_tx(signed_tx(
+        &old_key,
+        account_id,
+        2,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 10,
+        },
+    ));
+    let stale_key_block = sequencer.produce_block(4).expect("stale key block");
+    assert_eq!(stale_key_block.receipts[0].status, ReceiptStatus::Rejected);
+    assert_eq!(
+        stale_key_block.receipts[0].reason.as_deref(),
+        Some("public_key_sender_mismatch")
+    );
+}
+
+#[test]
+fn contract_account_cannot_masquerade_as_user_sender() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let recipient = sha256_bytes(b"recipient");
+    {
+        let account = sequencer.state.account_mut(account_id);
+        account.account_type = AccountType::Contract;
+        account.flags.contract_only = true;
+        account.credit(0, 1_000);
+    }
+
+    sequencer.submit_tx(signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: recipient,
+            asset_id: 0,
+            amount: 1,
+        },
+    ));
+
+    let block = sequencer.produce_block(1).expect("block");
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+    assert_eq!(
+        block.receipts[0].reason.as_deref(),
+        Some("sender_contract_only")
+    );
+    assert_eq!(sequencer.state.account(account_id).unwrap().nonce, 0);
 }

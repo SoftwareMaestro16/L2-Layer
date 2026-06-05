@@ -1,6 +1,6 @@
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use l2_core::address::is_l2_zero_address;
-use l2_core::crypto::{decode_fixed, derive_account_id, verify_signature, Hash32};
+use l2_core::crypto::{decode_public_key, verify_signature, Hash32};
 use l2_core::{L2TransactionKind, SignedL2Transaction};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -152,11 +152,7 @@ impl MempoolService {
             .signature
             .as_deref()
             .ok_or(MempoolError::MissingSignature)?;
-        let public_key =
-            decode_fixed::<32>(public_key_hex).map_err(|_| MempoolError::InvalidPublicKey)?;
-        if derive_account_id(&public_key) != from {
-            return Err(MempoolError::PublicKeySenderMismatch);
-        }
+        decode_public_key(public_key_hex).map_err(|_| MempoolError::InvalidPublicKey)?;
 
         Ok(ValidatedMempoolTx {
             tx_hash: tx.tx_hash(),
@@ -227,6 +223,9 @@ impl MempoolService {
                 }
                 self.validate_deploy_boc("code_boc_base64", code_boc_base64)?;
                 self.validate_deploy_boc("data_boc_base64", data_boc_base64)?;
+            }
+            L2TransactionKind::RotatePublicKey { new_public_key } => {
+                decode_public_key(new_public_key).map_err(|_| MempoolError::InvalidPublicKey)?;
             }
             _ => {}
         }

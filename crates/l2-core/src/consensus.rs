@@ -22,6 +22,7 @@ const KIND_TRANSFER: u8 = 0x02;
 const KIND_WITHDRAW: u8 = 0x03;
 const KIND_CALL_CONTRACT: u8 = 0x04;
 const KIND_DEPLOY_CONTRACT: u8 = 0x05;
+const KIND_ROTATE_PUBLIC_KEY: u8 = 0x06;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
@@ -103,6 +104,10 @@ pub fn withdrawal_id(
 pub fn encode_account_leaf(account_id: Hash32, account: &Account) -> Vec<u8> {
     let mut out = with_header(TYPE_ACCOUNT_LEAF);
     write_hash(&mut out, account_id);
+    out.push(account.account_type.consensus_tag());
+    out.push(account.flags.consensus_bits());
+    write_optional_hash(&mut out, account.active_public_key);
+    write_optional_recovery_lock(&mut out, account);
     write_u64(&mut out, account.nonce);
     write_balances(&mut out, &account.balances);
     write_hash(&mut out, account.code_hash);
@@ -191,6 +196,10 @@ fn encode_transaction_kind(out: &mut Vec<u8>, kind: &L2TransactionKind) {
             write_u32(out, *asset_id);
             write_u128(out, *amount);
         }
+        L2TransactionKind::RotatePublicKey { new_public_key } => {
+            out.push(KIND_ROTATE_PUBLIC_KEY);
+            write_string(out, new_public_key);
+        }
         L2TransactionKind::Withdraw {
             asset_id,
             amount,
@@ -247,6 +256,17 @@ fn write_optional_hash(out: &mut Vec<u8>, hash: Option<Hash32>) {
         Some(hash) => {
             out.push(1);
             write_hash(out, hash);
+        }
+        None => out.push(0),
+    }
+}
+
+fn write_optional_recovery_lock(out: &mut Vec<u8>, account: &Account) {
+    match &account.recovery_lock {
+        Some(lock) => {
+            out.push(1);
+            out.push(u8::from(lock.locked));
+            write_optional_hash(out, lock.admin);
         }
         None => out.push(0),
     }
@@ -353,7 +373,7 @@ mod tests {
         );
         assert_eq!(
             account_leaf_hash(hash(0xaa), &account).to_hex(),
-            "191eda257e6182c35676db70e20e54180e2a7f9eec6cddd4ae5c72a2882f97e9"
+            "2b283b553c4d56e5ee8054b55601397d27c9ce00b4620a7001f2f44c538e9331"
         );
     }
 
