@@ -1,12 +1,20 @@
 use crate::address::is_l2_zero_address;
 use crate::batch::{BatchBuildInput, BatchBuilder};
-use crate::crypto::{decode_public_key, derive_account_id, verify_signature, Hash32};
+use crate::crypto::{decode_public_key, verify_signature, Hash32};
 use crate::executor::{DeterministicExecutor, ExecutionConfig, TvmAdapterMode};
 use crate::gas::GasSchedule;
-use crate::state::{Account, AccountType, State};
+use crate::internal_queue::{
+    InternalMessageQueue, InternalMessageQueueSnapshot, DEFAULT_INTERNAL_MESSAGE_GAS_LIMIT,
+    DEFAULT_MAX_INTERNAL_MESSAGES_PER_BLOCK, DEFAULT_MAX_INTERNAL_QUEUE_LEN,
+};
+use crate::sequencer_validation::{
+    validate_account_public_key, validate_public_sender_account, validate_reserved_zero_addresses,
+    validate_tx_envelope,
+};
+use crate::state::State;
+use crate::tvm::TvmExecutionAdapter;
 use crate::types::{
     DepositEvent, L2Block, L2BlockHeader, L2TransactionKind, Receipt, SignedL2Transaction,
-    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -20,6 +28,9 @@ pub struct SequencerConfig {
     pub gas_coin_asset: u32,
     pub gas_schedule: GasSchedule,
     pub max_internal_messages: u32,
+    pub max_internal_queue_len: usize,
+    pub max_internal_messages_per_block: usize,
+    pub internal_message_gas_limit: u64,
     pub tvm_adapter_mode: TvmAdapterMode,
     pub tvm_tonlib_library_path: Option<PathBuf>,
 }
@@ -33,6 +44,9 @@ impl Default for SequencerConfig {
             gas_coin_asset: crate::types::L2_NATIVE_GAS_ASSET,
             gas_schedule: GasSchedule::default(),
             max_internal_messages: 1024,
+            max_internal_queue_len: DEFAULT_MAX_INTERNAL_QUEUE_LEN,
+            max_internal_messages_per_block: DEFAULT_MAX_INTERNAL_MESSAGES_PER_BLOCK,
+            internal_message_gas_limit: DEFAULT_INTERNAL_MESSAGE_GAS_LIMIT,
             tvm_adapter_mode: TvmAdapterMode::Real,
             tvm_tonlib_library_path: None,
         }
@@ -115,6 +129,7 @@ pub struct Sequencer {
     pub config: SequencerConfig,
     pub state: State,
     pub mempool: Mempool,
+    internal_queue: InternalMessageQueue,
     executor: DeterministicExecutor,
     committed_deposits: BTreeSet<Hash32>,
     last_header: Option<L2BlockHeader>,
@@ -122,10 +137,12 @@ pub struct Sequencer {
 
 impl Sequencer {
     pub fn new(config: SequencerConfig) -> Self {
+        let internal_queue = InternalMessageQueue::new(config.max_internal_queue_len);
         Self {
             config,
             state: State::default(),
             mempool: Mempool::default(),
+            internal_queue,
             executor: DeterministicExecutor,
             committed_deposits: BTreeSet::new(),
             last_header: None,
@@ -146,26 +163,77 @@ impl Sequencer {
     }
 
     pub fn produce_block(&mut self, timestamp: u64) -> Option<L2Block> {
-        if self.mempool.is_empty() {
+        match self.config.tvm_adapter_mode {
+            TvmAdapterMode::Real => {
+                let mut backend = crate::tvm::TonlibTvmBackend::default();
+                if let Some(path) = self.config.tvm_tonlib_library_path.as_ref() {
+                    backend = backend.with_library_path(path.clone());
+                }
+                let tvm_adapter = crate::tvm::RealTvmAdapter::new(backend);
+                self.produce_block_with_tvm_adapter(timestamp, &tvm_adapter)
+            }
+            TvmAdapterMode::Prototype => {
+                let tvm_adapter = crate::tvm::PrototypeTvmAdapter;
+                self.produce_block_with_tvm_adapter(timestamp, &tvm_adapter)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn produce_block_with_test_tvm_adapter<A: TvmExecutionAdapter + ?Sized>(
+        &mut self,
+        timestamp: u64,
+        tvm_adapter: &A,
+    ) -> Option<L2Block> {
+        self.produce_block_with_tvm_adapter(timestamp, tvm_adapter)
+    }
+
+    pub fn pending_internal_message_count(&self) -> usize {
+        self.internal_queue.len()
+    }
+
+    pub fn internal_queue_snapshot(&self) -> InternalMessageQueueSnapshot {
+        self.internal_queue.snapshot()
+    }
+
+    pub fn restore_internal_queue(
+        &mut self,
+        snapshot: InternalMessageQueueSnapshot,
+    ) -> Result<(), crate::InternalMessageQueueError> {
+        self.internal_queue =
+            InternalMessageQueue::from_snapshot(self.config.max_internal_queue_len, snapshot)?;
+        Ok(())
+    }
+
+    fn produce_block_with_tvm_adapter<A: TvmExecutionAdapter + ?Sized>(
+        &mut self,
+        timestamp: u64,
+        tvm_adapter: &A,
+    ) -> Option<L2Block> {
+        if self.mempool.is_empty() && self.internal_queue.is_empty() {
             return None;
         }
 
         let block_height = self.next_height();
         let prev_state_root = self.state.root_hash();
+        let ready_internal_at_block_start = self.internal_queue.len();
         let queued_txs = self.mempool.select_block(self.config.max_txs_per_block);
-        let mut receipts = Vec::with_capacity(queued_txs.len());
+        let mut transactions = Vec::with_capacity(self.config.max_txs_per_block);
+        let mut receipts = Vec::with_capacity(self.config.max_txs_per_block);
         let mut withdrawals = Vec::new();
         let mut block_gas_used = 0u64;
         let mut seen_tx_hashes = BTreeSet::new();
 
-        for queued in &queued_txs {
+        for queued in queued_txs {
             let tx_hash = queued.tx.tx_hash();
             if !seen_tx_hashes.insert(tx_hash) {
                 receipts.push(Receipt::rejected(tx_hash, "duplicate_tx"));
+                transactions.push(queued.tx);
                 continue;
             }
             if let Err(reason) = self.verify_tx(&queued.tx, queued.origin, block_height) {
                 receipts.push(Receipt::rejected(queued.tx.tx_hash(), reason));
+                transactions.push(queued.tx);
                 continue;
             }
 
@@ -175,6 +243,7 @@ impl Sequencer {
                     queued.tx.tx_hash(),
                     "block_gas_limit_exceeded",
                 ));
+                transactions.push(queued.tx);
                 continue;
             };
             if next_block_gas_used > self.config.block_gas_limit {
@@ -182,10 +251,12 @@ impl Sequencer {
                     queued.tx.tx_hash(),
                     "block_gas_limit_exceeded",
                 ));
+                transactions.push(queued.tx);
                 continue;
             }
 
-            let outcome = self.executor.apply(
+            let state_before = self.state.clone();
+            let outcome = self.executor.apply_with_tvm_adapter(
                 &mut self.state,
                 &queued.tx,
                 &ExecutionConfig {
@@ -198,22 +269,104 @@ impl Sequencer {
                     tvm_tonlib_library_path: self.config.tvm_tonlib_library_path.clone(),
                     ..ExecutionConfig::default()
                 },
+                tvm_adapter,
             );
             block_gas_used = next_block_gas_used;
-            receipts.push(outcome.receipt);
-            withdrawals.extend(outcome.withdrawals);
+            let receipt = match self
+                .internal_queue
+                .push_many(block_height, outcome.internal_messages)
+            {
+                Ok(()) => {
+                    withdrawals.extend(outcome.withdrawals);
+                    outcome.receipt
+                }
+                Err(error) => {
+                    self.state = state_before;
+                    Receipt::rejected(tx_hash, error.rejection_reason())
+                }
+            };
+            receipts.push(receipt);
+            transactions.push(queued.tx);
+        }
+
+        let remaining_tx_capacity = self
+            .config
+            .max_txs_per_block
+            .saturating_sub(transactions.len());
+        let internal_limit = remaining_tx_capacity
+            .min(self.config.max_internal_messages_per_block)
+            .min(ready_internal_at_block_start);
+        for _ in 0..internal_limit {
+            let required_gas = self.config.gas_schedule.call_contract_gas;
+            let Some(next_block_gas_used) = block_gas_used.checked_add(required_gas) else {
+                break;
+            };
+            if next_block_gas_used > self.config.block_gas_limit {
+                break;
+            }
+            let Some(message) = self.internal_queue.pop_front() else {
+                break;
+            };
+            let tx = SignedL2Transaction::system_internal_message(
+                &self.config.chain_id,
+                message.message_id,
+                message.message.from,
+                message.message.to,
+                message.message.value,
+                message.message.body_boc,
+                message.message.bounce,
+                message.message.bounced,
+                self.config.internal_message_gas_limit,
+            );
+            let tx_hash = tx.tx_hash();
+            if !seen_tx_hashes.insert(tx_hash) {
+                receipts.push(Receipt::rejected(tx_hash, "duplicate_tx"));
+                transactions.push(tx);
+                block_gas_used = next_block_gas_used;
+                continue;
+            }
+
+            let state_before = self.state.clone();
+            let outcome = self.executor.apply_with_tvm_adapter(
+                &mut self.state,
+                &tx,
+                &ExecutionConfig {
+                    block_time: timestamp,
+                    block_height,
+                    gas_coin_asset: self.config.gas_coin_asset,
+                    gas_schedule: self.config.gas_schedule,
+                    max_internal_messages: self.config.max_internal_messages,
+                    tvm_adapter_mode: self.config.tvm_adapter_mode.clone(),
+                    tvm_tonlib_library_path: self.config.tvm_tonlib_library_path.clone(),
+                    ..ExecutionConfig::default()
+                },
+                tvm_adapter,
+            );
+            block_gas_used = next_block_gas_used;
+            let receipt = match self
+                .internal_queue
+                .push_many(block_height, outcome.internal_messages)
+            {
+                Ok(()) => outcome.receipt,
+                Err(error) => {
+                    self.state = state_before;
+                    Receipt::rejected(tx_hash, error.rejection_reason())
+                }
+            };
+            receipts.push(receipt);
+            transactions.push(tx);
+        }
+
+        if transactions.is_empty() {
+            return None;
         }
 
         let state_root = self.state.root_hash();
-        let txs = queued_txs
-            .into_iter()
-            .map(|queued| queued.tx)
-            .collect::<Vec<_>>();
         let block = BatchBuilder::build(BatchBuildInput {
             previous_header: self.last_header.clone(),
             prev_state_root,
             state_root,
-            ordered_transactions: txs,
+            ordered_transactions: transactions,
             receipts,
             withdrawals,
             timestamp,
@@ -243,7 +396,7 @@ impl Sequencer {
 
         if origin == TransactionOrigin::System {
             if !tx.is_system() {
-                return Err("system_tx_must_be_deposit");
+                return Err("system_tx_required");
             }
             if tx.from.is_some() || tx.public_key.is_some() || tx.signature.is_some() {
                 return Err("invalid_system_tx_auth");
@@ -251,8 +404,11 @@ impl Sequencer {
             return validate_reserved_zero_addresses(tx, true);
         }
 
-        if tx.is_system() {
+        if matches!(tx.kind, L2TransactionKind::Deposit { .. }) {
             return Err("deposit_must_be_system");
+        }
+        if matches!(tx.kind, L2TransactionKind::InternalMessage { .. }) {
+            return Err("internal_message_must_be_system");
         }
         if tx.fee_asset_id != self.config.gas_coin_asset {
             return Err("unsupported_fee_asset");
@@ -279,84 +435,10 @@ impl Sequencer {
     }
 }
 
-pub(crate) fn validate_tx_envelope(
-    tx: &SignedL2Transaction,
-    block_height: u64,
-) -> Result<(), &'static str> {
-    if tx.tx_version != L2_TX_VERSION_V2 {
-        return Err("unsupported_tx_version");
-    }
-    if tx.domain_separator != L2_TX_DOMAIN_SEPARATOR {
-        return Err("invalid_domain_separator");
-    }
-    if tx.transaction_kind_version != L2_TRANSACTION_KIND_VERSION_V1 {
-        return Err("unsupported_transaction_kind_version");
-    }
-    if tx.valid_until_block < block_height {
-        return Err("tx_expired");
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_public_sender_account(account: &Account) -> Result<(), &'static str> {
-    if account.flags.disabled {
-        return Err("account_disabled");
-    }
-    if account.is_recovery_locked() {
-        return Err("account_recovery_locked");
-    }
-    if account.flags.system_only || matches!(account.account_type, AccountType::System) {
-        return Err("sender_system_only");
-    }
-    if account.flags.contract_only || matches!(account.account_type, AccountType::Contract) {
-        return Err("sender_contract_only");
-    }
-    if !account.can_send_public_transaction() {
-        return Err("sender_not_public");
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_account_public_key(
-    from: Hash32,
-    account: &Account,
-    public_key: &[u8; 32],
-) -> Result<(), &'static str> {
-    if let Some(active_public_key) = account.active_public_key {
-        if active_public_key.as_bytes() == public_key {
-            return Ok(());
-        }
-        return Err("public_key_sender_mismatch");
-    }
-    if derive_account_id(public_key) != from {
-        return Err("public_key_sender_mismatch");
-    }
-    Ok(())
-}
-
-fn validate_reserved_zero_addresses(
-    tx: &SignedL2Transaction,
-    allow_system_deposit: bool,
-) -> Result<(), &'static str> {
-    match tx.kind {
-        L2TransactionKind::Deposit { recipient, .. } if is_l2_zero_address(recipient) => {
-            Err("reserved_zero_address")
-        }
-        L2TransactionKind::Deposit { .. } if allow_system_deposit => Ok(()),
-        L2TransactionKind::Deposit { .. } => Err("deposit_must_be_system"),
-        L2TransactionKind::Transfer { to, .. } if is_l2_zero_address(to) => {
-            Err("reserved_zero_address")
-        }
-        L2TransactionKind::DeployContract { contract, .. }
-        | L2TransactionKind::CallContract { contract, .. }
-            if is_l2_zero_address(contract) =>
-        {
-            Err("reserved_zero_address")
-        }
-        _ => Ok(()),
-    }
-}
-
 #[cfg(test)]
 #[path = "sequencer_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sequencer_internal_tests.rs"]
+mod internal_tests;

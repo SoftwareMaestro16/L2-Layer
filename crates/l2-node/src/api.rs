@@ -7,7 +7,7 @@ use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
 use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
-use crate::storage::{DynStorage, StoredContractState};
+use crate::storage::{DynStorage, InternalQueueSnapshotRecord, StoredContractState};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -82,7 +82,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
+    pub async fn new(
         config: &NodeConfig,
         storage: DynStorage,
         mempool: MempoolService,
@@ -92,14 +92,21 @@ impl AppState {
             DataAvailabilityConfig::from_node_config(config),
         ));
         let ton_readiness = Arc::new(ToncenterReadinessClient::from_config(config)?);
+        let mut sequencer = Sequencer::new(SequencerConfig {
+            chain_id: config.chain_id.clone(),
+            gas_schedule: config.executor_gas_schedule,
+            max_internal_queue_len: config.internal_queue_max_len,
+            max_internal_messages_per_block: config.internal_queue_max_per_block,
+            internal_message_gas_limit: config.internal_message_gas_limit,
+            tvm_adapter_mode: config.tvm_adapter.clone(),
+            tvm_tonlib_library_path: config.tvm_tonlib_library_path.clone(),
+            ..SequencerConfig::default()
+        });
+        if let Some(snapshot) = storage.latest_internal_queue_snapshot().await? {
+            sequencer.restore_internal_queue(snapshot.queue)?;
+        }
         Ok(Self {
-            sequencer: Arc::new(RwLock::new(Sequencer::new(SequencerConfig {
-                chain_id: config.chain_id.clone(),
-                gas_schedule: config.executor_gas_schedule,
-                tvm_adapter_mode: config.tvm_adapter.clone(),
-                tvm_tonlib_library_path: config.tvm_tonlib_library_path.clone(),
-                ..SequencerConfig::default()
-            }))),
+            sequencer: Arc::new(RwLock::new(sequencer)),
             storage,
             da,
             mempool,
@@ -156,7 +163,7 @@ pub async fn serve(
     storage: DynStorage,
     mempool: MempoolService,
 ) -> anyhow::Result<()> {
-    let state = AppState::new(&config, storage, mempool)?;
+    let state = AppState::new(&config, storage, mempool).await?;
     spawn_block_producer(state.clone());
     spawn_deposit_indexer(&config, state.clone());
     spawn_batch_relayer(
@@ -551,6 +558,19 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
             }
             return Err(error);
         }
+        if let Err(error) = state
+            .storage
+            .save_internal_queue_snapshot(InternalQueueSnapshotRecord {
+                block_height: block.header.height,
+                queue: candidate.internal_queue_snapshot(),
+            })
+            .await
+        {
+            for tx in queued {
+                sequencer.submit_tx(tx);
+            }
+            return Err(error.into());
+        }
         state
             .metrics
             .record_storage_save_block_latency(storage_started.elapsed());
@@ -604,6 +624,7 @@ fn touched_contract_accounts(block: &L2Block) -> BTreeSet<Hash32> {
         .filter_map(|(transaction, _)| match &transaction.kind {
             L2TransactionKind::DeployContract { contract, .. }
             | L2TransactionKind::CallContract { contract, .. } => Some(*contract),
+            L2TransactionKind::InternalMessage { to, .. } => Some(*to),
             _ => None,
         })
         .collect()

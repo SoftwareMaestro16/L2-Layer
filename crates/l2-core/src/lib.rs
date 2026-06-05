@@ -6,8 +6,10 @@ pub mod crypto;
 pub mod enwallet;
 pub mod executor;
 pub mod gas;
+pub mod internal_queue;
 pub mod merkle;
 pub mod sequencer;
+mod sequencer_validation;
 pub mod state;
 pub mod tvm;
 pub mod types;
@@ -34,6 +36,11 @@ pub use gas::{
     GasError, GasFee, GasSchedule, DEFAULT_CALL_CONTRACT_GAS, DEFAULT_MIN_GAS_PRICE,
     DEFAULT_REJECTED_EXECUTION_GAS, DEFAULT_TRANSFER_GAS, DEFAULT_WITHDRAW_GAS,
     GAS_SCHEDULE_VERSION_V1,
+};
+pub use internal_queue::{
+    internal_message_id, InternalMessageQueue, InternalMessageQueueError,
+    InternalMessageQueueSnapshot, QueuedInternalMessage, DEFAULT_INTERNAL_MESSAGE_GAS_LIMIT,
+    DEFAULT_MAX_INTERNAL_MESSAGES_PER_BLOCK, DEFAULT_MAX_INTERNAL_QUEUE_LEN,
 };
 pub use merkle::{merkle_root, verify_merkle_proof, MerkleProof};
 pub use sequencer::{Mempool, Sequencer, SequencerConfig};

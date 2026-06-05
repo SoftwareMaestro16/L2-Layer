@@ -21,6 +21,7 @@ const KIND_WITHDRAW = 0x03;
 const KIND_CALL_CONTRACT = 0x04;
 const KIND_DEPLOY_CONTRACT = 0x05;
 const KIND_ROTATE_PUBLIC_KEY = 0x06;
+const KIND_INTERNAL_MESSAGE = 0x07;
 
 const STATUS_APPLIED = 0x01;
 const STATUS_REJECTED = 0x02;
@@ -274,11 +275,20 @@ function writeUnsignedTransactionBody(out: ConsensusWriter, tx: SignedL2Transact
     out.u8(KIND_CALL_CONTRACT);
     out.hash(tx.kind.CallContract.contract);
     out.string(tx.kind.CallContract.body_boc_base64);
-  } else {
+  } else if ("DeployContract" in tx.kind) {
     out.u8(KIND_DEPLOY_CONTRACT);
     out.hash(tx.kind.DeployContract.contract);
     out.string(tx.kind.DeployContract.code_boc_base64);
     out.string(tx.kind.DeployContract.data_boc_base64);
+  } else {
+    out.u8(KIND_INTERNAL_MESSAGE);
+    out.hash(tx.kind.InternalMessage.message_id);
+    out.hash(tx.kind.InternalMessage.from);
+    out.hash(tx.kind.InternalMessage.to);
+    out.u128(tx.kind.InternalMessage.value);
+    out.string(tx.kind.InternalMessage.body_boc_base64);
+    out.u8(tx.kind.InternalMessage.bounce ? 1 : 0);
+    out.u8(tx.kind.InternalMessage.bounced ? 1 : 0);
   }
 }
 

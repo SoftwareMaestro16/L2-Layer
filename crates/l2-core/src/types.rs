@@ -1,6 +1,8 @@
 use crate::consensus;
 use crate::crypto::Hash32;
 use crate::merkle::{merkle_root, MerkleProof};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 pub const L2_NATIVE_GAS_ASSET: u32 = 0;
@@ -40,6 +42,16 @@ pub enum L2TransactionKind {
     CallContract {
         contract: Hash32,
         body_boc_base64: String,
+    },
+    InternalMessage {
+        message_id: Hash32,
+        from: Hash32,
+        to: Hash32,
+        #[serde(with = "serde_u128_string")]
+        value: u128,
+        body_boc_base64: String,
+        bounce: bool,
+        bounced: bool,
     },
 }
 
@@ -122,6 +134,44 @@ impl SignedL2Transaction {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn system_internal_message(
+        chain_id: impl Into<String>,
+        message_id: Hash32,
+        from: Hash32,
+        to: Hash32,
+        value: u128,
+        body_boc: Vec<u8>,
+        bounce: bool,
+        bounced: bool,
+        gas_limit: u64,
+    ) -> Self {
+        Self {
+            tx_version: L2_TX_VERSION_V2,
+            domain_separator: L2_TX_DOMAIN_SEPARATOR.to_owned(),
+            chain_id: chain_id.into(),
+            from: None,
+            nonce: 0,
+            valid_until_block: u64::MAX,
+            gas_limit,
+            max_gas_price: 0,
+            fee_asset_id: L2_NATIVE_GAS_ASSET,
+            memo_hash: None,
+            transaction_kind_version: L2_TRANSACTION_KIND_VERSION_V1,
+            kind: L2TransactionKind::InternalMessage {
+                message_id,
+                from,
+                to,
+                value,
+                body_boc_base64: BASE64_STANDARD.encode(body_boc),
+                bounce,
+                bounced,
+            },
+            public_key: None,
+            signature: None,
+        }
+    }
+
     pub fn unsigned(&self) -> UnsignedL2Transaction {
         UnsignedL2Transaction {
             tx_version: self.tx_version,
@@ -148,7 +198,10 @@ impl SignedL2Transaction {
     }
 
     pub fn is_system(&self) -> bool {
-        matches!(self.kind, L2TransactionKind::Deposit { .. })
+        matches!(
+            self.kind,
+            L2TransactionKind::Deposit { .. } | L2TransactionKind::InternalMessage { .. }
+        )
     }
 }
 

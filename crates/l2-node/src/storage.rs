@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use l2_core::{
-    Account, DepositEvent, Hash32, L2Block, Receipt, SignedL2Transaction, WithdrawalProof,
+    Account, DepositEvent, Hash32, InternalMessageQueueSnapshot, L2Block, Receipt,
+    SignedL2Transaction, WithdrawalProof,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,6 +18,7 @@ mod postgres;
 mod postgres_contracts;
 mod postgres_da;
 mod postgres_finalization;
+mod postgres_internal_queue;
 mod postgres_observer;
 mod postgres_util;
 
@@ -132,6 +134,12 @@ pub struct StoredBatchPayload {
     pub payload_bytes: Vec<u8>,
     pub public_ref: Option<String>,
     pub public_uri: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InternalQueueSnapshotRecord {
+    pub block_height: u64,
+    pub queue: InternalMessageQueueSnapshot,
 }
 
 impl BatchCommitRecord {
@@ -263,6 +271,13 @@ pub trait Storage: Send + Sync {
         &self,
         account_id: Hash32,
     ) -> Result<Option<StoredContractState>, StorageError>;
+    async fn save_internal_queue_snapshot(
+        &self,
+        record: InternalQueueSnapshotRecord,
+    ) -> Result<(), StorageError>;
+    async fn latest_internal_queue_snapshot(
+        &self,
+    ) -> Result<Option<InternalQueueSnapshotRecord>, StorageError>;
     async fn save_observer_checkpoint(
         &self,
         checkpoint: ObserverCheckpoint,
@@ -286,6 +301,7 @@ pub struct InMemoryStorage {
     contract_code_cells: RwLock<BTreeMap<Hash32, StoredContractCodeCell>>,
     contract_data_cells: RwLock<BTreeMap<Hash32, StoredContractDataCell>>,
     contract_accounts: RwLock<BTreeMap<Hash32, (Account, u64)>>,
+    internal_queue_snapshots: RwLock<BTreeMap<u64, InternalQueueSnapshotRecord>>,
     observer_checkpoints: RwLock<BTreeMap<u64, ObserverCheckpoint>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
     deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
@@ -644,6 +660,29 @@ impl Storage for InMemoryStorage {
         }))
     }
 
+    async fn save_internal_queue_snapshot(
+        &self,
+        record: InternalQueueSnapshotRecord,
+    ) -> Result<(), StorageError> {
+        self.internal_queue_snapshots
+            .write()
+            .await
+            .insert(record.block_height, record);
+        Ok(())
+    }
+
+    async fn latest_internal_queue_snapshot(
+        &self,
+    ) -> Result<Option<InternalQueueSnapshotRecord>, StorageError> {
+        Ok(self
+            .internal_queue_snapshots
+            .read()
+            .await
+            .values()
+            .max_by_key(|record| record.block_height)
+            .cloned())
+    }
+
     async fn save_observer_checkpoint(
         &self,
         checkpoint: ObserverCheckpoint,
@@ -689,6 +728,9 @@ fn transaction_touches_account(transaction: &SignedL2Transaction, account_id: Ha
         l2_core::L2TransactionKind::Withdraw { .. } => false,
         l2_core::L2TransactionKind::DeployContract { contract, .. } => *contract == account_id,
         l2_core::L2TransactionKind::CallContract { contract, .. } => *contract == account_id,
+        l2_core::L2TransactionKind::InternalMessage { from, to, .. } => {
+            *from == account_id || *to == account_id
+        }
         l2_core::L2TransactionKind::RotatePublicKey { .. } => false,
     }
 }

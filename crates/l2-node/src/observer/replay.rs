@@ -254,11 +254,11 @@ fn verify_tx(
         return Err("wrong_chain_id");
     }
     validate_tx_envelope(tx, block_height)?;
-    if is_canonical_system_deposit(tx) {
+    if is_canonical_system_tx(tx) {
         return validate_reserved_zero_addresses(tx, true);
     }
     if tx.is_system() {
-        return Err("deposit_must_be_system");
+        return Err(system_tx_rejection_reason(tx));
     }
     if tx.fee_asset_id != config.gas_coin_asset {
         return Err("unsupported_fee_asset");
@@ -334,11 +334,20 @@ fn validate_account_public_key(
     Ok(())
 }
 
-fn is_canonical_system_deposit(tx: &SignedL2Transaction) -> bool {
-    matches!(tx.kind, L2TransactionKind::Deposit { .. })
-        && tx.from.is_none()
+fn is_canonical_system_tx(tx: &SignedL2Transaction) -> bool {
+    matches!(
+        tx.kind,
+        L2TransactionKind::Deposit { .. } | L2TransactionKind::InternalMessage { .. }
+    ) && tx.from.is_none()
         && tx.public_key.is_none()
         && tx.signature.is_none()
+}
+
+fn system_tx_rejection_reason(tx: &SignedL2Transaction) -> &'static str {
+    match tx.kind {
+        L2TransactionKind::InternalMessage { .. } => "internal_message_must_be_system",
+        _ => "deposit_must_be_system",
+    }
 }
 
 fn validate_reserved_zero_addresses(
@@ -360,6 +369,13 @@ fn validate_reserved_zero_addresses(
         {
             Err("reserved_zero_address")
         }
+        L2TransactionKind::InternalMessage { from, to, .. }
+            if is_l2_zero_address(from) || is_l2_zero_address(to) =>
+        {
+            Err("reserved_zero_address")
+        }
+        L2TransactionKind::InternalMessage { .. } if allow_system_deposit => Ok(()),
+        L2TransactionKind::InternalMessage { .. } => Err("internal_message_must_be_system"),
         _ => Ok(()),
     }
 }

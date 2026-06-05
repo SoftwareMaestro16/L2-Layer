@@ -239,12 +239,50 @@ TVM_GETTER_DEFAULT_GAS_LIMIT=100000
 TVM_GETTER_MAX_GAS_LIMIT=1000000
 TVM_GETTER_TIMEOUT_MS=500
 TVM_GETTER_MAX_STACK_BOC_BYTES=16384
+INTERNAL_QUEUE_MAX_LEN=4096
+INTERNAL_QUEUE_MAX_PER_BLOCK=128
+INTERNAL_MESSAGE_GAS_LIMIT=100000
 ```
 
 Malformed method names, malformed stack BoCs, oversized stack payloads, and gas
 limits above `TVM_GETTER_MAX_GAS_LIMIT` are rejected before TVM entry. The legacy
 `GET /v1/contract/{id}/get/{method}` route remains for simple no-argument local
 checks.
+
+## Internal message queue
+
+Contract calls can emit bounded async internal messages through the TVM adapter.
+The sequencer appends those messages to a FIFO runtime queue and encodes each
+delivered message as a system `InternalMessage` transaction in the next produced
+blocks. Public `POST /v1/tx` rejects `InternalMessage`; only sequencer-created
+system transactions may deliver queued contract-to-contract calls.
+
+Ordering is deterministic:
+
+- Public/system mempool transactions for the block are executed first.
+- Only messages already pending at block start are eligible for delivery in that
+  block.
+- Messages emitted during a block are appended to the tail and become eligible in
+  later blocks.
+- Delivery is bounded by remaining block tx capacity,
+  `INTERNAL_QUEUE_MAX_PER_BLOCK`, and the block gas limit.
+
+Queue capacity is bounded by `INTERNAL_QUEUE_MAX_LEN`. If a contract tries to emit
+more messages than the queue can hold, the originating transaction is rejected
+with `internal_queue_full` and its state changes are rolled back. Adapter output
+also remains capped by `max_internal_messages`, so a single contract cannot emit
+unbounded messages even before queue admission.
+
+Bounce handling follows the TON actor model at MVP level. A rejected bounceable
+message schedules one bounced return message with `bounced=true`, `bounce=false`,
+and a body beginning with opcode `0xffffffff`; bounced messages do not bounce
+again. Non-zero internal message `value` is currently unsupported and fails
+closed with `internal_value_not_supported`.
+
+The queue is consensus-visible through DA because delivered internal messages are
+part of the canonical batch transaction list. The node persists a queue snapshot
+after each saved block and restores the latest snapshot during startup, so pending
+deliveries survive a normal restart.
 
 ## L2 addresses
 

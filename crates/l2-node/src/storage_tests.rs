@@ -1,5 +1,8 @@
 use super::*;
-use l2_core::{crypto::sha256_bytes, sample_counter_initial_state, Account, L2Block};
+use l2_core::{
+    crypto::sha256_bytes, sample_counter_initial_state, Account, InternalMessageQueue, L2Block,
+    TvmInternalMessage,
+};
 
 fn deposit_event() -> DepositEvent {
     DepositEvent {
@@ -84,6 +87,39 @@ async fn memory_storage_batch_payload_is_idempotent_and_rejects_conflict() {
     assert_eq!(
         storage.get_batch_payload(1).await.unwrap(),
         Some(public_payload)
+    );
+}
+
+#[tokio::test]
+async fn memory_storage_keeps_latest_internal_queue_snapshot() {
+    let storage = InMemoryStorage::default();
+    let mut queue = InternalMessageQueue::new(4);
+    queue
+        .push_many(
+            1,
+            vec![TvmInternalMessage {
+                from: sha256_bytes(b"contract-a"),
+                to: sha256_bytes(b"contract-b"),
+                value: 0,
+                body_boc: vec![1, 2, 3],
+                bounce: true,
+                bounced: false,
+            }],
+        )
+        .expect("queue message");
+    let record = InternalQueueSnapshotRecord {
+        block_height: 7,
+        queue: queue.snapshot(),
+    };
+
+    storage
+        .save_internal_queue_snapshot(record.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        storage.latest_internal_queue_snapshot().await.unwrap(),
+        Some(record)
     );
 }
 

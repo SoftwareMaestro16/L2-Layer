@@ -140,7 +140,10 @@ impl MempoolService {
         if tx.chain_id != self.chain_id {
             return Err(MempoolError::WrongChainId);
         }
-        if matches!(tx.kind, L2TransactionKind::Deposit { .. }) {
+        if matches!(
+            tx.kind,
+            L2TransactionKind::Deposit { .. } | L2TransactionKind::InternalMessage { .. }
+        ) {
             return Err(MempoolError::SystemTxNotAllowed);
         }
         self.validate_envelope(&tx)?;

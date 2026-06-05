@@ -344,6 +344,28 @@ impl DeterministicExecutor {
                     internal_messages: vec![],
                 }
             }
+            L2TransactionKind::InternalMessage {
+                message_id,
+                from,
+                to,
+                value,
+                body_boc_base64,
+                bounce,
+                bounced,
+            } => tvm_call::execute_internal_message(
+                state,
+                tx_hash,
+                *message_id,
+                *from,
+                *to,
+                *value,
+                body_boc_base64,
+                *bounce,
+                *bounced,
+                tx.gas_limit,
+                config,
+                tvm_adapter,
+            ),
             L2TransactionKind::CallContract {
                 contract,
                 body_boc_base64,

@@ -97,6 +97,8 @@ fn convert_internal_message(
         to: required_l2_address(&info.dest, workchain)?,
         value: biguint_to_u128(&info.value.grams.amount)?,
         body_boc,
+        bounce: info.bounce,
+        bounced: info.bounced,
     })
 }
 

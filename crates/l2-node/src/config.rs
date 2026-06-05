@@ -284,6 +284,30 @@ impl NodeConfig {
             ),
             "TVM_GETTER_MAX_STACK_BOC_BYTES",
         )?;
+        let internal_queue_max_len = parse_usize(
+            &optional(
+                &mut lookup,
+                "INTERNAL_QUEUE_MAX_LEN",
+                &DEFAULT_INTERNAL_QUEUE_MAX_LEN.to_string(),
+            ),
+            "INTERNAL_QUEUE_MAX_LEN",
+        )?;
+        let internal_queue_max_per_block = parse_usize(
+            &optional(
+                &mut lookup,
+                "INTERNAL_QUEUE_MAX_PER_BLOCK",
+                &DEFAULT_INTERNAL_QUEUE_MAX_PER_BLOCK.to_string(),
+            ),
+            "INTERNAL_QUEUE_MAX_PER_BLOCK",
+        )?;
+        let internal_message_gas_limit = parse_u64(
+            &optional(
+                &mut lookup,
+                "INTERNAL_MESSAGE_GAS_LIMIT",
+                &DEFAULT_INTERNAL_MESSAGE_GAS_LIMIT.to_string(),
+            ),
+            "INTERNAL_MESSAGE_GAS_LIMIT",
+        )?;
         let mempool_replay_ttl_secs = parse_u64(
             &optional(
                 &mut lookup,
@@ -576,6 +600,9 @@ impl NodeConfig {
             tvm_getter_max_gas_limit,
             tvm_getter_timeout_ms,
             tvm_getter_max_stack_boc_bytes,
+            internal_queue_max_len,
+            internal_queue_max_per_block,
+            internal_message_gas_limit,
             mempool_replay_ttl_secs,
             mempool_nonce_lock_ttl_secs,
             mempool_leader_ttl_secs,

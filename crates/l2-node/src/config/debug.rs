@@ -108,6 +108,15 @@ impl fmt::Debug for NodeConfig {
                 "tvm_getter_max_stack_boc_bytes",
                 &self.tvm_getter_max_stack_boc_bytes,
             )
+            .field("internal_queue_max_len", &self.internal_queue_max_len)
+            .field(
+                "internal_queue_max_per_block",
+                &self.internal_queue_max_per_block,
+            )
+            .field(
+                "internal_message_gas_limit",
+                &self.internal_message_gas_limit,
+            )
             .field("mempool_replay_ttl_secs", &self.mempool_replay_ttl_secs)
             .field(
                 "mempool_nonce_lock_ttl_secs",

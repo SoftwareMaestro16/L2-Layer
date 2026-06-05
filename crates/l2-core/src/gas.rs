@@ -59,6 +59,7 @@ impl GasSchedule {
             L2TransactionKind::Withdraw { .. } => self.withdraw_gas,
             L2TransactionKind::DeployContract { .. } => self.call_contract_gas,
             L2TransactionKind::CallContract { .. } => self.call_contract_gas,
+            L2TransactionKind::InternalMessage { .. } => self.call_contract_gas,
         }
     }
 

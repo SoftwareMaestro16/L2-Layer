@@ -23,6 +23,7 @@ const KIND_WITHDRAW: u8 = 0x03;
 const KIND_CALL_CONTRACT: u8 = 0x04;
 const KIND_DEPLOY_CONTRACT: u8 = 0x05;
 const KIND_ROTATE_PUBLIC_KEY: u8 = 0x06;
+const KIND_INTERNAL_MESSAGE: u8 = 0x07;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
@@ -228,6 +229,24 @@ fn encode_transaction_kind(out: &mut Vec<u8>, kind: &L2TransactionKind) {
             write_hash(out, *contract);
             write_string(out, code_boc_base64);
             write_string(out, data_boc_base64);
+        }
+        L2TransactionKind::InternalMessage {
+            message_id,
+            from,
+            to,
+            value,
+            body_boc_base64,
+            bounce,
+            bounced,
+        } => {
+            out.push(KIND_INTERNAL_MESSAGE);
+            write_hash(out, *message_id);
+            write_hash(out, *from);
+            write_hash(out, *to);
+            write_u128(out, *value);
+            write_string(out, body_boc_base64);
+            out.push(u8::from(*bounce));
+            out.push(u8::from(*bounced));
         }
     }
 }

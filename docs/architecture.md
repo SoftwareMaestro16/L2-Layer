@@ -107,6 +107,27 @@ rejected before adapter entry, gas used must be in `1..=gas_limit`, internal
 messages are capped by `max_internal_messages`, internal message bodies are
 size-limited, and state deltas may only target the called contract.
 
+## Internal Message Queue
+
+TVM adapter output feeds a bounded async internal message queue. The queue is FIFO,
+uses deterministic `message_id = hash_domain("l2.internal.message.id.v1", ...)`,
+and delivers only messages that were pending at block start. Public and system
+mempool transactions execute first; queued internal messages are then delivered up
+to the remaining transaction capacity, `INTERNAL_QUEUE_MAX_PER_BLOCK`, and block
+gas limit. Messages emitted while delivering another message are appended to the
+tail and cannot recurse in the same block.
+
+Each delivered message is represented in DA as a system `InternalMessage`
+transaction with `from`, `to`, `body_boc_base64`, `bounce`, and `bounced` fields.
+Public API submission rejects this transaction kind, so users cannot forge
+contract-to-contract delivery through the mempool. Delivery failures for
+bounceable messages schedule one bounced return message using the TON-style
+`0xffffffff` bounced body prefix; bounced messages are never bounced again.
+Non-zero internal value transfer is intentionally fail-closed until balance-moving
+contract-to-contract sends are specified. `l2-node` persists the pending queue
+snapshot after every saved block and restores the latest snapshot during startup,
+so a normal restart does not drop scheduled internal deliveries.
+
 ## Contract State Storage
 
 `DeployContract` carries `code_boc_base64` and `data_boc_base64`. The executor

@@ -227,6 +227,24 @@ async fn malformed_or_system_tx_is_not_enqueued() {
         service.submit(system_tx).await.unwrap_err(),
         MempoolError::SystemTxNotAllowed
     ));
+    let internal_tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::InternalMessage {
+            message_id: sha256_bytes(b"message"),
+            from: sha256_bytes(b"contract-a"),
+            to: sha256_bytes(b"contract-b"),
+            value: 0,
+            body_boc_base64: "AA==".to_owned(),
+            bounce: true,
+            bounced: false,
+        },
+    );
+    assert!(matches!(
+        service.submit(internal_tx).await.unwrap_err(),
+        MempoolError::SystemTxNotAllowed
+    ));
 
     let mut missing_signature = signed_tx(
         &signing_key,

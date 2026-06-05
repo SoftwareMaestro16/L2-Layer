@@ -108,7 +108,7 @@ impl MempoolPayloadClass {
             L2TransactionKind::CallContract { .. } => Some(Self::CallContract),
             L2TransactionKind::DeployContract { .. } => Some(Self::DeployContract),
             L2TransactionKind::RotatePublicKey { .. } => Some(Self::RotatePublicKey),
-            L2TransactionKind::Deposit { .. } => None,
+            L2TransactionKind::Deposit { .. } | L2TransactionKind::InternalMessage { .. } => None,
         }
     }
 

@@ -153,7 +153,18 @@ export type L2TransactionKind =
         data_boc_base64: string;
       };
     }
-  | { CallContract: { contract: Hash32; body_boc_base64: string } };
+  | { CallContract: { contract: Hash32; body_boc_base64: string } }
+  | {
+      InternalMessage: {
+        message_id: Hash32;
+        from: Hash32;
+        to: Hash32;
+        value: string;
+        body_boc_base64: string;
+        bounce: boolean;
+        bounced: boolean;
+      };
+    };
 
 export interface SignedL2Transaction {
   tx_version: number;

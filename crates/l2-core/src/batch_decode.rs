@@ -15,6 +15,7 @@ const KIND_WITHDRAW: u8 = 0x03;
 const KIND_CALL_CONTRACT: u8 = 0x04;
 const KIND_DEPLOY_CONTRACT: u8 = 0x05;
 const KIND_ROTATE_PUBLIC_KEY: u8 = 0x06;
+const KIND_INTERNAL_MESSAGE: u8 = 0x07;
 
 const STATUS_APPLIED: u8 = 0x01;
 const STATUS_REJECTED: u8 = 0x02;
@@ -112,6 +113,15 @@ fn decode_transaction_kind(
             contract: reader.read_hash()?,
             code_boc_base64: reader.read_string()?,
             data_boc_base64: reader.read_string()?,
+        },
+        KIND_INTERNAL_MESSAGE => L2TransactionKind::InternalMessage {
+            message_id: reader.read_hash()?,
+            from: reader.read_hash()?,
+            to: reader.read_hash()?,
+            value: reader.read_u128()?,
+            body_boc_base64: reader.read_string()?,
+            bounce: reader.read_bool()?,
+            bounced: reader.read_bool()?,
         },
         _ => return Err(BatchDataDecodeError::InvalidTag),
     })
@@ -212,6 +222,14 @@ impl<'a> Reader<'a> {
             .read_exact(1)?
             .first()
             .expect("fixed slice length is 1"))
+    }
+
+    fn read_bool(&mut self) -> Result<bool, BatchDataDecodeError> {
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(BatchDataDecodeError::InvalidTag),
+        }
     }
 
     fn read_u32(&mut self) -> Result<u32, BatchDataDecodeError> {

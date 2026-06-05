@@ -1,3 +1,4 @@
+use crate::address::is_l2_zero_address;
 use crate::crypto::Hash32;
 use crate::state::Account;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -131,6 +132,8 @@ pub struct TvmInternalMessage {
     #[serde(with = "crate::types::serde_u128_string")]
     pub value: u128,
     pub body_boc: Vec<u8>,
+    pub bounce: bool,
+    pub bounced: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -243,6 +246,10 @@ pub enum TvmBoundaryError {
     TooManyInternalMessages,
     #[error("adapter emitted an oversized internal message body")]
     InternalMessageBocTooLarge,
+    #[error("adapter emitted an internal message from the wrong source")]
+    InternalMessageSourceMismatch,
+    #[error("adapter emitted an internal message with a reserved address")]
+    InternalMessageReservedAddress,
     #[error("adapter emitted an invalid receipt reason")]
     InvalidReceiptReason,
     #[error("adapter state delta targets another contract")]
@@ -268,6 +275,8 @@ impl TvmBoundaryError {
             Self::GasUsedExceedsLimit => "tvm_gas_used_exceeds_limit",
             Self::TooManyInternalMessages => "too_many_internal_messages",
             Self::InternalMessageBocTooLarge => "internal_message_boc_too_large",
+            Self::InternalMessageSourceMismatch => "internal_message_source_mismatch",
+            Self::InternalMessageReservedAddress => "reserved_zero_address",
             Self::InvalidReceiptReason => "invalid_tvm_receipt_reason",
             Self::StateDeltaContractMismatch => "tvm_state_delta_contract_mismatch",
             Self::StateDeltaCodeHashMismatch => "tvm_state_delta_code_hash_mismatch",
@@ -395,6 +404,20 @@ pub fn validate_tvm_output(
         .any(|message| message.body_boc.len() > max_message_boc_bytes)
     {
         return Err(TvmBoundaryError::InternalMessageBocTooLarge);
+    }
+    if output
+        .emitted_internal_messages
+        .iter()
+        .any(|message| message.from != contract)
+    {
+        return Err(TvmBoundaryError::InternalMessageSourceMismatch);
+    }
+    if output
+        .emitted_internal_messages
+        .iter()
+        .any(|message| is_l2_zero_address(message.from) || is_l2_zero_address(message.to))
+    {
+        return Err(TvmBoundaryError::InternalMessageReservedAddress);
     }
     if let Some(delta) = output.state_delta.as_ref() {
         if delta.contract != contract {

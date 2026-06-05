@@ -94,6 +94,18 @@ fn valid_entropis_testnet_config_loads() {
         config.tvm_getter_max_stack_boc_bytes,
         DEFAULT_TVM_GETTER_MAX_STACK_BOC_BYTES
     );
+    assert_eq!(
+        config.internal_queue_max_len,
+        DEFAULT_INTERNAL_QUEUE_MAX_LEN
+    );
+    assert_eq!(
+        config.internal_queue_max_per_block,
+        DEFAULT_INTERNAL_QUEUE_MAX_PER_BLOCK
+    );
+    assert_eq!(
+        config.internal_message_gas_limit,
+        DEFAULT_INTERNAL_MESSAGE_GAS_LIMIT
+    );
 }
 
 #[test]
@@ -328,6 +340,7 @@ fn config_validates_mempool_admission_limits() {
     );
     env.insert("MEMPOOL_MIN_GAS_LIMIT".to_owned(), "10".to_owned());
     env.insert("MEMPOOL_MAX_GAS_LIMIT".to_owned(), "1000".to_owned());
+    env.insert("INTERNAL_MESSAGE_GAS_LIMIT".to_owned(), "1000".to_owned());
     env.insert("MEMPOOL_MIN_GAS_PRICE".to_owned(), "2".to_owned());
     env.insert("MEMPOOL_MAX_TX_FEE".to_owned(), "10000".to_owned());
     env.insert("MEMPOOL_POP_BATCH_SIZE".to_owned(), "4".to_owned());
@@ -460,6 +473,36 @@ fn config_validates_tvm_getter_limits() {
 
     let mut env = valid_env();
     env.insert("TVM_GETTER_MAX_STACK_BOC_BYTES".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+}
+
+#[test]
+fn config_validates_internal_message_queue_limits() {
+    let mut env = valid_env();
+    env.insert("INTERNAL_QUEUE_MAX_LEN".to_owned(), "64".to_owned());
+    env.insert("INTERNAL_QUEUE_MAX_PER_BLOCK".to_owned(), "8".to_owned());
+    env.insert("INTERNAL_MESSAGE_GAS_LIMIT".to_owned(), "50000".to_owned());
+    let config = load_from(&env).expect("internal queue config");
+    assert_eq!(config.internal_queue_max_len, 64);
+    assert_eq!(config.internal_queue_max_per_block, 8);
+    assert_eq!(config.internal_message_gas_limit, 50_000);
+
+    let mut env = valid_env();
+    env.insert("INTERNAL_QUEUE_MAX_LEN".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("INTERNAL_QUEUE_MAX_LEN".to_owned(), "1".to_owned());
+    env.insert("INTERNAL_QUEUE_MAX_PER_BLOCK".to_owned(), "2".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("INTERNAL_MESSAGE_GAS_LIMIT".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("MEMPOOL_MAX_GAS_LIMIT".to_owned(), "100".to_owned());
+    env.insert("INTERNAL_MESSAGE_GAS_LIMIT".to_owned(), "101".to_owned());
     assert!(load_from(&env).is_err());
 }
 

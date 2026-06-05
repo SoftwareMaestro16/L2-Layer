@@ -5,11 +5,14 @@ use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
-    L1Cursor, ObserverCheckpoint, Storage, StorageError, StoredBatchPayload, StoredContractState,
-    StoredTransaction,
+    InternalQueueSnapshotRecord, L1Cursor, ObserverCheckpoint, Storage, StorageError,
+    StoredBatchPayload, StoredContractState, StoredTransaction,
 };
 use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
-use crate::storage::{postgres_contracts, postgres_da, postgres_finalization, postgres_observer};
+use crate::storage::{
+    postgres_contracts, postgres_da, postgres_finalization, postgres_internal_queue,
+    postgres_observer,
+};
 
 #[derive(Clone, Debug)]
 pub struct PostgresStorage {
@@ -208,6 +211,8 @@ impl Storage for PostgresStorage {
                 OR t.tx_json #>> '{kind,Transfer,to}' = $1
                 OR t.tx_json #>> '{kind,DeployContract,contract}' = $1
                 OR t.tx_json #>> '{kind,CallContract,contract}' = $1
+                OR t.tx_json #>> '{kind,InternalMessage,from}' = $1
+                OR t.tx_json #>> '{kind,InternalMessage,to}' = $1
             )
             AND (
                 $2::BIGINT IS NULL
@@ -525,6 +530,19 @@ impl Storage for PostgresStorage {
         account_id: Hash32,
     ) -> Result<Option<StoredContractState>, StorageError> {
         postgres_contracts::get_contract_state(&self.pool, account_id).await
+    }
+
+    async fn save_internal_queue_snapshot(
+        &self,
+        record: InternalQueueSnapshotRecord,
+    ) -> Result<(), StorageError> {
+        postgres_internal_queue::save_internal_queue_snapshot(&self.pool, record).await
+    }
+
+    async fn latest_internal_queue_snapshot(
+        &self,
+    ) -> Result<Option<InternalQueueSnapshotRecord>, StorageError> {
+        postgres_internal_queue::latest_internal_queue_snapshot(&self.pool).await
     }
 
     async fn save_observer_checkpoint(

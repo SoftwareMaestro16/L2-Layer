@@ -62,6 +62,8 @@ Transaction kind tags:
 0x03 Withdraw(asset_id:uint32, amount:uint128, l1_recipient:string)
 0x04 CallContract(contract:Hash32, body_boc_base64:string)
 0x05 DeployContract(contract:Hash32, code_boc_base64:string, data_boc_base64:string)
+0x06 RotatePublicKey(new_public_key:string)
+0x07 InternalMessage(message_id:Hash32, from:Hash32, to:Hash32, value:uint128, body_boc_base64:string, bounce:uint8, bounced:uint8)
 ```
 
 Receipt:
@@ -155,6 +157,7 @@ l2.block.header.v1
 l2.batch.data.v1
 l2.merkle.node.v1
 l2.account.ed25519.v1
+l2.internal.message.id.v1
 ```
 
 JSON remains valid for APIs and Postgres presentation storage, but it is not valid

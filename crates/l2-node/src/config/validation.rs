@@ -50,6 +50,7 @@ impl NodeConfig {
         self.validate_l1_finalizer()?;
         self.validate_da()?;
         self.validate_tvm_getters()?;
+        self.validate_internal_queue()?;
         self.validate_mempool()?;
         self.executor_gas_schedule
             .validate()
@@ -227,6 +228,26 @@ impl NodeConfig {
         {
             return Err(anyhow!(
                 "TVM_GETTER_MAX_STACK_BOC_BYTES must be between 1 and MEMPOOL_MAX_PAYLOAD_BYTES"
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_internal_queue(&self) -> anyhow::Result<()> {
+        if self.internal_queue_max_len == 0 || self.internal_queue_max_per_block == 0 {
+            return Err(anyhow!("internal queue limits must be non-zero"));
+        }
+        if self.internal_queue_max_per_block > self.internal_queue_max_len {
+            return Err(anyhow!(
+                "INTERNAL_QUEUE_MAX_PER_BLOCK must not exceed INTERNAL_QUEUE_MAX_LEN"
+            ));
+        }
+        if self.internal_message_gas_limit == 0 {
+            return Err(anyhow!("INTERNAL_MESSAGE_GAS_LIMIT must be non-zero"));
+        }
+        if self.internal_message_gas_limit > self.mempool_max_gas_limit {
+            return Err(anyhow!(
+                "INTERNAL_MESSAGE_GAS_LIMIT must not exceed MEMPOOL_MAX_GAS_LIMIT"
             ));
         }
         Ok(())

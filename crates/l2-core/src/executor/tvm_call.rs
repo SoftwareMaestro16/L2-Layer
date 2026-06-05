@@ -4,12 +4,13 @@ use super::{
 };
 use crate::address::is_l2_zero_address;
 use crate::crypto::Hash32;
-use crate::state::State;
+use crate::state::{AccountType, State};
 use crate::tvm::{
     decode_call_body_boc_base64, validate_tvm_output, TvmBoundaryError, TvmExecutionAdapter,
-    TvmExecutionContext, TvmExecutionInput, TvmExecutionStatus, TvmStateDelta,
+    TvmExecutionContext, TvmExecutionInput, TvmExecutionStatus, TvmInternalMessage, TvmStateDelta,
 };
 use crate::types::{Receipt, SignedL2Transaction};
+use tonlib_core::cell::{BagOfCells, CellBuilder};
 
 pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
     state: &mut State,
@@ -122,6 +123,134 @@ pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn execute_internal_message<A: TvmExecutionAdapter + ?Sized>(
+    state: &mut State,
+    tx_hash: Hash32,
+    message_id: Hash32,
+    from: Hash32,
+    to: Hash32,
+    value: u128,
+    body_boc_base64: &str,
+    bounce: bool,
+    bounced: bool,
+    gas_limit: u64,
+    config: &ExecutionConfig,
+    tvm_adapter: &A,
+) -> ExecutionOutcome {
+    if message_id == Hash32::ZERO || is_l2_zero_address(from) || is_l2_zero_address(to) {
+        return internal_rejected(tx_hash, None, "reserved_zero_address");
+    }
+    let body_boc = match decode_call_body_boc_base64(body_boc_base64, config.max_tvm_boc_bytes) {
+        Ok(body_boc) => body_boc,
+        Err(error) => {
+            return internal_rejected(
+                tx_hash,
+                bounce_message(from, to, Vec::new(), bounce, bounced),
+                error.rejection_reason(),
+            );
+        }
+    };
+    let original = TvmInternalMessage {
+        from,
+        to,
+        value,
+        body_boc: body_boc.clone(),
+        bounce,
+        bounced,
+    };
+    if value != 0 {
+        return internal_rejected(
+            tx_hash,
+            bounce_from_original(&original),
+            "internal_value_not_supported",
+        );
+    }
+    if !bounced {
+        let Some(sender_account) = state.account(from) else {
+            return internal_rejected(tx_hash, None, "internal_sender_unknown");
+        };
+        if !matches!(sender_account.account_type, AccountType::Contract) {
+            return internal_rejected(tx_hash, None, "internal_sender_not_contract");
+        }
+    }
+    let Some(contract_account) = state.account(to) else {
+        return internal_rejected(
+            tx_hash,
+            bounce_from_original(&original),
+            TvmBoundaryError::UnknownContract.rejection_reason(),
+        );
+    };
+    if contract_account.code_hash == Hash32::ZERO {
+        return internal_rejected(
+            tx_hash,
+            bounce_from_original(&original),
+            TvmBoundaryError::ContractCodeMissing.rejection_reason(),
+        );
+    }
+    if contract_account.code_boc_base64.is_none() || contract_account.data_boc_base64.is_none() {
+        return internal_rejected(
+            tx_hash,
+            bounce_from_original(&original),
+            TvmBoundaryError::ContractCodeMissing.rejection_reason(),
+        );
+    }
+
+    let input = TvmExecutionInput {
+        caller: from,
+        contract: to,
+        input_boc: body_boc,
+        gas_limit,
+        context: TvmExecutionContext {
+            block_time: config.block_time,
+            block_height: config.block_height,
+            gas_coin_asset: config.gas_coin_asset,
+            max_internal_messages: config.max_internal_messages,
+        },
+        contract_state: contract_account.into(),
+    };
+    let output = match tvm_adapter.execute(&input) {
+        Ok(output) => output,
+        Err(error) => {
+            return internal_rejected(
+                tx_hash,
+                bounce_from_original(&original),
+                error.rejection_reason(),
+            );
+        }
+    };
+
+    if let Err(error) = validate_tvm_output(
+        &output,
+        to,
+        gas_limit,
+        config.max_internal_messages,
+        config.max_tvm_boc_bytes,
+    ) {
+        return internal_rejected(
+            tx_hash,
+            bounce_from_original(&original),
+            error.rejection_reason(),
+        );
+    }
+
+    match output.status {
+        TvmExecutionStatus::Applied => {
+            if let Some(delta) = output.state_delta {
+                apply_tvm_state_delta(state, to, delta, config.block_height);
+            }
+            ExecutionOutcome {
+                receipt: Receipt::applied(tx_hash, 0, None),
+                withdrawals: vec![],
+                internal_messages: output.emitted_internal_messages,
+            }
+        }
+        TvmExecutionStatus::Rejected { reason } => {
+            internal_rejected(tx_hash, bounce_from_original(&original), reason)
+        }
+    }
+}
+
 fn validate_max_call_fee(
     state: &State,
     tx: &SignedL2Transaction,
@@ -203,4 +332,57 @@ fn apply_tvm_state_delta(
         account.storage_root = storage_root;
     }
     account.last_lt = block_height;
+}
+
+fn internal_rejected(
+    tx_hash: Hash32,
+    bounce: Option<TvmInternalMessage>,
+    reason: impl Into<String>,
+) -> ExecutionOutcome {
+    ExecutionOutcome {
+        receipt: Receipt::rejected(tx_hash, reason),
+        withdrawals: vec![],
+        internal_messages: bounce.into_iter().collect(),
+    }
+}
+
+fn bounce_from_original(original: &TvmInternalMessage) -> Option<TvmInternalMessage> {
+    bounce_message(
+        original.from,
+        original.to,
+        original.body_boc.clone(),
+        original.bounce,
+        original.bounced,
+    )
+}
+
+fn bounce_message(
+    from: Hash32,
+    to: Hash32,
+    _body_boc: Vec<u8>,
+    bounce: bool,
+    bounced: bool,
+) -> Option<TvmInternalMessage> {
+    if !bounce || bounced {
+        return None;
+    }
+    Some(TvmInternalMessage {
+        from: to,
+        to: from,
+        value: 0,
+        body_boc: default_bounce_body_boc(),
+        bounce: false,
+        bounced: true,
+    })
+}
+
+fn default_bounce_body_boc() -> Vec<u8> {
+    let mut builder = CellBuilder::new();
+    builder
+        .store_u32(32, 0xffff_ffff)
+        .expect("bounce opcode fits uint32");
+    let cell = builder.build().expect("bounce body cell");
+    BagOfCells::from_root(cell)
+        .serialize(false)
+        .expect("bounce body BoC must serialize")
 }
