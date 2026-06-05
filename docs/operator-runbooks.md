@@ -236,6 +236,95 @@ Actions:
 - Never paste a signed BoC, wallet seed, signer token, or provider API key into
   incident notes.
 
+## Incident Response Addendum
+
+These procedures cover L2 surfaces tracked in
+`docs/security-audit-l2-roadmap.md`.
+
+### Faucet Abuse Or Backend Failure
+
+Symptoms:
+
+- The faucet queue grows faster than the batch worker drains it.
+- Many claims come from the same GitHub user, address, IP, or session.
+- Batch grants fail against the node admin faucet endpoint.
+
+Actions:
+
+- Disable the public faucet route or stop the faucet backend before changing
+  node state manually.
+- Keep `L2_ADMIN_TOKEN` server-side only. If exposure is suspected, rotate it
+  and restart the node and faucet backend.
+- Restart the faucet backend to clear RAM queue/session/cooldown state when the
+  queue is poisoned. This is acceptable for faucet v1 because it is explicitly
+  non-durable.
+- Enable cooldown enforcement and reduce `FAUCET_MAX_BATCH_SIZE` while
+  investigating abuse.
+- Preserve safe batch ids, GitHub numeric ids, account ids, timestamps, and
+  static error codes. Do not store GitHub OAuth tokens or bearer tokens in
+  incident notes.
+
+### Wallet Seed Exposure Report
+
+Symptoms:
+
+- A user reports a leaked seed, browser compromise, or unexpected outgoing
+  transaction.
+- Wallet UI logs or screenshots appear to contain mnemonic or private key
+  material.
+
+Actions:
+
+- Do not ask the user to send a seed, mnemonic, private key, raw signed BoC, or
+  wallet export.
+- Treat the account as compromised and instruct the user to move remaining
+  testnet funds to a fresh account.
+- If an operator/admin wallet may be affected, rotate the operator wallet and
+  any related admin tokens before resuming demos.
+- Preserve only account ids, tx hashes, block heights, and safe static failure
+  reasons.
+- Do not call the wallet UI production-safe until encrypted IndexedDB/WebCrypto
+  storage, lock/unlock, backup confirmation, and transaction review are enabled.
+
+### TVM Emulator Failure Or Nondeterminism
+
+Symptoms:
+
+- Contract calls start returning static TVM adapter errors.
+- Replay produces different state roots for the same block and DA payload.
+- The configured TVM library is missing, changed, or fails to load.
+
+Actions:
+
+- Stop accepting new public contract deploy/call traffic until deterministic
+  replay passes again.
+- Preserve block height, tx hash, data hash, code hash, data hash, emulator
+  version, and configured library path.
+- Re-run observer replay from DA instead of trusting local sequencer storage.
+- If needed, switch unsafe public contract support off or back to the
+  fail-closed prototype adapter while transfers and bridge flows continue.
+- Do not change committed L2 state manually. Fix the adapter or config and
+  replay from canonical DA.
+
+### Staking Or Economics Anomaly
+
+Symptoms:
+
+- Fee distribution, reward, commission, or unbonding counters diverge from
+  expected deterministic accounting.
+- A staking endpoint returns unexpected balances or state transitions.
+
+Actions:
+
+- Keep staking and economics endpoints disabled until the deterministic Rust
+  module is implemented and covered by state-machine tests.
+- If a future staking feature is enabled, pause new staking actions at the API
+  or worker boundary while preserving read-only status endpoints.
+- Export relevant block heights, tx hashes, receipts, account ids, and static
+  reason codes.
+- Do not patch balances manually. Recompute the accounting diff from canonical
+  blocks and add a failing regression test before fixing the module.
+
 ## Log Safety
 
 Required rules:
