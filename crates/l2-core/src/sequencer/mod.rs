@@ -7,10 +7,6 @@ use crate::internal_queue::{
     InternalMessageQueue, InternalMessageQueueSnapshot, DEFAULT_INTERNAL_MESSAGE_GAS_LIMIT,
     DEFAULT_MAX_INTERNAL_MESSAGES_PER_BLOCK, DEFAULT_MAX_INTERNAL_QUEUE_LEN,
 };
-use crate::sequencer_validation::{
-    validate_account_public_key, validate_public_sender_account, validate_reserved_zero_addresses,
-    validate_tx_envelope,
-};
 use crate::state::State;
 use crate::tvm::TvmExecutionAdapter;
 use crate::types::{
@@ -19,6 +15,12 @@ use crate::types::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::PathBuf;
+use validation::{
+    validate_account_public_key, validate_public_sender_account, validate_reserved_zero_addresses,
+    validate_tx_envelope,
+};
+
+mod validation;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SequencerConfig {
@@ -436,9 +438,9 @@ impl Sequencer {
 }
 
 #[cfg(test)]
-#[path = "sequencer_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "sequencer_internal_tests.rs"]
+#[path = "internal_tests.rs"]
 mod internal_tests;

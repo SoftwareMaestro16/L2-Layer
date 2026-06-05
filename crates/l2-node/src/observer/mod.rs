@@ -211,5 +211,5 @@ pub enum ObserverError {
 }
 
 #[cfg(test)]
-#[path = "observer_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

@@ -388,5 +388,5 @@ fn signer_validation_reason(error: &SignerValidationError) -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "relayer_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

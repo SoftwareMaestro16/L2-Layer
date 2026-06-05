@@ -407,9 +407,9 @@ impl DeterministicExecutor {
 }
 
 #[cfg(test)]
-#[path = "../executor_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "../executor_tvm_tests.rs"]
+#[path = "tvm_tests.rs"]
 mod tvm_tests;

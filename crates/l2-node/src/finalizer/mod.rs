@@ -289,5 +289,5 @@ fn finalizer_signer_validation_reason(error: &SignerValidationError) -> &'static
 }
 
 #[cfg(test)]
-#[path = "finalizer_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

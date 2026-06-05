@@ -10,7 +10,6 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use tonlib_core::cell::BagOfCells;
 
-#[path = "indexer/parse.rs"]
 mod parse;
 
 #[cfg(test)]
@@ -414,5 +413,5 @@ pub enum IndexerError {
 }
 
 #[cfg(test)]
-#[path = "indexer_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

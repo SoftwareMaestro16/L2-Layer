@@ -9,7 +9,6 @@ pub mod gas;
 pub mod internal_queue;
 pub mod merkle;
 pub mod sequencer;
-mod sequencer_validation;
 pub mod state;
 pub mod tvm;
 pub mod types;

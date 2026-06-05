@@ -408,5 +408,5 @@ pub enum DaError {
 }
 
 #[cfg(test)]
-#[path = "da_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

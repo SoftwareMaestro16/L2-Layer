@@ -13,5 +13,5 @@ pub use service::{build_mempool, MempoolService};
 pub use types::{MempoolMetrics, MempoolStore, MempoolStoreStats};
 
 #[cfg(test)]
-#[path = "mempool_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

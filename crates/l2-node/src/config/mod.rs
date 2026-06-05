@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 mod debug;
 mod defaults;
-#[path = "config_helpers.rs"]
 mod helpers;
 mod types;
 mod validation;
@@ -646,5 +645,5 @@ fn parse_tvm_adapter(value: &str) -> anyhow::Result<l2_core::TvmAdapterMode> {
 }
 
 #[cfg(test)]
-#[path = "config_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

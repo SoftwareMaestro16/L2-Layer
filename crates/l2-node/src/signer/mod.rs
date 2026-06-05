@@ -19,5 +19,5 @@ pub use types::{
 };
 
 #[cfg(test)]
-#[path = "../signer_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

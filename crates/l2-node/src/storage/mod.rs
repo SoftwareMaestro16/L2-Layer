@@ -12,12 +12,19 @@ mod da_payload;
 mod faucet;
 mod observer;
 mod postgres;
+#[path = "postgres/contracts.rs"]
 mod postgres_contracts;
+#[path = "postgres/da.rs"]
 mod postgres_da;
+#[path = "postgres/faucet.rs"]
 mod postgres_faucet;
+#[path = "postgres/finalization.rs"]
 mod postgres_finalization;
+#[path = "postgres/internal_queue.rs"]
 mod postgres_internal_queue;
+#[path = "postgres/observer.rs"]
 mod postgres_observer;
+#[path = "postgres/util.rs"]
 mod postgres_util;
 mod query;
 mod types;
@@ -579,5 +586,5 @@ impl Storage for InMemoryStorage {
 }
 
 #[cfg(test)]
-#[path = "storage_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
