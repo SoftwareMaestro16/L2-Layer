@@ -15,6 +15,18 @@ The SDK accepts L2 accounts/contracts as:
   valid characters are `A-Z`, `a-z`, `0-9`, `-`, and `_`
 - legacy bare 64-hex account ids for local compatibility
 
+The reserved zero address is exported as `L2_ZERO_ACCOUNT_ID`,
+`L2_ZERO_RAW_ADDRESS`, and `L2_ZERO_FRIENDLY_ADDRESS`:
+
+```text
+8:0000000000000000000000000000000000000000000000000000000000000000
+EXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGdh
+```
+
+SDK builders reject it for deposits, faucet grants, transfers, withdrawals,
+deploys, and calls. Treat it only as a null sentinel, not as a wallet or burn
+address.
+
 ## Wallet Flow
 
 ```ts

@@ -4,7 +4,8 @@ use l2_core::crypto::{derive_account_id, sha256_bytes};
 use l2_core::{
     canonical_batch_data_hash, l2_raw_address, l2_user_friendly_address, L2TransactionKind,
     Receipt, SignedL2Transaction, WithdrawalLeaf, ENWALLET_V5R1_CODE_HASH, ENWALLET_V5R1_INTERFACE,
-    ENWALLET_V5R1_LABEL,
+    ENWALLET_V5R1_LABEL, L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL,
+    L2_ZERO_FRIENDLY_ADDRESS, L2_ZERO_RAW_ADDRESS,
 };
 
 const ADMIN_TOKEN: &str = "test-admin-token";
@@ -106,6 +107,25 @@ async fn explorer_account_marks_enwallet_v5_interface() {
     assert_eq!(account.interfaces.len(), 1);
     assert_eq!(account.interfaces[0].id, ENWALLET_V5R1_INTERFACE);
     assert_eq!(account.interfaces[0].label, ENWALLET_V5R1_LABEL);
+}
+
+#[tokio::test]
+async fn explorer_account_marks_zero_address_reserved() {
+    let state = test_state(Some(ADMIN_TOKEN));
+
+    let account = explorer_account(State(state), Path(L2_ZERO_FRIENDLY_ADDRESS.to_owned()))
+        .await
+        .expect("zero account")
+        .0;
+
+    assert_eq!(account.account_id, Hash32::ZERO);
+    assert_eq!(account.raw_address, L2_ZERO_RAW_ADDRESS);
+    assert_eq!(account.user_friendly_address, L2_ZERO_FRIENDLY_ADDRESS);
+    assert_eq!(account.status, "reserved");
+    assert_eq!(account.balances.len(), 0);
+    assert_eq!(account.interfaces.len(), 1);
+    assert_eq!(account.interfaces[0].id, L2_ZERO_ADDRESS_INTERFACE);
+    assert_eq!(account.interfaces[0].label, L2_ZERO_ADDRESS_LABEL);
 }
 
 #[tokio::test]

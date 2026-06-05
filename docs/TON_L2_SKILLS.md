@@ -138,6 +138,7 @@ TON_L2_SKILLS = {
     "Entropis testnet uses chain id entropis-testnet and ENT as the L2-native gas token symbol.",
     "ENT is L2-native first in the MVP: decimals=9, logo at assets/entropis.png, faucet-only testnet supply, no L1 Jetton minter/wallet until bridge/indexer hardening is stable.",
     "Entropis L2 public account/contract address formats are raw 8:<64 lowercase hex chars> and deterministic user-friendly EX... base64url with 48 chars total; after EX, valid characters are A-Z, a-z, 0-9, -, and _; legacy bare 64-hex remains accepted only for local compatibility.",
+    "The all-zero L2 account id is reserved as a null sentinel: raw 8:0000000000000000000000000000000000000000000000000000000000000000 and friendly EXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGdh. It is visible in explorer as reserved but deposits, faucet grants, transfers, withdrawals, deploys, and calls must reject it with reserved_zero_address.",
     "EnWallet seed flow is 24 words -> Ed25519 private/public key -> W5 init data cell -> L2 smart-contract account id from StateInit hash -> EX... address. Seed/private key must stay browser-local or wallet-local and never be sent to l2-node.",
     "Testnet node config must refuse TON mainnet endpoints; Toncenter v3 testnet is https://testnet.toncenter.com/api/v3.",
     "Toncenter API keys are sent through X-API-Key; TonAPI keys use Authorization: Bearer <token> against https://testnet.tonapi.io.",

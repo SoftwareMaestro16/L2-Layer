@@ -1,5 +1,5 @@
 import { Address, beginCell, Cell } from "@ton/core";
-import { parseL2Address } from "./address.js";
+import { isL2ZeroAddress, parseL2Address } from "./address.js";
 
 export const JETTON_TRANSFER_OPCODE = 0x0f8a7ea5;
 
@@ -53,7 +53,11 @@ export function depositJettonTonConnectMessage(
 }
 
 function l2RecipientPayload(l2Recipient: string): Cell {
-  return beginCell().storeUint(BigInt(`0x${parseL2Address(l2Recipient)}`), 256).endCell();
+  const recipient = parseL2Address(l2Recipient);
+  if (isL2ZeroAddress(recipient)) {
+    throw new Error("l2Recipient cannot be the reserved zero address");
+  }
+  return beginCell().storeUint(BigInt(`0x${recipient}`), 256).endCell();
 }
 
 function parseTonAddress(value: string): Address {

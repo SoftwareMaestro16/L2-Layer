@@ -1,3 +1,4 @@
+use crate::address::is_l2_zero_address;
 use crate::crypto::Hash32;
 use crate::gas::{GasFee, GasSchedule};
 use crate::state::State;
@@ -80,6 +81,9 @@ impl DeterministicExecutor {
                 amount,
                 ..
             } => {
+                if is_l2_zero_address(*recipient) {
+                    return rejected(tx_hash, "reserved_zero_address");
+                }
                 let account = state.account_mut(*recipient);
                 if !account.credit(*asset_id, *amount) {
                     return rejected(tx_hash, "balance_overflow");
@@ -108,6 +112,9 @@ impl DeterministicExecutor {
                 };
                 if !can_increment_nonce(state, from) {
                     return rejected(tx_hash, "nonce_overflow");
+                }
+                if is_l2_zero_address(*to) {
+                    return rejected_attempt(state, tx, from, config, "reserved_zero_address");
                 }
                 let recipient_can_credit = state
                     .account(*to)
@@ -211,8 +218,8 @@ impl DeterministicExecutor {
                 if !can_increment_nonce(state, from) {
                     return rejected(tx_hash, "nonce_overflow");
                 }
-                if *contract == Hash32::ZERO {
-                    return rejected_attempt(state, tx, from, config, "invalid_contract_state");
+                if is_l2_zero_address(*contract) {
+                    return rejected_attempt(state, tx, from, config, "reserved_zero_address");
                 }
                 let code_cell = match decode_contract_cell_boc_base64(
                     code_boc_base64,
@@ -334,6 +341,9 @@ fn execution_fee(
 
 fn authenticated_sender(state: &State, tx: &SignedL2Transaction) -> Result<Hash32, &'static str> {
     let from = tx.from.ok_or("missing_sender")?;
+    if is_l2_zero_address(from) {
+        return Err("reserved_zero_address");
+    }
     if state.account(from).is_none() {
         return Err("unknown_sender");
     }

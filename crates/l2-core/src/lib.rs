@@ -14,8 +14,9 @@ pub mod types;
 pub mod withdrawal;
 
 pub use address::{
-    l2_raw_address, l2_user_friendly_address, parse_l2_address, L2AddressError,
-    L2_RAW_ADDRESS_PREFIX, L2_USER_FRIENDLY_LEN,
+    is_l2_zero_address, l2_raw_address, l2_user_friendly_address, parse_l2_address, L2AddressError,
+    L2_RAW_ADDRESS_PREFIX, L2_USER_FRIENDLY_LEN, L2_ZERO_ACCOUNT_ID, L2_ZERO_ADDRESS_INTERFACE,
+    L2_ZERO_ADDRESS_LABEL, L2_ZERO_FRIENDLY_ADDRESS, L2_ZERO_RAW_ADDRESS,
 };
 pub use batch::{
     canonical_batch_data_bytes, canonical_batch_data_hash, BatchBuildError, BatchBuildInput,

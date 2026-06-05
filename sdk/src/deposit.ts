@@ -1,5 +1,5 @@
 import { Address, beginCell } from "@ton/core";
-import { parseL2Address, type Hash32 } from "./address.js";
+import { isL2ZeroAddress, parseL2Address, type Hash32 } from "./address.js";
 
 type UIntLike = bigint | number | string;
 
@@ -17,7 +17,8 @@ export interface TonConnectMessage {
 }
 
 export function tonDepositForwardPayload(l2Recipient: Hash32) {
-  const recipient = BigInt(`0x${parseL2Address(l2Recipient)}`);
+  const recipientAddress = requireNonZeroL2Address(l2Recipient, "l2Recipient");
+  const recipient = BigInt(`0x${recipientAddress}`);
   return beginCell().storeUint(recipient, 256).endCell();
 }
 
@@ -26,11 +27,12 @@ export function jettonDepositForwardPayload(l2Recipient: Hash32) {
 }
 
 export function encodeDepositTonBody(queryId: UIntLike, amount: UIntLike, l2Recipient: Hash32) {
+  const recipientAddress = requireNonZeroL2Address(l2Recipient, "l2Recipient");
   return beginCell()
     .storeUint(0x4c324405, 32)
     .storeUint(toUint(queryId, "queryId", 64), 64)
     .storeCoins(toPositiveUint(amount, "amount", 120))
-    .storeUint(BigInt(`0x${parseL2Address(l2Recipient)}`), 256)
+    .storeUint(BigInt(`0x${recipientAddress}`), 256)
     .endCell();
 }
 
@@ -51,6 +53,14 @@ function parseTonAddress(value: string): Address {
   } catch (error) {
     throw new Error(`invalid TON address: ${value}`, { cause: error });
   }
+}
+
+function requireNonZeroL2Address(value: string, field: string): Hash32 {
+  const parsed = parseL2Address(value);
+  if (isL2ZeroAddress(parsed)) {
+    throw new Error(`${field} cannot be the reserved zero address`);
+  }
+  return parsed;
 }
 
 function toUint(value: UIntLike, field: string, bits: number): bigint {

@@ -1,4 +1,5 @@
 use base64::prelude::{Engine as _, BASE64_STANDARD};
+use l2_core::address::is_l2_zero_address;
 use l2_core::crypto::{decode_fixed, derive_account_id, verify_signature, Hash32};
 use l2_core::{L2TransactionKind, SignedL2Transaction};
 use std::sync::Arc;
@@ -140,6 +141,9 @@ impl MempoolService {
         self.validate_admission_policy(&tx)?;
 
         let from = tx.from.ok_or(MempoolError::MissingSender)?;
+        if is_l2_zero_address(from) {
+            return Err(MempoolError::ReservedZeroAddress);
+        }
         let public_key_hex = tx
             .public_key
             .as_deref()
@@ -193,9 +197,16 @@ impl MempoolService {
             });
         }
         match &tx.kind {
+            L2TransactionKind::Transfer { to, .. } if is_l2_zero_address(*to) => {
+                return Err(MempoolError::ReservedZeroAddress);
+            }
             L2TransactionKind::CallContract {
-                body_boc_base64, ..
+                contract,
+                body_boc_base64,
             } => {
+                if is_l2_zero_address(*contract) {
+                    return Err(MempoolError::ReservedZeroAddress);
+                }
                 if body_boc_base64.len() > self.config.max_call_body_boc_base64_bytes {
                     return Err(MempoolError::CallBodyTooLarge {
                         bytes: body_boc_base64.len(),
@@ -207,10 +218,13 @@ impl MempoolService {
                     .map_err(|_| MempoolError::BadCallBodyBase64)?;
             }
             L2TransactionKind::DeployContract {
+                contract,
                 code_boc_base64,
                 data_boc_base64,
-                ..
             } => {
+                if is_l2_zero_address(*contract) {
+                    return Err(MempoolError::ReservedZeroAddress);
+                }
                 self.validate_deploy_boc("code_boc_base64", code_boc_base64)?;
                 self.validate_deploy_boc("data_boc_base64", data_boc_base64)?;
             }

@@ -194,6 +194,7 @@ async fn admin_deposit_rejects_invalid_payload() {
         .unwrap_err();
 
     assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert_eq!(error.message, "reserved zero address");
 }
 
 #[tokio::test]
@@ -524,6 +525,24 @@ async fn admin_ent_faucet_rejects_invalid_account() {
     .unwrap_err();
 
     assert_eq!(error.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn admin_ent_faucet_rejects_reserved_zero_address() {
+    let state = test_state(Some(ADMIN_TOKEN));
+
+    let error = admin_ent_faucet(
+        State(state),
+        auth_headers(ADMIN_TOKEN),
+        Json(EntFaucetRequest {
+            account_id: l2_raw_address(Hash32::ZERO),
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert_eq!(error.message, "reserved zero address");
 }
 
 #[tokio::test]

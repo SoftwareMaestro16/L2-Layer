@@ -1,6 +1,6 @@
 import { beginCell, Cell } from "@ton/core";
 import nacl from "tweetnacl";
-import { normalizeHash32, parseL2Address } from "./address.js";
+import { isL2ZeroAddress, normalizeHash32, parseL2Address } from "./address.js";
 import { signingPayload } from "./consensus.js";
 
 export type Hash32 = string;
@@ -85,10 +85,11 @@ export function buildDeployContractTransaction(
   params: DeployContractTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
   const contract = parseL2Address(params.contract);
+  const from = requireNonZeroL2Address(params.from, "from");
   const codeBocBase64 = normalizeSingleRootBocBase64(params.codeBocBase64, "codeBocBase64");
   const dataBocBase64 = normalizeSingleRootBocBase64(params.dataBocBase64, "dataBocBase64");
-  if (contract === zeroHash32()) {
-    throw new Error("contract must be non-zero");
+  if (isL2ZeroAddress(contract)) {
+    throw new Error("contract cannot be the reserved zero address");
   }
   if (contractCellHash(codeBocBase64) === zeroHash32()) {
     throw new Error("codeBocBase64 hash must be non-zero");
@@ -98,7 +99,7 @@ export function buildDeployContractTransaction(
   }
   return {
     chain_id: params.chainId,
-    from: parseL2Address(params.from),
+    from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
@@ -121,16 +122,18 @@ export function signDeployContractTransaction(
 export function buildCallContractTransaction(
   params: CallContractTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  const contract = requireNonZeroL2Address(params.contract, "contract");
+  const from = requireNonZeroL2Address(params.from, "from");
   normalizeSingleRootBocBase64(params.bodyBocBase64, "bodyBocBase64");
   return {
     chain_id: params.chainId,
-    from: parseL2Address(params.from),
+    from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
     kind: {
       CallContract: {
-        contract: parseL2Address(params.contract),
+        contract,
         body_boc_base64: params.bodyBocBase64,
       },
     },
@@ -278,6 +281,14 @@ function toDecimalString(value: bigint): string {
 
 function zeroHash32(): Hash32 {
   return "0".repeat(64);
+}
+
+function requireNonZeroL2Address(value: string, field: string): Hash32 {
+  const parsed = parseL2Address(value);
+  if (isL2ZeroAddress(parsed)) {
+    throw new Error(`${field} cannot be the reserved zero address`);
+  }
+  return parsed;
 }
 
 function normalizeSingleRootBocBase64(value: string, field: string): string {

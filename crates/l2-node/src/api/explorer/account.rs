@@ -4,10 +4,10 @@ use crate::storage::StoredTransaction;
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use l2_core::{
-    decode_contract_cell_boc_base64, interface_for_code_hash, l2_raw_address,
+    decode_contract_cell_boc_base64, interface_for_code_hash, is_l2_zero_address, l2_raw_address,
     l2_user_friendly_address, parse_l2_address, Hash32, L2TransactionKind, Receipt, ReceiptStatus,
     SignedL2Transaction, DEFAULT_MAX_TVM_BOC_BYTES, ENWALLET_V5R1_CODE_HASH,
-    ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL,
+    ENWALLET_V5R1_INTERFACE, ENWALLET_V5R1_LABEL, L2_ZERO_ADDRESS_INTERFACE, L2_ZERO_ADDRESS_LABEL,
 };
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +110,25 @@ pub(in crate::api) async fn explorer_account(
     Path(id): Path<String>,
 ) -> Result<Json<ExplorerAccount>, ApiError> {
     let id = parse_l2_address(&id).map_err(|_| ApiError::bad_request("invalid account id"))?;
+    if is_l2_zero_address(id) {
+        return Ok(Json(ExplorerAccount {
+            account_id: id,
+            raw_address: l2_raw_address(id),
+            user_friendly_address: l2_user_friendly_address(id),
+            status: "reserved",
+            nonce: 0,
+            balances: vec![],
+            code_hash: Hash32::ZERO,
+            data_hash: Hash32::ZERO,
+            storage_root: Hash32::ZERO,
+            interfaces: vec![ExplorerInterface {
+                id: L2_ZERO_ADDRESS_INTERFACE,
+                label: L2_ZERO_ADDRESS_LABEL,
+            }],
+            last_lt: 0,
+        }));
+    }
+
     let sequencer = state.sequencer.read().await;
     let account = sequencer
         .state

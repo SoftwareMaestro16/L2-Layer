@@ -18,6 +18,8 @@ pub enum MempoolError {
     InvalidPublicKey,
     #[error("public key does not match sender")]
     PublicKeySenderMismatch,
+    #[error("reserved zero address cannot be used as an L2 endpoint")]
+    ReservedZeroAddress,
     #[error("bad signature")]
     BadSignature,
     #[error("payload is {bytes} bytes, max is {max} bytes")]
@@ -79,6 +81,7 @@ impl MempoolError {
             Self::MissingSignature => "missing_signature",
             Self::InvalidPublicKey => "invalid_public_key",
             Self::PublicKeySenderMismatch => "public_key_sender_mismatch",
+            Self::ReservedZeroAddress => "reserved_zero_address",
             Self::BadSignature => "bad_signature",
             Self::PayloadTooLarge { .. } => "payload_too_large",
             Self::CallBodyTooLarge { .. } => "call_body_too_large",

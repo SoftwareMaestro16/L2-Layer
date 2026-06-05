@@ -104,6 +104,65 @@ fn duplicate_deposit_is_idempotent() {
 }
 
 #[test]
+fn reserved_zero_address_deposit_is_rejected_by_sequencer() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"zero-deposit"),
+        asset_id: 0,
+        recipient: Hash32::ZERO,
+        amount: 10,
+        l1_tx_hash: sha256_bytes(b"l1-tx"),
+        l1_lt: 1,
+    }]);
+
+    let block = sequencer.produce_block(1).expect("block");
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+    assert_eq!(
+        block.receipts[0].reason.as_deref(),
+        Some("reserved_zero_address")
+    );
+    assert!(sequencer.state.account(Hash32::ZERO).is_none());
+}
+
+#[test]
+fn reserved_zero_address_transfer_is_rejected_by_sequencer_before_execution() {
+    let mut sequencer = Sequencer::new(SequencerConfig::default());
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+
+    sequencer.ingest_deposits(vec![DepositEvent {
+        deposit_id: sha256_bytes(b"deposit-1"),
+        asset_id: 0,
+        recipient: account_id,
+        amount: 1_000,
+        l1_tx_hash: sha256_bytes(b"l1"),
+        l1_lt: 1,
+    }]);
+    sequencer.produce_block(1).expect("deposit block");
+
+    sequencer.submit_tx(signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: Hash32::ZERO,
+            asset_id: 0,
+            amount: 1,
+        },
+    ));
+
+    let block = sequencer.produce_block(2).expect("user block");
+    assert_eq!(block.receipts[0].status, ReceiptStatus::Rejected);
+    assert_eq!(
+        block.receipts[0].reason.as_deref(),
+        Some("reserved_zero_address")
+    );
+    assert_eq!(sequencer.state.account(account_id).unwrap().nonce, 0);
+    assert!(sequencer.state.account(Hash32::ZERO).is_none());
+}
+
+#[test]
 fn wrong_nonce_is_rejected() {
     let mut sequencer = Sequencer::new(SequencerConfig::default());
     let signing_key = SigningKey::generate(&mut OsRng);

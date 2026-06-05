@@ -25,7 +25,11 @@ import {
   JETTON_TRANSFER_OPCODE,
   l2RawAddress,
   l2UserFriendlyAddress,
+  isL2ZeroAddress,
   L2_NATIVE_GAS_ASSET,
+  L2_ZERO_ACCOUNT_ID,
+  L2_ZERO_FRIENDLY_ADDRESS,
+  L2_ZERO_RAW_ADDRESS,
   parseL2Address,
   receiptLeafHash,
   releaseAuthorizedCell,
@@ -154,6 +158,71 @@ test("L2 address helpers format raw and user-friendly addresses", () => {
   assert.equal(parseL2Address(friendly), accountId);
   assert.equal(parseL2Address(accountId), accountId);
   assert.throws(() => parseL2Address(`${friendly.slice(0, 47)}A`), /checksum|invalid/i);
+});
+
+test("L2 zero address is stable and reserved by helpers", async () => {
+  assert.equal(L2_ZERO_ACCOUNT_ID, "0".repeat(64));
+  assert.equal(L2_ZERO_RAW_ADDRESS, `8:${"0".repeat(64)}`);
+  assert.equal(L2_ZERO_FRIENDLY_ADDRESS, "EXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGdh");
+  assert.equal(l2RawAddress(L2_ZERO_ACCOUNT_ID), L2_ZERO_RAW_ADDRESS);
+  assert.equal(l2UserFriendlyAddress(L2_ZERO_ACCOUNT_ID), L2_ZERO_FRIENDLY_ADDRESS);
+  assert.equal(parseL2Address(L2_ZERO_RAW_ADDRESS), L2_ZERO_ACCOUNT_ID);
+  assert.equal(parseL2Address(L2_ZERO_FRIENDLY_ADDRESS), L2_ZERO_ACCOUNT_ID);
+  assert.equal(isL2ZeroAddress(L2_ZERO_FRIENDLY_ADDRESS), true);
+
+  assert.throws(() => tonDepositForwardPayload(L2_ZERO_ACCOUNT_ID), /reserved zero address/);
+  assert.throws(
+    () =>
+      depositTonTonConnectMessage({
+        vaultAddress: TON_RECIPIENT,
+        queryId: 7,
+        amount: "100000000",
+        l2Recipient: L2_ZERO_FRIENDLY_ADDRESS,
+      }),
+    /reserved zero address/,
+  );
+  assert.throws(
+    () =>
+      buildTransferTransaction({
+        chainId: "entropis-testnet",
+        from: hash(0xaa),
+        nonce: 0,
+        to: L2_ZERO_RAW_ADDRESS,
+        assetId: 0,
+        amount: "1",
+        gasLimit: 10,
+        maxGasPrice: 1,
+      }),
+    /reserved zero address/,
+  );
+  assert.throws(
+    () =>
+      buildWithdrawTransaction({
+        chainId: "entropis-testnet",
+        from: L2_ZERO_RAW_ADDRESS,
+        nonce: 0,
+        assetId: 0,
+        amount: "1",
+        l1Recipient: TON_RECIPIENT,
+        gasLimit: 20,
+        maxGasPrice: 1,
+      }),
+    /reserved zero address/,
+  );
+
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error("zero faucet request must fail before fetch");
+  }) as typeof fetch;
+  try {
+    const client = new EntropisClient("http://127.0.0.1:8080", { adminToken: "operator" });
+    await assert.rejects(
+      client.requestEntFaucet(L2_ZERO_FRIENDLY_ADDRESS),
+      /reserved zero address/,
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test("L2 user-friendly addresses can use the full base64url alphabet after EX", () => {
@@ -287,6 +356,20 @@ test("Jetton deposit transfer helper rejects unsafe amounts and recipients", () 
         l2Recipient: hash(0x77),
       }),
     /address/i,
+  );
+  assert.throws(
+    () =>
+      encodeJettonDepositTransferBody({
+        jettonWalletAddress: TON_RECIPIENT,
+        vaultAddress: TON_RECIPIENT,
+        responseAddress: TON_RECIPIENT,
+        queryId: 8,
+        jettonAmount: "123456",
+        forwardTonAmount: "1",
+        tonAmount: "100000000",
+        l2Recipient: L2_ZERO_ACCOUNT_ID,
+      }),
+    /reserved zero address/,
   );
 });
 

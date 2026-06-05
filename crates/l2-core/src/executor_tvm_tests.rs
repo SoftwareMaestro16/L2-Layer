@@ -162,6 +162,29 @@ fn call_contract_rejects_malformed_boc_before_adapter() {
 }
 
 #[test]
+fn call_contract_rejects_reserved_zero_contract() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 100));
+
+    let outcome = executor.apply(
+        &mut state,
+        &call_tx(sender, Hash32::ZERO, valid_boc_base64()),
+        &ExecutionConfig::default(),
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        outcome.receipt.reason.as_deref(),
+        Some("reserved_zero_address")
+    );
+    assert_eq!(outcome.receipt.gas_charged, 2);
+    assert_eq!(state.account(sender).unwrap().nonce, 1);
+    assert!(state.account(Hash32::ZERO).is_none());
+}
+
+#[test]
 fn call_contract_rejects_oversized_encoded_boc_before_decode() {
     let executor = DeterministicExecutor;
     let mut state = State::default();

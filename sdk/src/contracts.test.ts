@@ -22,6 +22,7 @@ import {
   ENWALLET_V5R1_INTERFACE,
   ENWALLET_V5R1_LABEL,
   ENWALLET_V5R1_TESTNET_WALLET_ID,
+  L2_ZERO_ACCOUNT_ID,
 } from "./index.js";
 
 function hash(byte: number): string {
@@ -87,6 +88,34 @@ test("deploy and call contract helpers encode canonical L2 transactions", () => 
 
   assert.deepEqual(call.kind, unsignedCall.kind);
   assert.notEqual(txHash(deploy), txHash(call));
+
+  assert.throws(
+    () =>
+      buildDeployContractTransaction({
+        chainId: "entropis-testnet",
+        from,
+        nonce: 0,
+        contract: L2_ZERO_ACCOUNT_ID,
+        codeBocBase64: sample.code_boc_base64,
+        dataBocBase64: sample.data_boc_base64,
+        gasLimit: 50,
+        maxGasPrice: "1",
+      }),
+    /reserved zero address/,
+  );
+  assert.throws(
+    () =>
+      buildCallContractTransaction({
+        chainId: "entropis-testnet",
+        from: L2_ZERO_ACCOUNT_ID,
+        nonce: 0,
+        contract,
+        bodyBocBase64,
+        gasLimit: 50,
+        maxGasPrice: "1",
+      }),
+    /reserved zero address/,
+  );
 });
 
 test("sample counter storage helpers decode account state and reject mismatches", () => {

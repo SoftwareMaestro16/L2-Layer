@@ -152,6 +152,74 @@ fn deploy_contract_initializes_prefunded_uninitialized_account() {
 }
 
 #[test]
+fn reserved_zero_address_rejects_deposit_transfer_and_deploy() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let sample = sample_counter_initial_state(0);
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+
+    let deposit = executor.apply(
+        &mut state,
+        &SignedL2Transaction::system_deposit(CHAIN_ID, account(b"deposit"), 0, Hash32::ZERO, 100),
+        &ExecutionConfig::default(),
+    );
+    assert_eq!(deposit.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        deposit.receipt.reason.as_deref(),
+        Some("reserved_zero_address")
+    );
+    assert!(state.account(Hash32::ZERO).is_none());
+
+    let transfer = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            10,
+            1,
+            L2TransactionKind::Transfer {
+                to: Hash32::ZERO,
+                asset_id: L2_NATIVE_GAS_ASSET,
+                amount: 10,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+    assert_eq!(transfer.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        transfer.receipt.reason.as_deref(),
+        Some("reserved_zero_address")
+    );
+    assert_eq!(transfer.receipt.gas_charged, 1);
+    assert_eq!(state.account(sender).unwrap().nonce, 1);
+    assert!(state.account(Hash32::ZERO).is_none());
+
+    let deploy = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            1,
+            GasSchedule::default().call_contract_gas,
+            1,
+            L2TransactionKind::DeployContract {
+                contract: Hash32::ZERO,
+                code_boc_base64: sample.code_boc_base64,
+                data_boc_base64: sample.data_boc_base64,
+            },
+        ),
+        &ExecutionConfig::default(),
+    );
+    assert_eq!(deploy.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        deploy.receipt.reason.as_deref(),
+        Some("reserved_zero_address")
+    );
+    assert_eq!(state.account(sender).unwrap().nonce, 2);
+    assert!(state.account(Hash32::ZERO).is_none());
+}
+
+#[test]
 fn transfer_uses_configured_gas_schedule_and_price() {
     let executor = DeterministicExecutor;
     let mut state = State::default();

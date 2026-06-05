@@ -42,7 +42,7 @@ pub struct EntFaucetGrant {
 pub enum FaucetError {
     #[error("invalid account id")]
     InvalidAccountId,
-    #[error("account id must be non-zero")]
+    #[error("reserved zero address")]
     ZeroAccountId,
     #[error("ENT faucet amount overflows base units")]
     AmountOverflow,

@@ -3,6 +3,11 @@ export type Hash32 = string;
 export const L2_RAW_ADDRESS_PREFIX = "8:";
 export const L2_USER_FRIENDLY_PREFIX = "EX";
 export const L2_USER_FRIENDLY_LENGTH = 48;
+export const L2_ZERO_ACCOUNT_ID = "0".repeat(64);
+export const L2_ZERO_RAW_ADDRESS = `${L2_RAW_ADDRESS_PREFIX}${L2_ZERO_ACCOUNT_ID}`;
+export const L2_ZERO_FRIENDLY_ADDRESS = "EXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGdh";
+export const L2_ZERO_ADDRESS_INTERFACE = "org.entropis.reserved.zero_address";
+export const L2_ZERO_ADDRESS_LABEL = "Reserved Zero Address";
 
 const L2_USER_FRIENDLY_TAG = 0x11;
 const L2_USER_FRIENDLY_NETWORK = 0x78;
@@ -37,6 +42,10 @@ export function parseL2Address(value: string): Hash32 {
     return parseUserFriendlyAddress(value);
   }
   return normalizeHash32(value);
+}
+
+export function isL2ZeroAddress(accountId: string): boolean {
+  return parseL2Address(accountId) === L2_ZERO_ACCOUNT_ID;
 }
 
 function parseUserFriendlyAddress(value: string): Hash32 {

@@ -164,6 +164,29 @@ async fn malformed_or_system_tx_is_not_enqueued() {
 }
 
 #[tokio::test]
+async fn reserved_zero_address_endpoint_is_not_enqueued() {
+    let (service, signing_key, account_id) = service();
+    let transfer = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: Hash32::ZERO,
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    assert!(matches!(
+        service.submit(transfer).await.unwrap_err(),
+        MempoolError::ReservedZeroAddress
+    ));
+    assert!(service.pop_batch(10).await.unwrap().is_empty());
+    let metrics = service.metrics().await.unwrap();
+    assert_eq!(metrics.rejected.get("reserved_zero_address"), Some(&1));
+}
+
+#[tokio::test]
 async fn wrong_chain_id_and_bad_signature_are_rejected() {
     let (service, signing_key, account_id) = service();
     let mut wrong_chain = signed_tx(

@@ -1,3 +1,4 @@
+use crate::address::is_l2_zero_address;
 use crate::batch::{BatchBuildInput, BatchBuilder};
 use crate::crypto::{derive_account_id, verify_signature, Hash32};
 use crate::executor::{DeterministicExecutor, ExecutionConfig};
@@ -231,7 +232,7 @@ impl Sequencer {
             if tx.from.is_some() || tx.public_key.is_some() || tx.signature.is_some() {
                 return Err("invalid_system_tx_auth");
             }
-            return Ok(());
+            return validate_reserved_zero_addresses(tx, true);
         }
 
         if tx.is_system() {
@@ -239,6 +240,9 @@ impl Sequencer {
         }
 
         let from = tx.from.ok_or("missing_sender")?;
+        if is_l2_zero_address(from) {
+            return Err("reserved_zero_address");
+        }
         let public_key_hex = tx.public_key.as_deref().ok_or("missing_public_key")?;
         let signature_hex = tx.signature.as_deref().ok_or("missing_signature")?;
         let public_key =
@@ -255,10 +259,30 @@ impl Sequencer {
             return Err("bad_nonce");
         }
 
-        match tx.kind {
-            L2TransactionKind::Deposit { .. } => Err("deposit_must_be_system"),
-            _ => Ok(()),
+        validate_reserved_zero_addresses(tx, false)
+    }
+}
+
+fn validate_reserved_zero_addresses(
+    tx: &SignedL2Transaction,
+    allow_system_deposit: bool,
+) -> Result<(), &'static str> {
+    match tx.kind {
+        L2TransactionKind::Deposit { recipient, .. } if is_l2_zero_address(recipient) => {
+            Err("reserved_zero_address")
         }
+        L2TransactionKind::Deposit { .. } if allow_system_deposit => Ok(()),
+        L2TransactionKind::Deposit { .. } => Err("deposit_must_be_system"),
+        L2TransactionKind::Transfer { to, .. } if is_l2_zero_address(to) => {
+            Err("reserved_zero_address")
+        }
+        L2TransactionKind::DeployContract { contract, .. }
+        | L2TransactionKind::CallContract { contract, .. }
+            if is_l2_zero_address(contract) =>
+        {
+            Err("reserved_zero_address")
+        }
+        _ => Ok(()),
     }
 }
 

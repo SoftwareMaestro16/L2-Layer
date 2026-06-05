@@ -4,6 +4,7 @@ use super::{
 use crate::da::{DaError, DataAvailability};
 use crate::signer::BatchCommitment;
 use crate::storage::ObserverCheckpoint;
+use l2_core::address::is_l2_zero_address;
 use l2_core::crypto::{decode_fixed, derive_account_id, hash_domain, verify_signature};
 use l2_core::{
     canonical_batch_data_hash, decode_batch_data, merkle_root, withdrawal_merkle_root,
@@ -242,12 +243,15 @@ fn verify_tx(
         return Err("wrong_chain_id");
     }
     if is_canonical_system_deposit(tx) {
-        return Ok(());
+        return validate_reserved_zero_addresses(tx, true);
     }
     if tx.is_system() {
         return Err("deposit_must_be_system");
     }
     let from = tx.from.ok_or("missing_sender")?;
+    if is_l2_zero_address(from) {
+        return Err("reserved_zero_address");
+    }
     let public_key_hex = tx.public_key.as_deref().ok_or("missing_public_key")?;
     let signature_hex = tx.signature.as_deref().ok_or("missing_signature")?;
     let public_key = decode_fixed::<32>(public_key_hex).map_err(|_| "invalid_public_key")?;
@@ -261,7 +265,7 @@ fn verify_tx(
     if account.nonce != tx.nonce {
         return Err("bad_nonce");
     }
-    Ok(())
+    validate_reserved_zero_addresses(tx, false)
 }
 
 fn is_canonical_system_deposit(tx: &SignedL2Transaction) -> bool {
@@ -269,6 +273,29 @@ fn is_canonical_system_deposit(tx: &SignedL2Transaction) -> bool {
         && tx.from.is_none()
         && tx.public_key.is_none()
         && tx.signature.is_none()
+}
+
+fn validate_reserved_zero_addresses(
+    tx: &SignedL2Transaction,
+    allow_system_deposit: bool,
+) -> Result<(), &'static str> {
+    match tx.kind {
+        L2TransactionKind::Deposit { recipient, .. } if is_l2_zero_address(recipient) => {
+            Err("reserved_zero_address")
+        }
+        L2TransactionKind::Deposit { .. } if allow_system_deposit => Ok(()),
+        L2TransactionKind::Deposit { .. } => Err("deposit_must_be_system"),
+        L2TransactionKind::Transfer { to, .. } if is_l2_zero_address(to) => {
+            Err("reserved_zero_address")
+        }
+        L2TransactionKind::DeployContract { contract, .. }
+        | L2TransactionKind::CallContract { contract, .. }
+            if is_l2_zero_address(contract) =>
+        {
+            Err("reserved_zero_address")
+        }
+        _ => Ok(()),
+    }
 }
 
 struct ReplayedRoots {

@@ -53,6 +53,16 @@ public tooling supports two address formats:
 The SDK accepts raw, user-friendly, and legacy bare 64-hex account ids for local
 compatibility. New demos print both `8:` and `EX` forms.
 
+The all-zero account id is reserved as the L2 null sentinel:
+
+- raw: `8:0000000000000000000000000000000000000000000000000000000000000000`
+- user-friendly: `EXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGdh`
+
+It is visible in explorer as `reserved`, but it is not a wallet, burn address, or
+contract address. Deposits, faucet grants, transfers, withdrawals, deploys, and
+contract calls that target or originate from this address are rejected with
+`reserved_zero_address`.
+
 ## Quick Start For Local Testing
 
 Use these commands from the repository root. They keep the run local and

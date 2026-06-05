@@ -6,6 +6,12 @@ pub const L2_RAW_ADDRESS_PREFIX: &str = "8:";
 pub const L2_USER_FRIENDLY_TAG: u8 = 0x11;
 pub const L2_USER_FRIENDLY_NETWORK: u8 = 0x78;
 pub const L2_USER_FRIENDLY_LEN: usize = 48;
+pub const L2_ZERO_ACCOUNT_ID: Hash32 = Hash32::ZERO;
+pub const L2_ZERO_RAW_ADDRESS: &str =
+    "8:0000000000000000000000000000000000000000000000000000000000000000";
+pub const L2_ZERO_FRIENDLY_ADDRESS: &str = "EXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGdh";
+pub const L2_ZERO_ADDRESS_INTERFACE: &str = "org.entropis.reserved.zero_address";
+pub const L2_ZERO_ADDRESS_LABEL: &str = "Reserved Zero Address";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
 pub enum L2AddressError {
@@ -38,6 +44,10 @@ pub fn parse_l2_address(value: &str) -> Result<Hash32, L2AddressError> {
         return parse_user_friendly(value);
     }
     parse_hash32_hex(value.strip_prefix("0x").unwrap_or(value))
+}
+
+pub fn is_l2_zero_address(account_id: Hash32) -> bool {
+    account_id == L2_ZERO_ACCOUNT_ID
 }
 
 fn parse_hash32_hex(value: &str) -> Result<Hash32, L2AddressError> {
@@ -103,6 +113,24 @@ mod tests {
         assert_eq!(friendly.len(), L2_USER_FRIENDLY_LEN);
         assert!(friendly.starts_with("EX"));
         assert_eq!(parse_l2_address(&friendly), Ok(account_id));
+    }
+
+    #[test]
+    fn zero_l2_address_has_stable_reserved_forms() {
+        assert_eq!(l2_raw_address(L2_ZERO_ACCOUNT_ID), L2_ZERO_RAW_ADDRESS);
+        assert_eq!(
+            l2_user_friendly_address(L2_ZERO_ACCOUNT_ID),
+            L2_ZERO_FRIENDLY_ADDRESS
+        );
+        assert_eq!(
+            parse_l2_address(L2_ZERO_RAW_ADDRESS),
+            Ok(L2_ZERO_ACCOUNT_ID)
+        );
+        assert_eq!(
+            parse_l2_address(L2_ZERO_FRIENDLY_ADDRESS),
+            Ok(L2_ZERO_ACCOUNT_ID)
+        );
+        assert!(is_l2_zero_address(L2_ZERO_ACCOUNT_ID));
     }
 
     #[test]

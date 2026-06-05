@@ -5,6 +5,7 @@ import {
   signingPayload,
 } from "./consensus.js";
 import {
+  isL2ZeroAddress,
   l2RawAddress,
   normalizeHash32,
   parseL2Address,
@@ -39,6 +40,12 @@ export {
   L2_RAW_ADDRESS_PREFIX,
   L2_USER_FRIENDLY_LENGTH,
   L2_USER_FRIENDLY_PREFIX,
+  L2_ZERO_ACCOUNT_ID,
+  L2_ZERO_ADDRESS_INTERFACE,
+  L2_ZERO_ADDRESS_LABEL,
+  L2_ZERO_FRIENDLY_ADDRESS,
+  L2_ZERO_RAW_ADDRESS,
+  isL2ZeroAddress,
   l2RawAddress,
   l2UserFriendlyAddress,
   normalizeHash32,
@@ -328,15 +335,17 @@ export function accountIdFromKeyPair(keyPair: nacl.SignKeyPair): Hash32 {
 export function buildTransferTransaction(
   params: TransferTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  const from = requireNonZeroL2Address(params.from, "from");
+  const to = requireNonZeroL2Address(params.to, "to");
   return {
     chain_id: params.chainId,
-    from: parseL2Address(params.from),
+    from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
     kind: {
       Transfer: {
-        to: parseL2Address(params.to),
+        to,
         asset_id: toSafeNumber(toUint(params.assetId, "assetId", 32), "assetId"),
         amount: toDecimalString(toPositiveUint(params.amount, "amount", 128)),
       },
@@ -353,10 +362,11 @@ export function signTransferTransaction(
 export function buildWithdrawTransaction(
   params: WithdrawTransactionParams,
 ): Omit<SignedL2Transaction, "public_key" | "signature"> {
+  const from = requireNonZeroL2Address(params.from, "from");
   parseTonAddress(params.l1Recipient);
   return {
     chain_id: params.chainId,
-    from: parseL2Address(params.from),
+    from,
     nonce: toSafeNumber(toUint(params.nonce, "nonce", 64), "nonce"),
     gas_limit: toSafeNumber(toUint(params.gasLimit, "gasLimit", 64), "gasLimit"),
     max_gas_price: toDecimalString(toUint(params.maxGasPrice, "maxGasPrice", 128)),
@@ -377,7 +387,7 @@ export function signWithdrawTransaction(
 }
 
 export function releaseAuthorizedCell(leaf: WithdrawalProofLeaf): Cell {
-  parseL2Address(leaf.l2_sender);
+  requireNonZeroL2Address(leaf.l2_sender, "l2_sender");
   return RollupRootGenerated.ReleaseAuthorized.toCell(
     RollupRootGenerated.ReleaseAuthorized.create({
       withdrawalId: hashToUint256(leaf.withdrawal_id, "withdrawal_id"),
@@ -516,9 +526,10 @@ export class TonL2Client {
   }
 
   async requestEntFaucet(accountId: Hash32): Promise<EntFaucetResponse> {
+    const account = requireNonZeroL2Address(accountId, "accountId");
     return this.postJson(
       "/v1/admin/faucet/ent",
-      { account_id: l2RawAddress(parseL2Address(accountId)) },
+      { account_id: l2RawAddress(account) },
       { admin: true },
     );
   }
@@ -619,6 +630,14 @@ function hashToUint256(value: Hash32, field: string): bigint {
   } catch {
     throw new Error(`${field} must be a 32-byte hex string`);
   }
+}
+
+function requireNonZeroL2Address(value: string, field: string): Hash32 {
+  const parsed = parseL2Address(value);
+  if (isL2ZeroAddress(parsed)) {
+    throw new Error(`${field} cannot be the reserved zero address`);
+  }
+  return parsed;
 }
 
 function toUint(value: UIntLike, field: string, bits: number): bigint {

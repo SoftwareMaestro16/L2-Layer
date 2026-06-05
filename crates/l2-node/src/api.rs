@@ -532,7 +532,7 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
         return Err(ApiError::bad_request("deposit id must be non-zero"));
     }
     if deposit.recipient == Hash32::ZERO {
-        return Err(ApiError::bad_request("recipient must be non-zero"));
+        return Err(ApiError::bad_request("reserved zero address"));
     }
     if deposit.amount == 0 {
         return Err(ApiError::bad_request("amount must be non-zero"));

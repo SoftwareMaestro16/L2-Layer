@@ -2,6 +2,7 @@ use super::{
     can_increment_nonce, charge_rejection_fee, execution_fee, mark_sender_attempt, rejected,
     rejected_attempt, ExecutionConfig, ExecutionOutcome,
 };
+use crate::address::is_l2_zero_address;
 use crate::crypto::Hash32;
 use crate::state::State;
 use crate::tvm::{
@@ -25,6 +26,9 @@ pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
     }
     if !can_increment_nonce(state, from) {
         return rejected(tx_hash, "nonce_overflow");
+    }
+    if is_l2_zero_address(contract) {
+        return rejected_attempt(state, tx, from, config, "reserved_zero_address");
     }
     if let Err(reason) = validate_max_call_fee(state, tx, from, config) {
         return rejected_attempt(state, tx, from, config, reason);
