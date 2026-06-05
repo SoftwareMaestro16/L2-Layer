@@ -16,6 +16,8 @@ pub enum MempoolError {
     UnsupportedTransactionKindVersion,
     #[error("unsupported fee asset {asset_id}")]
     UnsupportedFeeAsset { asset_id: u32 },
+    #[error("account {account_id} is temporarily banned by operator config")]
+    AccountBanned { account_id: Hash32 },
     #[error("missing sender")]
     MissingSender,
     #[error("missing public key")]
@@ -32,6 +34,13 @@ pub enum MempoolError {
     BadSignature,
     #[error("payload is {bytes} bytes, max is {max} bytes")]
     PayloadTooLarge { bytes: usize, max: usize },
+    #[error("{class} payload is {bytes} bytes, max is {max} bytes")]
+    PayloadClassTooLarge {
+        class: &'static str,
+        reason_code: &'static str,
+        bytes: usize,
+        max: usize,
+    },
     #[error("CallContract body_boc_base64 is {bytes} bytes, max is {max} bytes")]
     CallBodyTooLarge { bytes: usize, max: usize },
     #[error("CallContract body_boc_base64 is not valid standard base64")]
@@ -60,6 +69,14 @@ pub enum MempoolError {
     GlobalQueueFull,
     #[error("account {account_id} mempool queue is full")]
     AccountQueueFull { account_id: Hash32 },
+    #[error("account {account_id} pending nonce window exceeded for nonce {nonce}")]
+    AccountNonceWindowExceeded {
+        account_id: Hash32,
+        nonce: u64,
+        min_nonce: u64,
+        max_nonce: u64,
+        window: u64,
+    },
     #[error("account {account_id} is rate limited")]
     RateLimited { account_id: Hash32 },
     #[error("mempool serialization failed: {0}")]
@@ -76,6 +93,7 @@ impl MempoolError {
                 | Self::NonceLocked { .. }
                 | Self::GlobalQueueFull
                 | Self::AccountQueueFull { .. }
+                | Self::AccountNonceWindowExceeded { .. }
                 | Self::RateLimited { .. }
         )
     }
@@ -88,6 +106,7 @@ impl MempoolError {
             Self::InvalidDomainSeparator => "invalid_domain_separator",
             Self::UnsupportedTransactionKindVersion => "unsupported_transaction_kind_version",
             Self::UnsupportedFeeAsset { .. } => "unsupported_fee_asset",
+            Self::AccountBanned { .. } => "account_banned",
             Self::MissingSender => "missing_sender",
             Self::MissingPublicKey => "missing_public_key",
             Self::MissingSignature => "missing_signature",
@@ -96,6 +115,7 @@ impl MempoolError {
             Self::ReservedZeroAddress => "reserved_zero_address",
             Self::BadSignature => "bad_signature",
             Self::PayloadTooLarge { .. } => "payload_too_large",
+            Self::PayloadClassTooLarge { reason_code, .. } => reason_code,
             Self::CallBodyTooLarge { .. } => "call_body_too_large",
             Self::BadCallBodyBase64 => "bad_call_body_base64",
             Self::DeployBocTooLarge { .. } => "deploy_boc_too_large",
@@ -108,6 +128,7 @@ impl MempoolError {
             Self::NonceLocked { .. } => "nonce_locked",
             Self::GlobalQueueFull => "global_queue_full",
             Self::AccountQueueFull { .. } => "account_queue_full",
+            Self::AccountNonceWindowExceeded { .. } => "account_nonce_window_exceeded",
             Self::RateLimited { .. } => "rate_limited",
             Self::Serialization(_) => "serialization",
             Self::Redis(_) => "redis",

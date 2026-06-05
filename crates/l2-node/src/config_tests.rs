@@ -64,6 +64,10 @@ fn valid_entropis_testnet_config_loads() {
     assert_eq!(config.mempool_nonce_lock_ttl_secs, 300);
     assert_eq!(config.mempool_max_global_queue, 10_000);
     assert_eq!(config.mempool_max_account_queue, 64);
+    assert_eq!(config.mempool_max_account_nonce_window, 256);
+    assert_eq!(config.mempool_max_ip_submissions_per_window, 600);
+    assert!(config.mempool_banned_ips.is_empty());
+    assert!(config.mempool_banned_accounts.is_empty());
     assert_eq!(config.da_max_payload_bytes, DEFAULT_DA_MAX_PAYLOAD_BYTES);
     assert_eq!(config.da_public_backend, DEFAULT_DA_PUBLIC_BACKEND);
     assert_eq!(
@@ -275,10 +279,34 @@ fn config_validates_mempool_admission_limits() {
     env.insert("MEMPOOL_MAX_GLOBAL_QUEUE".to_owned(), "10".to_owned());
     env.insert("MEMPOOL_MAX_ACCOUNT_QUEUE".to_owned(), "2".to_owned());
     env.insert(
+        "MEMPOOL_MAX_ACCOUNT_NONCE_WINDOW".to_owned(),
+        "8".to_owned(),
+    );
+    env.insert(
         "MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW".to_owned(),
         "3".to_owned(),
     );
+    env.insert(
+        "MEMPOOL_MAX_IP_SUBMISSIONS_PER_WINDOW".to_owned(),
+        "30".to_owned(),
+    );
     env.insert("MEMPOOL_MAX_PAYLOAD_BYTES".to_owned(), "512".to_owned());
+    env.insert(
+        "MEMPOOL_MAX_TRANSFER_PAYLOAD_BYTES".to_owned(),
+        "256".to_owned(),
+    );
+    env.insert(
+        "MEMPOOL_MAX_WITHDRAW_PAYLOAD_BYTES".to_owned(),
+        "256".to_owned(),
+    );
+    env.insert(
+        "MEMPOOL_MAX_CALL_PAYLOAD_BYTES".to_owned(),
+        "384".to_owned(),
+    );
+    env.insert(
+        "MEMPOOL_MAX_DEPLOY_PAYLOAD_BYTES".to_owned(),
+        "512".to_owned(),
+    );
     env.insert(
         "MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES".to_owned(),
         "256".to_owned(),
@@ -288,10 +316,19 @@ fn config_validates_mempool_admission_limits() {
     env.insert("MEMPOOL_MIN_GAS_PRICE".to_owned(), "2".to_owned());
     env.insert("MEMPOOL_MAX_TX_FEE".to_owned(), "10000".to_owned());
     env.insert("MEMPOOL_POP_BATCH_SIZE".to_owned(), "4".to_owned());
+    env.insert("MEMPOOL_BANNED_IPS".to_owned(), "127.0.0.2,::1".to_owned());
+    env.insert(
+        "MEMPOOL_BANNED_ACCOUNTS".to_owned(),
+        "8:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+    );
     let config = load_from(&env).expect("mempool config");
     assert_eq!(config.mempool_max_global_queue, 10);
     assert_eq!(config.mempool_max_account_queue, 2);
+    assert_eq!(config.mempool_max_account_nonce_window, 8);
+    assert_eq!(config.mempool_max_ip_submissions_per_window, 30);
     assert_eq!(config.mempool_pop_batch_size, 4);
+    assert_eq!(config.mempool_banned_ips.len(), 2);
+    assert_eq!(config.mempool_banned_accounts.len(), 1);
 
     let mut env = valid_env();
     env.insert("MEMPOOL_MAX_ACCOUNT_QUEUE".to_owned(), "11".to_owned());
@@ -303,8 +340,26 @@ fn config_validates_mempool_admission_limits() {
     assert!(load_from(&env).is_err());
 
     let mut env = valid_env();
+    env.insert(
+        "MEMPOOL_MAX_ACCOUNT_NONCE_WINDOW".to_owned(),
+        "0".to_owned(),
+    );
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
     env.insert("MEMPOOL_MIN_GAS_LIMIT".to_owned(), "100".to_owned());
     env.insert("MEMPOOL_MAX_GAS_LIMIT".to_owned(), "10".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert("MEMPOOL_BANNED_IPS".to_owned(), "not-an-ip".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert(
+        "MEMPOOL_BANNED_ACCOUNTS".to_owned(),
+        "not-an-l2-address".to_owned(),
+    );
     assert!(load_from(&env).is_err());
 }
 

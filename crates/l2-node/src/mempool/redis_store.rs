@@ -7,7 +7,10 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use super::error::MempoolError;
-use super::types::{MempoolStore, MempoolStoreLimits, MempoolStoreStats, ValidatedMempoolTx};
+use super::types::{
+    fair_order_indices, MempoolStore, MempoolStoreLimits, MempoolStoreStats, QueuedMempoolTx,
+    ValidatedMempoolTx,
+};
 
 #[derive(Clone)]
 pub struct RedisMempoolStore {
@@ -41,12 +44,20 @@ impl RedisMempoolStore {
         format!("{}:mempool:account-queue:{}", self.prefix, account_id)
     }
 
+    fn account_nonce_key(&self, account_id: Hash32) -> String {
+        format!("{}:mempool:account-nonces:{}", self.prefix, account_id)
+    }
+
     fn rate_key(&self, account_id: Hash32) -> String {
         format!("{}:mempool:rate:{}", self.prefix, account_id)
     }
 
     fn leader_key(&self) -> String {
         format!("{}:mempool:leader", self.prefix)
+    }
+
+    fn evicted_key(&self) -> String {
+        format!("{}:mempool:evicted", self.prefix)
     }
 }
 
@@ -87,92 +98,72 @@ impl MempoolStore for RedisMempoolStore {
         validated: ValidatedMempoolTx,
         limits: MempoolStoreLimits,
     ) -> Result<(), MempoolError> {
-        const ENQUEUE_SCRIPT: &str = r#"
-            if redis.call('EXISTS', KEYS[1]) == 1 then
-                return 1
-            end
-            if redis.call('EXISTS', KEYS[2]) == 1 then
-                return 2
-            end
-            if redis.call('LLEN', KEYS[3]) >= tonumber(ARGV[3]) then
-                return 3
-            end
-            local account_count = tonumber(redis.call('GET', KEYS[4]) or '0')
-            if account_count >= tonumber(ARGV[4]) then
-                return 4
-            end
-            redis.call('SET', KEYS[1], '1', 'EX', ARGV[1])
-            redis.call('SET', KEYS[2], '1', 'EX', ARGV[2])
-            redis.call('INCR', KEYS[4])
-            redis.call('EXPIRE', KEYS[4], ARGV[1])
-            redis.call('RPUSH', KEYS[3], ARGV[5])
-            return 0
-        "#;
-
         let payload = serde_json::to_string(&QueuedRedisTx {
             account_id: validated.account_id,
-            tx: validated.tx,
+            tx: validated.tx.clone(),
         })?;
-        let mut connection = self.connection.lock().await;
-        let result: i64 = redis::Script::new(ENQUEUE_SCRIPT)
-            .key(self.replay_key(validated.tx_hash))
-            .key(self.nonce_key(validated.account_id, validated.nonce))
-            .key(self.queue_key())
-            .key(self.account_queue_key(validated.account_id))
-            .arg(ttl_secs(limits.replay_ttl))
-            .arg(ttl_secs(limits.nonce_lock_ttl))
-            .arg(limits.max_global_queue)
-            .arg(limits.max_account_queue)
-            .arg(payload)
-            .invoke_async(&mut *connection)
-            .await?;
-
-        match result {
-            0 => Ok(()),
-            1 => Err(MempoolError::DuplicateTx(validated.tx_hash)),
-            2 => Err(MempoolError::NonceLocked {
-                account_id: validated.account_id,
-                nonce: validated.nonce,
-            }),
-            3 => Err(MempoolError::GlobalQueueFull),
-            4 => Err(MempoolError::AccountQueueFull {
-                account_id: validated.account_id,
-            }),
-            _ => Err(redis::RedisError::from((
-                redis::ErrorKind::ResponseError,
-                "unexpected redis enqueue script result",
-            ))
-            .into()),
+        match self
+            .try_enqueue_validated(&validated, limits, &payload)
+            .await
+        {
+            Err(MempoolError::GlobalQueueFull) if self.evict_lower_priority(&validated).await? => {
+                self.try_enqueue_validated(&validated, limits, &payload)
+                    .await
+            }
+            other => other,
         }
     }
 
     async fn pop_batch(&self, max_txs: usize) -> Result<Vec<SignedL2Transaction>, MempoolError> {
-        const POP_SCRIPT: &str = r#"
-            local out = {}
-            for i = 1, tonumber(ARGV[1]) do
-                local payload = redis.call('LPOP', KEYS[1])
-                if not payload then
-                    break
-                end
-                table.insert(out, payload)
-            end
-            return out
-        "#;
-
         let mut connection = self.connection.lock().await;
-        let mut out = Vec::with_capacity(max_txs);
-        let payloads: Vec<String> = redis::Script::new(POP_SCRIPT)
-            .key(self.queue_key())
-            .arg(max_txs)
-            .invoke_async(&mut *connection)
+        let payloads: Vec<String> = redis::cmd("LRANGE")
+            .arg(self.queue_key())
+            .arg(0)
+            .arg(-1)
+            .query_async(&mut *connection)
             .await?;
-        for payload in payloads {
-            let queued: QueuedRedisTx = serde_json::from_str(&payload)?;
-            decrement_account_queue(&mut connection, self.account_queue_key(queued.account_id))
-                .await?;
-            out.push(queued.tx);
+        if payloads.is_empty() || max_txs == 0 {
+            return Ok(vec![]);
         }
-        Ok(out)
+
+        let mut queued = Vec::with_capacity(payloads.len());
+        for (sequence, payload) in payloads.iter().enumerate() {
+            let decoded: QueuedRedisTx = serde_json::from_str(payload)?;
+            queued.push(QueuedMempoolTx::from_tx(decoded.tx, sequence as u64));
+        }
+        let selected_indices = fair_order_indices(&queued, max_txs)
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let mut selected = Vec::with_capacity(selected_indices.len());
+        let mut retained_payloads = Vec::with_capacity(payloads.len() - selected_indices.len());
+        for (index, (queued, payload)) in queued.into_iter().zip(payloads.into_iter()).enumerate() {
+            if selected_indices.contains(&index) {
+                decrement_account_queue_and_nonce(
+                    &mut connection,
+                    self.account_queue_key(queued.account_id),
+                    self.account_nonce_key(queued.account_id),
+                    queued.nonce,
+                )
+                .await?;
+                selected.push(queued.tx);
+            } else {
+                retained_payloads.push(payload);
+            }
+        }
+
+        redis::cmd("DEL")
+            .arg(self.queue_key())
+            .query_async::<()>(&mut *connection)
+            .await?;
+        if !retained_payloads.is_empty() {
+            redis::cmd("RPUSH")
+                .arg(self.queue_key())
+                .arg(retained_payloads)
+                .query_async::<()>(&mut *connection)
+                .await?;
+        }
+        Ok(selected)
     }
 
     async fn acquire_leader_lock(&self, owner: &str, ttl: Duration) -> Result<bool, MempoolError> {
@@ -215,14 +206,166 @@ impl MempoolStore for RedisMempoolStore {
             .arg(self.leader_key())
             .query_async(&mut *connection)
             .await?;
+        let evicted: Option<u64> = redis::cmd("GET")
+            .arg(self.evicted_key())
+            .query_async(&mut *connection)
+            .await?;
         Ok(MempoolStoreStats {
             queued_global,
             queued_accounts: 0,
+            evicted: evicted.unwrap_or_default(),
             replay_entries: None,
             nonce_locks: None,
             rate_windows: None,
             leader_locked,
         })
+    }
+}
+
+impl RedisMempoolStore {
+    async fn try_enqueue_validated(
+        &self,
+        validated: &ValidatedMempoolTx,
+        limits: MempoolStoreLimits,
+        payload: &str,
+    ) -> Result<(), MempoolError> {
+        const ENQUEUE_SCRIPT: &str = r#"
+            if redis.call('EXISTS', KEYS[1]) == 1 then
+                return 1
+            end
+            if redis.call('EXISTS', KEYS[2]) == 1 then
+                return 2
+            end
+            if redis.call('ZSCORE', KEYS[5], ARGV[6]) then
+                return 2
+            end
+            if redis.call('LLEN', KEYS[3]) >= tonumber(ARGV[3]) then
+                return 3
+            end
+            local account_count = tonumber(redis.call('GET', KEYS[4]) or '0')
+            if account_count >= tonumber(ARGV[4]) then
+                return 4
+            end
+            local nonce_count = redis.call('ZCARD', KEYS[5])
+            if nonce_count > 0 then
+                local min_pair = redis.call('ZRANGE', KEYS[5], 0, 0, 'WITHSCORES')
+                local max_pair = redis.call('ZREVRANGE', KEYS[5], 0, 0, 'WITHSCORES')
+                local min_nonce = tonumber(min_pair[2])
+                local max_nonce = tonumber(max_pair[2])
+                local candidate = tonumber(ARGV[6])
+                if math.max(max_nonce, candidate) - math.min(min_nonce, candidate) > tonumber(ARGV[5]) then
+                    return 5
+                end
+            end
+            redis.call('SET', KEYS[1], '1', 'EX', ARGV[1])
+            redis.call('SET', KEYS[2], '1', 'EX', ARGV[2])
+            redis.call('INCR', KEYS[4])
+            redis.call('EXPIRE', KEYS[4], ARGV[1])
+            redis.call('ZADD', KEYS[5], ARGV[6], ARGV[6])
+            redis.call('EXPIRE', KEYS[5], ARGV[1])
+            redis.call('RPUSH', KEYS[3], ARGV[7])
+            return 0
+        "#;
+
+        let mut connection = self.connection.lock().await;
+        let result: i64 = redis::Script::new(ENQUEUE_SCRIPT)
+            .key(self.replay_key(validated.tx_hash))
+            .key(self.nonce_key(validated.account_id, validated.nonce))
+            .key(self.queue_key())
+            .key(self.account_queue_key(validated.account_id))
+            .key(self.account_nonce_key(validated.account_id))
+            .arg(ttl_secs(limits.replay_ttl))
+            .arg(ttl_secs(limits.nonce_lock_ttl))
+            .arg(limits.max_global_queue)
+            .arg(limits.max_account_queue)
+            .arg(limits.max_account_nonce_window)
+            .arg(validated.nonce.to_string())
+            .arg(payload)
+            .invoke_async(&mut *connection)
+            .await?;
+
+        match result {
+            0 => Ok(()),
+            1 => Err(MempoolError::DuplicateTx(validated.tx_hash)),
+            2 => Err(MempoolError::NonceLocked {
+                account_id: validated.account_id,
+                nonce: validated.nonce,
+            }),
+            3 => Err(MempoolError::GlobalQueueFull),
+            4 => Err(MempoolError::AccountQueueFull {
+                account_id: validated.account_id,
+            }),
+            5 => Err(MempoolError::AccountNonceWindowExceeded {
+                account_id: validated.account_id,
+                nonce: validated.nonce,
+                min_nonce: 0,
+                max_nonce: 0,
+                window: limits.max_account_nonce_window,
+            }),
+            _ => Err(redis::RedisError::from((
+                redis::ErrorKind::ResponseError,
+                "unexpected redis enqueue script result",
+            ))
+            .into()),
+        }
+    }
+
+    async fn evict_lower_priority(
+        &self,
+        incoming: &ValidatedMempoolTx,
+    ) -> Result<bool, MempoolError> {
+        let mut connection = self.connection.lock().await;
+        let payloads: Vec<String> = redis::cmd("LRANGE")
+            .arg(self.queue_key())
+            .arg(0)
+            .arg(-1)
+            .query_async(&mut *connection)
+            .await?;
+        let mut worst: Option<(usize, QueuedMempoolTx)> = None;
+        for (sequence, payload) in payloads.iter().enumerate() {
+            let decoded: QueuedRedisTx = serde_json::from_str(payload)?;
+            let queued = QueuedMempoolTx::from_tx(decoded.tx, sequence as u64);
+            if worst.as_ref().is_none_or(|(_, current)| {
+                queued
+                    .priority
+                    .cmp(&current.priority)
+                    .then_with(|| current.sequence.cmp(&queued.sequence))
+                    .then_with(|| queued.tx_hash.cmp(&current.tx_hash))
+                    .is_lt()
+            }) {
+                worst = Some((sequence, queued));
+            }
+        }
+        let Some((worst_index, worst)) = worst else {
+            return Ok(false);
+        };
+        if incoming.priority <= worst.priority {
+            return Ok(false);
+        }
+        let Some(worst_payload) = payloads.get(worst_index) else {
+            return Ok(false);
+        };
+        let removed: i64 = redis::cmd("LREM")
+            .arg(self.queue_key())
+            .arg(1)
+            .arg(worst_payload)
+            .query_async(&mut *connection)
+            .await?;
+        if removed <= 0 {
+            return Ok(false);
+        }
+        decrement_account_queue_and_nonce(
+            &mut connection,
+            self.account_queue_key(worst.account_id),
+            self.account_nonce_key(worst.account_id),
+            worst.nonce,
+        )
+        .await?;
+        redis::cmd("INCR")
+            .arg(self.evicted_key())
+            .query_async::<()>(&mut *connection)
+            .await?;
+        Ok(true)
     }
 }
 
@@ -232,19 +375,27 @@ struct QueuedRedisTx {
     tx: SignedL2Transaction,
 }
 
-async fn decrement_account_queue(
+async fn decrement_account_queue_and_nonce(
     connection: &mut ConnectionManager,
-    key: String,
+    account_queue_key: String,
+    account_nonce_key: String,
+    nonce: u64,
 ) -> Result<(), MempoolError> {
     const DECREMENT_SCRIPT: &str = r#"
         local current = redis.call('DECR', KEYS[1])
         if current <= 0 then
             redis.call('DEL', KEYS[1])
         end
+        redis.call('ZREM', KEYS[2], ARGV[1])
+        if redis.call('ZCARD', KEYS[2]) == 0 then
+            redis.call('DEL', KEYS[2])
+        end
         return 0
     "#;
     let _: i64 = redis::Script::new(DECREMENT_SCRIPT)
-        .key(key)
+        .key(account_queue_key)
+        .key(account_nonce_key)
+        .arg(nonce.to_string())
         .invoke_async(connection)
         .await?;
     Ok(())

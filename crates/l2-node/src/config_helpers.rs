@@ -1,6 +1,8 @@
 use super::TonNetwork;
 use anyhow::{anyhow, Context};
+use l2_core::{parse_l2_address, Hash32};
 use std::fmt;
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 #[derive(Clone, Eq, PartialEq)]
@@ -86,6 +88,40 @@ pub(super) fn parse_u32_list(value: &str, key: &str) -> anyhow::Result<Vec<u32>>
             return Err(anyhow!("{key} must not contain empty values"));
         }
         values.push(parse_u32(part, key)?);
+    }
+    values.sort_unstable();
+    values.dedup();
+    Ok(values)
+}
+
+pub(super) fn parse_ip_addr_list(value: &str, key: &str) -> anyhow::Result<Vec<IpAddr>> {
+    let mut values = vec![];
+    for part in value.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            return Err(anyhow!("{key} must not contain empty values"));
+        }
+        values.push(
+            part.parse::<IpAddr>()
+                .with_context(|| format!("{key} must contain only IP addresses"))?,
+        );
+    }
+    values.sort_unstable();
+    values.dedup();
+    Ok(values)
+}
+
+pub(super) fn parse_l2_account_list(value: &str, key: &str) -> anyhow::Result<Vec<Hash32>> {
+    let mut values = vec![];
+    for part in value.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            return Err(anyhow!("{key} must not contain empty values"));
+        }
+        values.push(
+            parse_l2_address(part)
+                .with_context(|| format!("{key} must contain only L2 addresses"))?,
+        );
     }
     values.sort_unstable();
     values.dedup();

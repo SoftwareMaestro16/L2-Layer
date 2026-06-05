@@ -110,25 +110,42 @@ MEMPOOL_REPLAY_TTL_SECS=86400
 MEMPOOL_NONCE_LOCK_TTL_SECS=300
 MEMPOOL_LEADER_TTL_SECS=10
 MEMPOOL_RATE_LIMIT_WINDOW_SECS=60
+MEMPOOL_IP_RATE_LIMIT_WINDOW_SECS=60
 MEMPOOL_MAX_GLOBAL_QUEUE=10000
 MEMPOOL_MAX_ACCOUNT_QUEUE=64
+MEMPOOL_MAX_ACCOUNT_NONCE_WINDOW=256
 MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW=120
+MEMPOOL_MAX_IP_SUBMISSIONS_PER_WINDOW=600
 MEMPOOL_MAX_PAYLOAD_BYTES=16384
+MEMPOOL_MAX_TRANSFER_PAYLOAD_BYTES=4096
+MEMPOOL_MAX_WITHDRAW_PAYLOAD_BYTES=4096
+MEMPOOL_MAX_CALL_PAYLOAD_BYTES=12288
+MEMPOOL_MAX_DEPLOY_PAYLOAD_BYTES=16384
 MEMPOOL_MAX_CALL_BODY_BOC_BASE64_BYTES=8192
 MEMPOOL_MIN_GAS_LIMIT=1
 MEMPOOL_MAX_GAS_LIMIT=1000000
 MEMPOOL_MIN_GAS_PRICE=1
 MEMPOOL_MAX_TX_FEE=1000000000000
 MEMPOOL_POP_BATCH_SIZE=1024
+MEMPOOL_BANNED_IPS=
+MEMPOOL_BANNED_ACCOUNTS=
 ```
 
 The mempool rejects duplicate transaction hashes, locked account nonces, malformed
-signatures, wrong chain ids, zero/oversized gas policies, oversized public payloads,
-oversized or malformed `CallContract.body_boc_base64`, per-account queue floods,
-global queue floods, and per-account rate-limit abuse. Bad-signature submissions
-with a valid sender/public-key pair consume the same per-account rate limit as
-valid submissions. `GET /v1/mempool/metrics` exposes accepted/rejected counters
-and current store queue depth for operators.
+signatures, wrong chain ids, zero/oversized gas policies, oversized public
+payloads, per-kind payloads, oversized or malformed
+`CallContract.body_boc_base64`, per-account queue floods, global queue floods,
+wide pending nonce windows, banned accounts/IPs, and per-account/per-IP
+rate-limit abuse. Bad-signature submissions with a valid sender/public-key pair
+consume the same per-account and per-IP limits as valid submissions.
+`GET /v1/mempool/metrics` exposes accepted/rejected reason counters, current
+store queue depth, and eviction count for operators.
+
+When the global queue is full, a new transaction is admitted only if its fee
+priority is higher than the lowest-priority pending transaction, which is then
+evicted. Block production pops transactions with deterministic account-fair
+ordering: at most one pending transaction per account is selected per round,
+with fee priority deciding the account order inside each round.
 
 ## Executor gas schedule
 

@@ -8,7 +8,7 @@ use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadiness
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
 use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
 use crate::storage::DynStorage;
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -17,6 +17,7 @@ use l2_core::{
     parse_l2_address, DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig,
     SignedL2Transaction, SubmitTxResponse,
 };
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration, Instant};
@@ -29,6 +30,7 @@ mod challenge;
 mod da;
 mod error;
 mod explorer;
+mod mempool_ingress;
 mod operator;
 mod sample;
 mod stream;
@@ -44,6 +46,7 @@ use explorer::{
     explorer_account, explorer_account_transactions, explorer_blocks, explorer_deposit,
     explorer_deposits, explorer_summary, explorer_tx, explorer_withdrawal, get_withdrawal_proof,
 };
+use mempool_ingress::MempoolIngressGuard;
 use operator::{
     healthz, operator_batch_finalizer, operator_batch_relayer, operator_failures, operator_metrics,
     readyz,
@@ -63,6 +66,7 @@ pub struct AppState {
     ton_readiness: DynTonReadinessProbe,
     ent_faucet: EntFaucetService,
     admin_auth: AdminAuth,
+    mempool_ingress: MempoolIngressGuard,
     dev_admin_deposits_enabled: bool,
     mempool_pop_batch_size: usize,
 }
@@ -91,6 +95,7 @@ impl AppState {
             ton_readiness,
             ent_faucet: EntFaucetService::from_config(config)?,
             admin_auth: AdminAuth::new(Some(config.admin_token.expose().to_owned())),
+            mempool_ingress: MempoolIngressGuard::from_config(config),
             dev_admin_deposits_enabled: config.dev_admin_deposits_enabled,
             mempool_pop_batch_size: config.mempool_pop_batch_size,
         })
@@ -115,6 +120,7 @@ impl AppState {
             ton_readiness: Arc::new(crate::observability::ReadyTonReadinessProbe),
             ent_faucet: EntFaucetService::from_config(&test_config()).expect("faucet config"),
             admin_auth: AdminAuth::new(admin_token.map(str::to_owned)),
+            mempool_ingress: MempoolIngressGuard::from_config(&test_config()),
             dev_admin_deposits_enabled: true,
             mempool_pop_batch_size: 1024,
         }
@@ -141,7 +147,11 @@ pub async fn serve(
 
     tracing::info!(addr = %config.node_addr, config = ?config, "starting l2 node");
     let listener = tokio::net::TcpListener::bind(config.node_addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -200,8 +210,16 @@ pub fn build_router(state: AppState) -> Router {
 
 async fn submit_tx(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(tx): Json<SignedL2Transaction>,
 ) -> Result<Json<SubmitTxResponse>, ApiError> {
+    if let Err(error) = state.mempool_ingress.check(peer).await {
+        state
+            .mempool
+            .record_external_rejection(error.reason_code())
+            .await;
+        return Err(error.into());
+    }
     let tx_hash = state.mempool.submit(tx).await?;
     Ok(Json(SubmitTxResponse { tx_hash }))
 }

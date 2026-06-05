@@ -28,6 +28,10 @@ fn auth_headers(token: &str) -> HeaderMap {
     headers
 }
 
+fn peer(port: u16) -> ConnectInfo<std::net::SocketAddr> {
+    ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], port)))
+}
+
 fn deposit_event() -> DepositEvent {
     DepositEvent {
         deposit_id: sha256_bytes(b"deposit"),
@@ -406,12 +410,14 @@ async fn submit_tx_rejects_duplicate_before_block() {
         },
     );
 
-    let first = submit_tx(State(state.clone()), Json(tx.clone()))
+    let first = submit_tx(State(state.clone()), peer(10001), Json(tx.clone()))
         .await
         .expect("first tx");
     assert_eq!(first.0.tx_hash, tx.tx_hash());
 
-    let duplicate = submit_tx(State(state), Json(tx)).await.unwrap_err();
+    let duplicate = submit_tx(State(state), peer(10001), Json(tx))
+        .await
+        .unwrap_err();
     assert_eq!(duplicate.status, StatusCode::CONFLICT);
 }
 
@@ -426,7 +432,7 @@ async fn submit_tx_rejects_malformed_system_deposit() {
         100,
     );
 
-    let error = submit_tx(State(state), Json(forged_deposit))
+    let error = submit_tx(State(state), peer(10002), Json(forged_deposit))
         .await
         .unwrap_err();
     assert_eq!(error.status, StatusCode::BAD_REQUEST);
@@ -448,16 +454,92 @@ async fn mempool_metrics_reports_rejections_and_queue_depth() {
         },
     );
 
-    let _ = submit_tx(State(state.clone()), Json(tx.clone()))
+    let _ = submit_tx(State(state.clone()), peer(10003), Json(tx.clone()))
         .await
         .expect("first tx");
-    let duplicate = submit_tx(State(state.clone()), Json(tx)).await.unwrap_err();
+    let duplicate = submit_tx(State(state.clone()), peer(10003), Json(tx))
+        .await
+        .unwrap_err();
     assert_eq!(duplicate.status, StatusCode::CONFLICT);
 
     let metrics = state.mempool.metrics().await.expect("metrics");
     assert_eq!(metrics.accepted, 1);
     assert_eq!(metrics.rejected.get("duplicate_tx"), Some(&1));
     assert_eq!(metrics.store.queued_global, 1);
+}
+
+#[tokio::test]
+async fn submit_tx_enforces_per_ip_rate_limit_and_reports_reason() {
+    let mut state = test_state(Some(ADMIN_TOKEN));
+    state.mempool_ingress = MempoolIngressGuard::test(Duration::from_secs(60), 1, vec![]);
+    let first_key = SigningKey::generate(&mut OsRng);
+    let first_account = derive_account_id(&first_key.verifying_key().to_bytes());
+    let second_key = SigningKey::generate(&mut OsRng);
+    let second_account = derive_account_id(&second_key.verifying_key().to_bytes());
+
+    let first = signed_tx(
+        &first_key,
+        first_account,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"first"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    let second = signed_tx(
+        &second_key,
+        second_account,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"second"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    let _ = submit_tx(State(state.clone()), peer(10004), Json(first))
+        .await
+        .expect("first tx");
+    let limited = submit_tx(State(state.clone()), peer(10004), Json(second))
+        .await
+        .unwrap_err();
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.message, "ip_rate_limited");
+
+    let metrics = state.mempool.metrics().await.expect("metrics");
+    assert_eq!(metrics.rejected.get("ip_rate_limited"), Some(&1));
+}
+
+#[tokio::test]
+async fn submit_tx_rejects_operator_banned_ip() {
+    let mut state = test_state(Some(ADMIN_TOKEN));
+    let banned_ip = "127.0.0.9".parse().unwrap();
+    state.mempool_ingress = MempoolIngressGuard::test(Duration::from_secs(60), 10, vec![banned_ip]);
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"recipient"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    let error = submit_tx(
+        State(state.clone()),
+        ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 9], 10005))),
+        Json(tx),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.status, StatusCode::FORBIDDEN);
+    assert_eq!(error.message, "ip_banned");
+    let metrics = state.mempool.metrics().await.expect("metrics");
+    assert_eq!(metrics.rejected.get("ip_banned"), Some(&1));
 }
 
 #[tokio::test]

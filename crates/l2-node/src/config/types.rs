@@ -1,4 +1,6 @@
 use super::helpers::SecretString;
+use l2_core::Hash32;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -59,15 +61,24 @@ pub struct NodeConfig {
     pub mempool_nonce_lock_ttl_secs: u64,
     pub mempool_leader_ttl_secs: u64,
     pub mempool_rate_limit_window_secs: u64,
+    pub mempool_ip_rate_limit_window_secs: u64,
     pub mempool_max_global_queue: usize,
     pub mempool_max_account_queue: usize,
+    pub mempool_max_account_nonce_window: u64,
     pub mempool_max_account_submissions_per_window: u32,
+    pub mempool_max_ip_submissions_per_window: u32,
     pub mempool_max_payload_bytes: usize,
+    pub mempool_max_transfer_payload_bytes: usize,
+    pub mempool_max_withdraw_payload_bytes: usize,
+    pub mempool_max_call_payload_bytes: usize,
+    pub mempool_max_deploy_payload_bytes: usize,
     pub mempool_max_call_body_boc_base64_bytes: usize,
     pub mempool_min_gas_limit: u64,
     pub mempool_max_gas_limit: u64,
     pub mempool_min_gas_price: u128,
     pub mempool_max_tx_fee: u128,
     pub mempool_pop_batch_size: usize,
+    pub mempool_banned_ips: Vec<IpAddr>,
+    pub mempool_banned_accounts: Vec<Hash32>,
     pub executor_gas_schedule: l2_core::GasSchedule,
 }

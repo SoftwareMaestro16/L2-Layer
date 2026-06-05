@@ -106,13 +106,41 @@ impl fmt::Debug for NodeConfig {
                 "mempool_rate_limit_window_secs",
                 &self.mempool_rate_limit_window_secs,
             )
+            .field(
+                "mempool_ip_rate_limit_window_secs",
+                &self.mempool_ip_rate_limit_window_secs,
+            )
             .field("mempool_max_global_queue", &self.mempool_max_global_queue)
             .field("mempool_max_account_queue", &self.mempool_max_account_queue)
+            .field(
+                "mempool_max_account_nonce_window",
+                &self.mempool_max_account_nonce_window,
+            )
             .field(
                 "mempool_max_account_submissions_per_window",
                 &self.mempool_max_account_submissions_per_window,
             )
+            .field(
+                "mempool_max_ip_submissions_per_window",
+                &self.mempool_max_ip_submissions_per_window,
+            )
             .field("mempool_max_payload_bytes", &self.mempool_max_payload_bytes)
+            .field(
+                "mempool_max_transfer_payload_bytes",
+                &self.mempool_max_transfer_payload_bytes,
+            )
+            .field(
+                "mempool_max_withdraw_payload_bytes",
+                &self.mempool_max_withdraw_payload_bytes,
+            )
+            .field(
+                "mempool_max_call_payload_bytes",
+                &self.mempool_max_call_payload_bytes,
+            )
+            .field(
+                "mempool_max_deploy_payload_bytes",
+                &self.mempool_max_deploy_payload_bytes,
+            )
             .field(
                 "mempool_max_call_body_boc_base64_bytes",
                 &self.mempool_max_call_body_boc_base64_bytes,
@@ -122,6 +150,8 @@ impl fmt::Debug for NodeConfig {
             .field("mempool_min_gas_price", &self.mempool_min_gas_price)
             .field("mempool_max_tx_fee", &self.mempool_max_tx_fee)
             .field("mempool_pop_batch_size", &self.mempool_pop_batch_size)
+            .field("mempool_banned_ips", &self.mempool_banned_ips)
+            .field("mempool_banned_accounts", &self.mempool_banned_accounts)
             .field("executor_gas_schedule", &self.executor_gas_schedule)
             .finish()
     }

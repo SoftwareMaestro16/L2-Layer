@@ -14,7 +14,8 @@ use super::config::MempoolAdmissionConfig;
 use super::error::MempoolError;
 use super::redis_store::RedisMempoolStore;
 use super::types::{
-    DynMempoolStore, MempoolCounters, MempoolMetrics, MempoolStoreLimits, ValidatedMempoolTx,
+    DynMempoolStore, MempoolCounters, MempoolMetrics, MempoolPayloadClass, MempoolStoreLimits,
+    MempoolTxPriority, ValidatedMempoolTx,
 };
 
 const DEFAULT_REDIS_PREFIX: &str = "entropis:testnet";
@@ -95,6 +96,7 @@ impl MempoolService {
                     nonce_lock_ttl: self.config.nonce_lock_ttl,
                     max_global_queue: self.config.max_global_queue,
                     max_account_queue: self.config.max_account_queue,
+                    max_account_nonce_window: self.config.max_account_nonce_window,
                 },
             )
             .await?;
@@ -148,6 +150,9 @@ impl MempoolService {
         if is_l2_zero_address(from) {
             return Err(MempoolError::ReservedZeroAddress);
         }
+        if self.config.banned_accounts.contains(&from) {
+            return Err(MempoolError::AccountBanned { account_id: from });
+        }
         let public_key_hex = tx
             .public_key
             .as_deref()
@@ -162,6 +167,7 @@ impl MempoolService {
             tx_hash: tx.tx_hash(),
             nonce: tx.nonce,
             account_id: from,
+            priority: MempoolTxPriority::from_tx(&tx),
             tx,
         })
     }
@@ -191,6 +197,17 @@ impl MempoolService {
                 bytes: payload_bytes,
                 max: self.config.max_payload_bytes,
             });
+        }
+        if let Some(class) = MempoolPayloadClass::from_kind(&tx.kind) {
+            let max = self.payload_class_limit(class);
+            if payload_bytes > max {
+                return Err(MempoolError::PayloadClassTooLarge {
+                    class: class.limit_name(),
+                    reason_code: class.reason_code(),
+                    bytes: payload_bytes,
+                    max,
+                });
+            }
         }
         if tx.gas_limit < self.config.min_gas_limit || tx.gas_limit > self.config.max_gas_limit {
             return Err(MempoolError::InvalidGasLimit {
@@ -254,6 +271,16 @@ impl MempoolService {
         Ok(())
     }
 
+    fn payload_class_limit(&self, class: MempoolPayloadClass) -> usize {
+        match class {
+            MempoolPayloadClass::Transfer => self.config.max_transfer_payload_bytes,
+            MempoolPayloadClass::Withdraw => self.config.max_withdraw_payload_bytes,
+            MempoolPayloadClass::CallContract => self.config.max_call_payload_bytes,
+            MempoolPayloadClass::DeployContract => self.config.max_deploy_payload_bytes,
+            MempoolPayloadClass::RotatePublicKey => self.config.max_payload_bytes,
+        }
+    }
+
     fn validate_deploy_boc(&self, field: &'static str, value: &str) -> Result<(), MempoolError> {
         if value.len() > self.config.max_call_body_boc_base64_bytes {
             return Err(MempoolError::DeployBocTooLarge {
@@ -275,6 +302,10 @@ impl MempoolService {
     async fn record_rejection(&self, reason: &str) {
         let mut counters = self.counters.lock().await;
         *counters.rejected.entry(reason.to_owned()).or_default() += 1;
+    }
+
+    pub async fn record_external_rejection(&self, reason: &'static str) {
+        self.record_rejection(reason).await;
     }
 }
 

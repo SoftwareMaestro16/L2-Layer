@@ -214,13 +214,20 @@ impl NodeConfig {
             || self.mempool_nonce_lock_ttl_secs == 0
             || self.mempool_leader_ttl_secs == 0
             || self.mempool_rate_limit_window_secs == 0
+            || self.mempool_ip_rate_limit_window_secs == 0
         {
             return Err(anyhow!("mempool TTL/window values must be non-zero"));
         }
         if self.mempool_max_global_queue == 0
             || self.mempool_max_account_queue == 0
+            || self.mempool_max_account_nonce_window == 0
             || self.mempool_max_account_submissions_per_window == 0
+            || self.mempool_max_ip_submissions_per_window == 0
             || self.mempool_max_payload_bytes == 0
+            || self.mempool_max_transfer_payload_bytes == 0
+            || self.mempool_max_withdraw_payload_bytes == 0
+            || self.mempool_max_call_payload_bytes == 0
+            || self.mempool_max_deploy_payload_bytes == 0
             || self.mempool_max_call_body_boc_base64_bytes == 0
             || self.mempool_pop_batch_size == 0
         {

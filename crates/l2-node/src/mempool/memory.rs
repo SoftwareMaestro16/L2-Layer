@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use super::error::MempoolError;
-use super::types::{MempoolStore, MempoolStoreLimits, MempoolStoreStats, ValidatedMempoolTx};
+use super::types::{
+    fair_order_indices, MempoolStore, MempoolStoreLimits, MempoolStoreStats, QueuedMempoolTx,
+    ValidatedMempoolTx,
+};
 
 #[derive(Debug, Default)]
 pub struct MemoryMempoolStore {
@@ -14,13 +17,16 @@ pub struct MemoryMempoolStore {
 
 #[derive(Debug, Default)]
 struct MemoryMempoolState {
-    queue: VecDeque<SignedL2Transaction>,
+    queue: VecDeque<QueuedMempoolTx>,
     queued_hashes: BTreeSet<Hash32>,
     account_queue_counts: BTreeMap<Hash32, usize>,
+    account_pending_nonces: BTreeMap<Hash32, BTreeSet<u64>>,
     replay: BTreeMap<Hash32, Instant>,
     nonce_locks: BTreeMap<(Hash32, u64), Instant>,
     rate_windows: BTreeMap<Hash32, VecDeque<Instant>>,
     leader_lock: Option<MemoryLeaderLock>,
+    next_sequence: u64,
+    evicted: u64,
 }
 
 #[derive(Debug)]
@@ -66,9 +72,6 @@ impl MempoolStore for MemoryMempoolStore {
         if state.nonce_locks.contains_key(&(account_id, nonce)) {
             return Err(MempoolError::NonceLocked { account_id, nonce });
         }
-        if state.queue.len() >= limits.max_global_queue {
-            return Err(MempoolError::GlobalQueueFull);
-        }
         if state
             .account_queue_counts
             .get(&account_id)
@@ -78,36 +81,43 @@ impl MempoolStore for MemoryMempoolStore {
         {
             return Err(MempoolError::AccountQueueFull { account_id });
         }
+        state.validate_pending_nonce_window(account_id, nonce, limits.max_account_nonce_window)?;
+        if state.queue.len() >= limits.max_global_queue && !state.evict_for(&validated) {
+            return Err(MempoolError::GlobalQueueFull);
+        }
 
         let now = Instant::now();
         state.replay.insert(tx_hash, now + limits.replay_ttl);
         state
             .nonce_locks
             .insert((account_id, nonce), now + limits.nonce_lock_ttl);
-        state.queued_hashes.insert(tx_hash);
-        *state.account_queue_counts.entry(account_id).or_default() += 1;
-        state.queue.push_back(validated.tx);
+        let sequence = state.next_sequence;
+        state.next_sequence = state.next_sequence.wrapping_add(1);
+        let queued = QueuedMempoolTx::from_validated(validated, sequence);
+        state.record_queued_metadata(&queued);
+        state.queue.push_back(queued);
         Ok(())
     }
 
     async fn pop_batch(&self, max_txs: usize) -> Result<Vec<SignedL2Transaction>, MempoolError> {
         let mut state = self.state.lock().await;
-        let mut txs = Vec::with_capacity(max_txs.min(state.queue.len()));
-        for _ in 0..max_txs {
-            let Some(tx) = state.queue.pop_front() else {
-                break;
-            };
-            state.queued_hashes.remove(&tx.tx_hash());
-            if let Some(account_id) = tx.from {
-                if let Some(count) = state.account_queue_counts.get_mut(&account_id) {
-                    *count = count.saturating_sub(1);
-                    if *count == 0 {
-                        state.account_queue_counts.remove(&account_id);
-                    }
-                }
+        let snapshot = state.queue.iter().cloned().collect::<Vec<_>>();
+        let selected_indices = fair_order_indices(&snapshot, max_txs)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let mut txs = Vec::with_capacity(selected_indices.len());
+        let mut retained = VecDeque::with_capacity(state.queue.len().saturating_sub(txs.len()));
+        let mut index = 0usize;
+        while let Some(queued) = state.queue.pop_front() {
+            if selected_indices.contains(&index) {
+                state.remove_queued_metadata(&queued);
+                txs.push(queued.tx);
+            } else {
+                retained.push_back(queued);
             }
-            txs.push(tx);
+            index += 1;
         }
+        state.queue = retained;
         Ok(txs)
     }
 
@@ -142,6 +152,7 @@ impl MempoolStore for MemoryMempoolStore {
         Ok(MempoolStoreStats {
             queued_global: state.queue.len(),
             queued_accounts: state.account_queue_counts.len(),
+            evicted: state.evicted,
             replay_entries: Some(state.replay.len()),
             nonce_locks: Some(state.nonce_locks.len()),
             rate_windows: Some(state.rate_windows.len()),
@@ -151,6 +162,92 @@ impl MempoolStore for MemoryMempoolStore {
 }
 
 impl MemoryMempoolState {
+    fn validate_pending_nonce_window(
+        &self,
+        account_id: Hash32,
+        nonce: u64,
+        window: u64,
+    ) -> Result<(), MempoolError> {
+        let Some(nonces) = self.account_pending_nonces.get(&account_id) else {
+            return Ok(());
+        };
+        if nonces.contains(&nonce) {
+            return Err(MempoolError::NonceLocked { account_id, nonce });
+        }
+        let Some(min_nonce) = nonces.iter().next().copied() else {
+            return Ok(());
+        };
+        let Some(max_nonce) = nonces.iter().next_back().copied() else {
+            return Ok(());
+        };
+        let candidate_min = min_nonce.min(nonce);
+        let candidate_max = max_nonce.max(nonce);
+        if candidate_max.saturating_sub(candidate_min) > window {
+            return Err(MempoolError::AccountNonceWindowExceeded {
+                account_id,
+                nonce,
+                min_nonce: candidate_min,
+                max_nonce: candidate_max,
+                window,
+            });
+        }
+        Ok(())
+    }
+
+    fn evict_for(&mut self, incoming: &ValidatedMempoolTx) -> bool {
+        let Some((worst_index, worst_priority)) = self
+            .queue
+            .iter()
+            .enumerate()
+            .min_by(|(_, left), (_, right)| {
+                left.priority
+                    .cmp(&right.priority)
+                    .then_with(|| right.sequence.cmp(&left.sequence))
+                    .then_with(|| left.tx_hash.cmp(&right.tx_hash))
+            })
+            .map(|(index, queued)| (index, queued.priority))
+        else {
+            return false;
+        };
+        if incoming.priority <= worst_priority {
+            return false;
+        }
+        let Some(evicted) = self.queue.remove(worst_index) else {
+            return false;
+        };
+        self.remove_queued_metadata(&evicted);
+        self.evicted += 1;
+        true
+    }
+
+    fn record_queued_metadata(&mut self, queued: &QueuedMempoolTx) {
+        self.queued_hashes.insert(queued.tx_hash);
+        *self
+            .account_queue_counts
+            .entry(queued.account_id)
+            .or_default() += 1;
+        self.account_pending_nonces
+            .entry(queued.account_id)
+            .or_default()
+            .insert(queued.nonce);
+    }
+
+    fn remove_queued_metadata(&mut self, queued: &QueuedMempoolTx) {
+        self.queued_hashes.remove(&queued.tx_hash);
+        if let Some(count) = self.account_queue_counts.get_mut(&queued.account_id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.account_queue_counts.remove(&queued.account_id);
+            }
+        }
+        if let Some(nonces) = self.account_pending_nonces.get_mut(&queued.account_id) {
+            nonces.remove(&queued.nonce);
+            if nonces.is_empty() {
+                self.account_pending_nonces.remove(&queued.account_id);
+            }
+        }
+    }
+
     fn cleanup_expired(&mut self) {
         let now = Instant::now();
         self.replay.retain(|_, expires_at| *expires_at > now);

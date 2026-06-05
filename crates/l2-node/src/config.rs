@@ -11,9 +11,9 @@ mod validation;
 pub(crate) use defaults::*;
 pub use helpers::SecretString;
 use helpers::{
-    bool_literal, optional, optional_secret, optional_string, parse_bool, parse_network,
-    parse_u128, parse_u16, parse_u32, parse_u32_list, parse_u64, parse_u8, parse_usize,
-    path_exists_in_cwd_or_ancestors, required,
+    bool_literal, optional, optional_secret, optional_string, parse_bool, parse_ip_addr_list,
+    parse_l2_account_list, parse_network, parse_u128, parse_u16, parse_u32, parse_u32_list,
+    parse_u64, parse_u8, parse_usize, path_exists_in_cwd_or_ancestors, required,
 };
 pub use types::{NodeConfig, TonNetwork};
 
@@ -280,6 +280,14 @@ impl NodeConfig {
             ),
             "MEMPOOL_RATE_LIMIT_WINDOW_SECS",
         )?;
+        let mempool_ip_rate_limit_window_secs = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_IP_RATE_LIMIT_WINDOW_SECS",
+                &DEFAULT_MEMPOOL_IP_RATE_LIMIT_WINDOW_SECS.to_string(),
+            ),
+            "MEMPOOL_IP_RATE_LIMIT_WINDOW_SECS",
+        )?;
         let mempool_max_global_queue = parse_usize(
             &optional(
                 &mut lookup,
@@ -296,6 +304,14 @@ impl NodeConfig {
             ),
             "MEMPOOL_MAX_ACCOUNT_QUEUE",
         )?;
+        let mempool_max_account_nonce_window = parse_u64(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_ACCOUNT_NONCE_WINDOW",
+                &DEFAULT_MEMPOOL_MAX_ACCOUNT_NONCE_WINDOW.to_string(),
+            ),
+            "MEMPOOL_MAX_ACCOUNT_NONCE_WINDOW",
+        )?;
         let mempool_max_account_submissions_per_window = parse_u32(
             &optional(
                 &mut lookup,
@@ -304,6 +320,14 @@ impl NodeConfig {
             ),
             "MEMPOOL_MAX_ACCOUNT_SUBMISSIONS_PER_WINDOW",
         )?;
+        let mempool_max_ip_submissions_per_window = parse_u32(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_IP_SUBMISSIONS_PER_WINDOW",
+                &DEFAULT_MEMPOOL_MAX_IP_SUBMISSIONS_PER_WINDOW.to_string(),
+            ),
+            "MEMPOOL_MAX_IP_SUBMISSIONS_PER_WINDOW",
+        )?;
         let mempool_max_payload_bytes = parse_usize(
             &optional(
                 &mut lookup,
@@ -311,6 +335,38 @@ impl NodeConfig {
                 &DEFAULT_MEMPOOL_MAX_PAYLOAD_BYTES.to_string(),
             ),
             "MEMPOOL_MAX_PAYLOAD_BYTES",
+        )?;
+        let mempool_max_transfer_payload_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_TRANSFER_PAYLOAD_BYTES",
+                &DEFAULT_MEMPOOL_MAX_TRANSFER_PAYLOAD_BYTES.to_string(),
+            ),
+            "MEMPOOL_MAX_TRANSFER_PAYLOAD_BYTES",
+        )?;
+        let mempool_max_withdraw_payload_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_WITHDRAW_PAYLOAD_BYTES",
+                &DEFAULT_MEMPOOL_MAX_WITHDRAW_PAYLOAD_BYTES.to_string(),
+            ),
+            "MEMPOOL_MAX_WITHDRAW_PAYLOAD_BYTES",
+        )?;
+        let mempool_max_call_payload_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_CALL_PAYLOAD_BYTES",
+                &DEFAULT_MEMPOOL_MAX_CALL_PAYLOAD_BYTES.to_string(),
+            ),
+            "MEMPOOL_MAX_CALL_PAYLOAD_BYTES",
+        )?;
+        let mempool_max_deploy_payload_bytes = parse_usize(
+            &optional(
+                &mut lookup,
+                "MEMPOOL_MAX_DEPLOY_PAYLOAD_BYTES",
+                &DEFAULT_MEMPOOL_MAX_DEPLOY_PAYLOAD_BYTES.to_string(),
+            ),
+            "MEMPOOL_MAX_DEPLOY_PAYLOAD_BYTES",
         )?;
         let mempool_max_call_body_boc_base64_bytes = parse_usize(
             &optional(
@@ -360,6 +416,26 @@ impl NodeConfig {
             ),
             "MEMPOOL_POP_BATCH_SIZE",
         )?;
+        let mempool_banned_ips = optional(
+            &mut lookup,
+            "MEMPOOL_BANNED_IPS",
+            DEFAULT_MEMPOOL_BANNED_IPS,
+        );
+        let mempool_banned_ips = if mempool_banned_ips.trim().is_empty() {
+            Vec::new()
+        } else {
+            parse_ip_addr_list(&mempool_banned_ips, "MEMPOOL_BANNED_IPS")?
+        };
+        let mempool_banned_accounts = optional(
+            &mut lookup,
+            "MEMPOOL_BANNED_ACCOUNTS",
+            DEFAULT_MEMPOOL_BANNED_ACCOUNTS,
+        );
+        let mempool_banned_accounts = if mempool_banned_accounts.trim().is_empty() {
+            Vec::new()
+        } else {
+            parse_l2_account_list(&mempool_banned_accounts, "MEMPOOL_BANNED_ACCOUNTS")?
+        };
         let executor_gas_schedule = l2_core::GasSchedule {
             version: parse_u32(
                 &optional(
@@ -462,16 +538,25 @@ impl NodeConfig {
             mempool_nonce_lock_ttl_secs,
             mempool_leader_ttl_secs,
             mempool_rate_limit_window_secs,
+            mempool_ip_rate_limit_window_secs,
             mempool_max_global_queue,
             mempool_max_account_queue,
+            mempool_max_account_nonce_window,
             mempool_max_account_submissions_per_window,
+            mempool_max_ip_submissions_per_window,
             mempool_max_payload_bytes,
+            mempool_max_transfer_payload_bytes,
+            mempool_max_withdraw_payload_bytes,
+            mempool_max_call_payload_bytes,
+            mempool_max_deploy_payload_bytes,
             mempool_max_call_body_boc_base64_bytes,
             mempool_min_gas_limit,
             mempool_max_gas_limit,
             mempool_min_gas_price,
             mempool_max_tx_fee,
             mempool_pop_batch_size,
+            mempool_banned_ips,
+            mempool_banned_accounts,
             executor_gas_schedule,
         };
         config.validate()?;

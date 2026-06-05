@@ -38,6 +38,12 @@ fn signed_tx(
     tx
 }
 
+fn resign(signing_key: &SigningKey, tx: &mut SignedL2Transaction) {
+    tx.signature = None;
+    let signature = signing_key.sign(&tx.signing_payload());
+    tx.signature = Some(hex::encode(signature.to_bytes()));
+}
+
 fn service() -> (MempoolService, SigningKey, Hash32) {
     service_with_config(MempoolAdmissionConfig::default())
 }
@@ -124,6 +130,7 @@ async fn expired_nonce_lock_is_recoverable() {
 
     service.submit(tx).await.unwrap();
     sleep(Duration::from_millis(15)).await;
+    assert_eq!(service.pop_batch(1).await.unwrap().len(), 1);
 
     let second = signed_tx(
         &signing_key,
@@ -136,6 +143,74 @@ async fn expired_nonce_lock_is_recoverable() {
         },
     );
     assert!(service.submit(second).await.is_ok());
+}
+
+#[tokio::test]
+async fn pending_nonce_window_rejects_distant_account_nonce() {
+    let config = MempoolAdmissionConfig {
+        max_account_nonce_window: 2,
+        ..MempoolAdmissionConfig::default()
+    };
+    let (service, signing_key, account_id) = service_with_config(config);
+    let first = signed_tx(
+        &signing_key,
+        account_id,
+        10,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"a"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    let distant = signed_tx(
+        &signing_key,
+        account_id,
+        13,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"b"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    service.submit(first).await.unwrap();
+    assert!(matches!(
+        service.submit(distant).await.unwrap_err(),
+        MempoolError::AccountNonceWindowExceeded { .. }
+    ));
+}
+
+#[tokio::test]
+async fn operator_banned_account_is_rejected_before_signature_check() {
+    let signing_key = SigningKey::generate(&mut OsRng);
+    let account_id = derive_account_id(&signing_key.verifying_key().to_bytes());
+    let config = MempoolAdmissionConfig {
+        banned_accounts: [account_id].into_iter().collect(),
+        ..MempoolAdmissionConfig::default()
+    };
+    let service = MempoolService::with_config(
+        "entropis-testnet",
+        config,
+        Arc::new(MemoryMempoolStore::default()),
+    );
+    let mut tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"a"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    tx.signature = Some("00".repeat(64));
+
+    assert!(matches!(
+        service.submit(tx).await.unwrap_err(),
+        MempoolError::AccountBanned { .. }
+    ));
+    let metrics = service.metrics().await.unwrap();
+    assert_eq!(metrics.rejected.get("account_banned"), Some(&1));
 }
 
 #[tokio::test]
@@ -270,6 +345,48 @@ async fn global_queue_limit_prevents_flooding() {
 }
 
 #[tokio::test]
+async fn high_fee_transaction_evicts_lowest_priority_when_global_queue_is_full() {
+    let config = MempoolAdmissionConfig {
+        max_global_queue: 1,
+        ..MempoolAdmissionConfig::default()
+    };
+    let (service, low_key, low_account) = service_with_config(config);
+    let high_key = SigningKey::generate(&mut OsRng);
+    let high_account = derive_account_id(&high_key.verifying_key().to_bytes());
+
+    let low = signed_tx(
+        &low_key,
+        low_account,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"low"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    let mut high = signed_tx(
+        &high_key,
+        high_account,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"high"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    high.max_gas_price = 2;
+    resign(&high_key, &mut high);
+    let high_hash = high.tx_hash();
+
+    service.submit(low).await.unwrap();
+    service.submit(high).await.unwrap();
+    let metrics = service.metrics().await.unwrap();
+    assert_eq!(metrics.store.evicted, 1);
+    let popped = service.pop_batch(1).await.unwrap();
+    assert_eq!(popped[0].tx_hash(), high_hash);
+}
+
+#[tokio::test]
 async fn per_account_queue_limit_prevents_account_flooding() {
     let config = MempoolAdmissionConfig {
         max_account_queue: 1,
@@ -303,6 +420,43 @@ async fn per_account_queue_limit_prevents_account_flooding() {
         service.submit(second).await.unwrap_err(),
         MempoolError::AccountQueueFull { .. }
     ));
+}
+
+#[tokio::test]
+async fn fair_pop_interleaves_accounts_before_repeating_one_account() {
+    let (service, first_key, first_account) = service();
+    let second_key = SigningKey::generate(&mut OsRng);
+    let second_account = derive_account_id(&second_key.verifying_key().to_bytes());
+
+    for nonce in 0..3 {
+        let tx = signed_tx(
+            &first_key,
+            first_account,
+            nonce,
+            L2TransactionKind::Transfer {
+                to: sha256_bytes(format!("first-{nonce}").as_bytes()),
+                asset_id: 0,
+                amount: 1,
+            },
+        );
+        service.submit(tx).await.unwrap();
+    }
+    let second = signed_tx(
+        &second_key,
+        second_account,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"second"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+    service.submit(second).await.unwrap();
+
+    let popped = service.pop_batch(2).await.unwrap();
+    let accounts = popped.iter().map(|tx| tx.from.unwrap()).collect::<Vec<_>>();
+    assert!(accounts.contains(&first_account));
+    assert!(accounts.contains(&second_account));
 }
 
 #[tokio::test]
@@ -409,6 +563,33 @@ async fn admission_policy_rejects_bad_gas_and_oversized_payloads() {
         service.submit(oversized_call).await.unwrap_err(),
         MempoolError::PayloadTooLarge { .. } | MempoolError::CallBodyTooLarge { .. }
     ));
+}
+
+#[tokio::test]
+async fn payload_class_limits_have_distinct_rejection_reasons() {
+    let config = MempoolAdmissionConfig {
+        max_payload_bytes: 4096,
+        max_transfer_payload_bytes: 64,
+        ..MempoolAdmissionConfig::default()
+    };
+    let (service, signing_key, account_id) = service_with_config(config);
+    let tx = signed_tx(
+        &signing_key,
+        account_id,
+        0,
+        L2TransactionKind::Transfer {
+            to: sha256_bytes(b"to"),
+            asset_id: 0,
+            amount: 1,
+        },
+    );
+
+    assert!(matches!(
+        service.submit(tx).await.unwrap_err(),
+        MempoolError::PayloadClassTooLarge { .. }
+    ));
+    let metrics = service.metrics().await.unwrap();
+    assert_eq!(metrics.rejected.get("transfer_payload_too_large"), Some(&1));
 }
 
 #[tokio::test]
