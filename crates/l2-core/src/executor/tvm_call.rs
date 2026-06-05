@@ -1,6 +1,6 @@
 use super::{
-    can_increment_nonce, charge_rejection_fee, execution_fee, mark_sender_attempt, rejected,
-    rejected_attempt, ExecutionConfig, ExecutionOutcome,
+    can_increment_nonce, charge_rejection_fee, distribute_charged_fee, execution_fee, fee_events,
+    mark_sender_attempt, rejected, rejected_attempt, ExecutionConfig, ExecutionOutcome,
 };
 use crate::address::is_l2_zero_address;
 use crate::crypto::{sha256_bytes, Hash32};
@@ -92,38 +92,46 @@ pub(super) fn execute_contract_call<A: TvmExecutionAdapter + ?Sized>(
         config.max_internal_messages,
         config.max_tvm_boc_bytes,
     ) {
-        let gas_charged = charge_call_or_rejection_fee(state, tx, from, config, output.gas_used);
+        let (gas_charged, fee_distribution) =
+            match charge_call_or_rejection_fee(state, tx, from, config, output.gas_used) {
+                Ok(charged) => charged,
+                Err(reason) => return rejected(tx_hash, reason),
+            };
         return ExecutionOutcome {
-            receipt: Receipt::rejected_with_gas(tx_hash, error.rejection_reason(), gas_charged),
+            receipt: Receipt::rejected_with_gas(tx_hash, error.rejection_reason(), gas_charged)
+                .with_events(fee_events(fee_distribution)),
             withdrawals: vec![],
             internal_messages: vec![],
         };
     }
 
-    let gas_charged = match charge_call_fee(state, tx, from, config, output.gas_used) {
-        Ok(gas_charged) => gas_charged,
-        Err(reason) => return rejected_attempt(state, tx, from, config, reason),
-    };
+    let (gas_charged, fee_distribution) =
+        match charge_call_fee(state, tx, from, config, output.gas_used) {
+            Ok(charged) => charged,
+            Err(reason) => return rejected_attempt(state, tx, from, config, reason),
+        };
+    let fee_events = fee_events(fee_distribution);
 
     match output.status {
         TvmExecutionStatus::Applied => {
             if let Some(delta) = output.state_delta {
                 apply_tvm_state_delta(state, contract, delta, config.block_height);
             }
+            let mut events = vec![L2Event::ContractCalled {
+                contract,
+                caller: from,
+                body_hash,
+            }];
+            events.extend(fee_events);
             ExecutionOutcome {
-                receipt: Receipt::applied(tx_hash, gas_charged, None).with_events(vec![
-                    L2Event::ContractCalled {
-                        contract,
-                        caller: from,
-                        body_hash,
-                    },
-                ]),
+                receipt: Receipt::applied(tx_hash, gas_charged, None).with_events(events),
                 withdrawals: vec![],
                 internal_messages: output.emitted_internal_messages,
             }
         }
         TvmExecutionStatus::Rejected { reason } => ExecutionOutcome {
-            receipt: Receipt::rejected_with_gas(tx_hash, reason, gas_charged),
+            receipt: Receipt::rejected_with_gas(tx_hash, reason, gas_charged)
+                .with_events(fee_events),
             withdrawals: vec![],
             internal_messages: vec![],
         },
@@ -290,12 +298,14 @@ fn charge_call_or_rejection_fee(
     from: Hash32,
     config: &ExecutionConfig,
     gas_used: u64,
-) -> u128 {
+) -> Result<(u128, Option<crate::FeeDistribution>), &'static str> {
     if gas_used == 0 || gas_used > tx.gas_limit {
         return charge_rejection_fee(state, tx, from, config);
     }
-    charge_call_fee(state, tx, from, config, gas_used)
-        .unwrap_or_else(|_| charge_rejection_fee(state, tx, from, config))
+    match charge_call_fee(state, tx, from, config, gas_used) {
+        Ok(charged) => Ok(charged),
+        Err(_) => charge_rejection_fee(state, tx, from, config),
+    }
 }
 
 fn charge_call_fee(
@@ -304,7 +314,7 @@ fn charge_call_fee(
     from: Hash32,
     config: &ExecutionConfig,
     gas_used: u64,
-) -> Result<u128, &'static str> {
+) -> Result<(u128, Option<crate::FeeDistribution>), &'static str> {
     if !can_increment_nonce(state, from) {
         return Err("nonce_overflow");
     }
@@ -312,6 +322,7 @@ fn charge_call_fee(
         .gas_schedule
         .fee_for_units(gas_used, tx.max_gas_price)
         .map_err(|error| error.rejection_reason())?;
+    let state_before = state.clone();
     let account = state.account_mut(from);
     if account.balance(tx.fee_asset_id) < fee.amount {
         return Err("insufficient_gas_coin");
@@ -320,7 +331,8 @@ fn charge_call_fee(
         return Err("insufficient_gas_coin");
     }
     mark_sender_attempt(account, tx, config.block_height);
-    Ok(fee.amount)
+    let distribution = distribute_charged_fee(state, tx, config, fee.amount, &state_before)?;
+    Ok((fee.amount, distribution))
 }
 
 fn apply_tvm_state_delta(

@@ -79,6 +79,10 @@ fn valid_entropis_testnet_config_loads() {
         config.executor_gas_schedule,
         l2_core::GasSchedule::default()
     );
+    assert_eq!(
+        config.fee_accounting,
+        l2_core::FeeAccountingConfig::default()
+    );
     assert_eq!(config.tvm_adapter, l2_core::TvmAdapterMode::Real);
     assert_eq!(config.tvm_tonlib_library_path, None);
     assert_eq!(
@@ -416,6 +420,47 @@ fn config_validates_executor_gas_schedule() {
 
     let mut env = valid_env();
     env.insert("EXECUTOR_MIN_GAS_PRICE".to_owned(), "0".to_owned());
+    assert!(load_from(&env).is_err());
+}
+
+#[test]
+fn config_validates_fee_accounting() {
+    let mut env = valid_env();
+    env.insert("L2_OPERATOR_COMMISSION_BPS".to_owned(), "250".to_owned());
+    env.insert("L2_TREASURY_FEE_BPS".to_owned(), "100".to_owned());
+    env.insert(
+        "L2_SEQUENCER_REWARD_ACCOUNT".to_owned(),
+        l2_core::l2_raw_address(l2_core::default_sequencer_reward_account()),
+    );
+    env.insert(
+        "L2_OPERATOR_FEE_ACCOUNT".to_owned(),
+        l2_core::l2_raw_address(l2_core::default_operator_fee_account()),
+    );
+    env.insert(
+        "L2_TREASURY_FEE_ACCOUNT".to_owned(),
+        l2_core::l2_raw_address(l2_core::default_treasury_fee_account()),
+    );
+    let config = load_from(&env).expect("fee accounting config");
+    assert_eq!(config.fee_accounting.operator_commission_bps, 250);
+    assert_eq!(config.fee_accounting.treasury_fee_bps, 100);
+
+    let mut env = valid_env();
+    env.insert("L2_OPERATOR_COMMISSION_BPS".to_owned(), "9000".to_owned());
+    env.insert("L2_TREASURY_FEE_BPS".to_owned(), "2000".to_owned());
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert(
+        "L2_SEQUENCER_REWARD_ACCOUNT".to_owned(),
+        l2_core::L2_ZERO_RAW_ADDRESS.to_owned(),
+    );
+    assert!(load_from(&env).is_err());
+
+    let mut env = valid_env();
+    env.insert(
+        "L2_OPERATOR_FEE_ACCOUNT".to_owned(),
+        "not-an-l2-address".to_owned(),
+    );
     assert!(load_from(&env).is_err());
 }
 

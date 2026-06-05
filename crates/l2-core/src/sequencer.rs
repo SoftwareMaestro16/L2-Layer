@@ -1,6 +1,7 @@
 use crate::address::is_l2_zero_address;
 use crate::batch::{BatchBuildInput, BatchBuilder};
 use crate::crypto::{decode_public_key, verify_signature, Hash32};
+use crate::economics::FeeAccountingConfig;
 use crate::executor::{DeterministicExecutor, ExecutionConfig, TvmAdapterMode};
 use crate::gas::GasSchedule;
 use crate::internal_queue::{
@@ -27,6 +28,7 @@ pub struct SequencerConfig {
     pub block_gas_limit: u64,
     pub gas_coin_asset: u32,
     pub gas_schedule: GasSchedule,
+    pub fee_accounting: FeeAccountingConfig,
     pub max_internal_messages: u32,
     pub max_internal_queue_len: usize,
     pub max_internal_messages_per_block: usize,
@@ -43,6 +45,7 @@ impl Default for SequencerConfig {
             block_gas_limit: 1_000_000,
             gas_coin_asset: crate::types::L2_NATIVE_GAS_ASSET,
             gas_schedule: GasSchedule::default(),
+            fee_accounting: FeeAccountingConfig::default(),
             max_internal_messages: 1024,
             max_internal_queue_len: DEFAULT_MAX_INTERNAL_QUEUE_LEN,
             max_internal_messages_per_block: DEFAULT_MAX_INTERNAL_MESSAGES_PER_BLOCK,
@@ -264,6 +267,7 @@ impl Sequencer {
                     block_height,
                     gas_coin_asset: self.config.gas_coin_asset,
                     gas_schedule: self.config.gas_schedule,
+                    fee_accounting: self.config.fee_accounting,
                     max_internal_messages: self.config.max_internal_messages,
                     tvm_adapter_mode: self.config.tvm_adapter_mode.clone(),
                     tvm_tonlib_library_path: self.config.tvm_tonlib_library_path.clone(),
@@ -335,6 +339,7 @@ impl Sequencer {
                     block_height,
                     gas_coin_asset: self.config.gas_coin_asset,
                     gas_schedule: self.config.gas_schedule,
+                    fee_accounting: self.config.fee_accounting,
                     max_internal_messages: self.config.max_internal_messages,
                     tvm_adapter_mode: self.config.tvm_adapter_mode.clone(),
                     tvm_tonlib_library_path: self.config.tvm_tonlib_library_path.clone(),

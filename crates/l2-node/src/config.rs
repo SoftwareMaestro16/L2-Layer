@@ -3,12 +3,14 @@ use std::path::PathBuf;
 
 mod debug;
 mod defaults;
+mod economics;
 #[path = "config_helpers.rs"]
 mod helpers;
 mod types;
 mod validation;
 
 pub(crate) use defaults::*;
+use economics::parse_fee_accounting;
 pub use helpers::SecretString;
 use helpers::{
     bool_literal, optional, optional_secret, optional_string, parse_bool, parse_ip_addr_list,
@@ -546,6 +548,7 @@ impl NodeConfig {
                 "EXECUTOR_MIN_GAS_PRICE",
             )?,
         };
+        let fee_accounting = parse_fee_accounting(&mut lookup)?;
 
         let config = Self {
             l2_name,
@@ -627,6 +630,7 @@ impl NodeConfig {
             mempool_banned_ips,
             mempool_banned_accounts,
             executor_gas_schedule,
+            fee_accounting,
         };
         config.validate()?;
         Ok(config)

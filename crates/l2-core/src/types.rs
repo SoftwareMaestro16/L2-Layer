@@ -262,6 +262,20 @@ pub enum L2Event {
         l2_sender: Hash32,
         l1_recipient: String,
     },
+    FeeDistributed {
+        asset_id: u32,
+        #[serde(with = "serde_u128_string")]
+        total_amount: u128,
+        #[serde(with = "serde_u128_string")]
+        sequencer_amount: u128,
+        #[serde(with = "serde_u128_string")]
+        operator_amount: u128,
+        #[serde(with = "serde_u128_string")]
+        treasury_amount: u128,
+        sequencer_reward_account: Hash32,
+        operator_fee_account: Hash32,
+        treasury_fee_account: Hash32,
+    },
 }
 
 impl L2Event {
@@ -270,6 +284,7 @@ impl L2Event {
             Self::ContractDeployed { .. } => "contract_deployed",
             Self::ContractCalled { .. } => "contract_called",
             Self::WithdrawalCreated { .. } => "withdrawal_created",
+            Self::FeeDistributed { .. } => "fee_distributed",
         }
     }
 
@@ -280,6 +295,7 @@ impl L2Event {
             Self::WithdrawalCreated { l1_recipient, .. } => {
                 1 + 32 + 4 + 16 + 32 + 4 + l1_recipient.len()
             }
+            Self::FeeDistributed { .. } => 1 + 4 + (16 * 4) + (32 * 3),
         }
     }
 
@@ -288,7 +304,7 @@ impl L2Event {
             Self::ContractDeployed { contract, .. } | Self::ContractCalled { contract, .. } => {
                 Some(*contract)
             }
-            Self::WithdrawalCreated { .. } => None,
+            Self::WithdrawalCreated { .. } | Self::FeeDistributed { .. } => None,
         }
     }
 }

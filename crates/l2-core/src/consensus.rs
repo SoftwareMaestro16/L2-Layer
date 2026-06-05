@@ -31,6 +31,7 @@ const STATUS_REJECTED: u8 = 0x02;
 const EVENT_CONTRACT_DEPLOYED: u8 = 0x01;
 const EVENT_CONTRACT_CALLED: u8 = 0x02;
 const EVENT_WITHDRAWAL_CREATED: u8 = 0x03;
+const EVENT_FEE_DISTRIBUTED: u8 = 0x04;
 
 pub fn encode_unsigned_transaction(tx: &UnsignedL2Transaction) -> Vec<u8> {
     let mut out = with_header(TYPE_UNSIGNED_TX);
@@ -297,6 +298,26 @@ fn encode_l2_event(out: &mut Vec<u8>, event: &L2Event) {
             write_hash(out, *l2_sender);
             write_string(out, l1_recipient);
         }
+        L2Event::FeeDistributed {
+            asset_id,
+            total_amount,
+            sequencer_amount,
+            operator_amount,
+            treasury_amount,
+            sequencer_reward_account,
+            operator_fee_account,
+            treasury_fee_account,
+        } => {
+            out.push(EVENT_FEE_DISTRIBUTED);
+            write_u32(out, *asset_id);
+            write_u128(out, *total_amount);
+            write_u128(out, *sequencer_amount);
+            write_u128(out, *operator_amount);
+            write_u128(out, *treasury_amount);
+            write_hash(out, *sequencer_reward_account);
+            write_hash(out, *operator_fee_account);
+            write_hash(out, *treasury_fee_account);
+        }
     }
 }
 
@@ -504,12 +525,23 @@ mod tests {
     fn receipt_events_are_part_of_leaf_hash() {
         let tx_hash = hash(0xaa);
         let plain = Receipt::applied(tx_hash, 10, None);
-        let with_event =
-            Receipt::applied(tx_hash, 10, None).with_events(vec![L2Event::ContractCalled {
+        let with_event = Receipt::applied(tx_hash, 10, None).with_events(vec![
+            L2Event::ContractCalled {
                 contract: hash(0x01),
                 caller: hash(0x02),
                 body_hash: hash(0x03),
-            }]);
+            },
+            L2Event::FeeDistributed {
+                asset_id: L2_NATIVE_GAS_ASSET,
+                total_amount: 100,
+                sequencer_amount: 90,
+                operator_amount: 7,
+                treasury_amount: 3,
+                sequencer_reward_account: hash(0x04),
+                operator_fee_account: hash(0x05),
+                treasury_fee_account: hash(0x06),
+            },
+        ]);
 
         assert_ne!(plain.leaf_hash(), with_event.leaf_hash());
         assert!(encode_receipt(&with_event).len() > encode_receipt(&plain).len());

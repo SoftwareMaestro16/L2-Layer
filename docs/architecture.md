@@ -72,6 +72,10 @@ versioned gas schedule and charges `gas_used * max_gas_price` from that asset.
 Rejected execution is no-refund for the MVP: an authenticated transaction that
 reaches the executor advances nonce and may pay the smaller configured rejection
 fee, while sequencer-level auth/nonce rejections remain uncharged.
+Charged fees are no longer burned: deterministic L2 fee accounting credits the
+configured sequencer reward, operator commission, and treasury accounts and emits
+a `fee_distributed` receipt event. Operator and treasury basis points are bounded
+to `<= 10000` total, and rounding remainder goes to the sequencer reward account.
 
 ## TVM Adapter Boundary
 

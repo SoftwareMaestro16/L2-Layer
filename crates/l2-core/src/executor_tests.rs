@@ -5,7 +5,7 @@ use crate::types::{
     L2Event, L2TransactionKind, ReceiptStatus, SignedL2Transaction, L2_NATIVE_GAS_ASSET,
     L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
-use crate::{sample_counter_initial_state, GasSchedule};
+use crate::{sample_counter_initial_state, FeeAccountingConfig, GasSchedule};
 
 const CHAIN_ID: &str = "entropis-testnet";
 
@@ -392,6 +392,126 @@ fn transfer_uses_configured_gas_schedule_and_price() {
 }
 
 #[test]
+fn transfer_distributes_fee_to_configured_destinations() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let recipient = account(b"recipient");
+    let sequencer = account(b"sequencer-reward");
+    let operator = account(b"operator-fee");
+    let treasury = account(b"treasury-fee");
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 1_000));
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            10,
+            10,
+            L2TransactionKind::Transfer {
+                to: recipient,
+                asset_id: L2_NATIVE_GAS_ASSET,
+                amount: 100,
+            },
+        ),
+        &ExecutionConfig {
+            block_height: 9,
+            fee_accounting: FeeAccountingConfig {
+                operator_commission_bps: 2_500,
+                treasury_fee_bps: 1_000,
+                sequencer_reward_account: sequencer,
+                operator_fee_account: operator,
+                treasury_fee_account: treasury,
+            },
+            ..ExecutionConfig::default()
+        },
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Applied);
+    assert_eq!(outcome.receipt.gas_charged, 100);
+    assert_eq!(state.account(sender).unwrap().balance(0), 800);
+    assert_eq!(state.account(recipient).unwrap().balance(0), 100);
+    assert_eq!(state.account(sequencer).unwrap().balance(0), 65);
+    assert_eq!(state.account(operator).unwrap().balance(0), 25);
+    assert_eq!(state.account(treasury).unwrap().balance(0), 10);
+    assert_eq!(
+        outcome.receipt.events,
+        vec![L2Event::FeeDistributed {
+            asset_id: L2_NATIVE_GAS_ASSET,
+            total_amount: 100,
+            sequencer_amount: 65,
+            operator_amount: 25,
+            treasury_amount: 10,
+            sequencer_reward_account: sequencer,
+            operator_fee_account: operator,
+            treasury_fee_account: treasury,
+        }]
+    );
+}
+
+#[test]
+fn rejected_attempt_distributes_rejection_fee() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let recipient = account(b"recipient");
+    let sequencer = account(b"sequencer-reward");
+    let operator = account(b"operator-fee");
+    let treasury = account(b"treasury-fee");
+    assert!(state.account_mut(sender).credit(L2_NATIVE_GAS_ASSET, 100));
+
+    let outcome = executor.apply(
+        &mut state,
+        &tx(
+            sender,
+            0,
+            9,
+            10,
+            L2TransactionKind::Transfer {
+                to: recipient,
+                asset_id: L2_NATIVE_GAS_ASSET,
+                amount: 1,
+            },
+        ),
+        &ExecutionConfig {
+            block_height: 9,
+            fee_accounting: FeeAccountingConfig {
+                operator_commission_bps: 2_000,
+                treasury_fee_bps: 1_000,
+                sequencer_reward_account: sequencer,
+                operator_fee_account: operator,
+                treasury_fee_account: treasury,
+            },
+            ..ExecutionConfig::default()
+        },
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        outcome.receipt.reason.as_deref(),
+        Some("insufficient_gas_limit")
+    );
+    assert_eq!(outcome.receipt.gas_charged, 10);
+    assert_eq!(state.account(sender).unwrap().balance(0), 90);
+    assert_eq!(state.account(sender).unwrap().nonce, 1);
+    assert_eq!(state.account(sequencer).unwrap().balance(0), 7);
+    assert_eq!(state.account(operator).unwrap().balance(0), 2);
+    assert_eq!(state.account(treasury).unwrap().balance(0), 1);
+    assert_eq!(outcome.receipt.events.len(), 1);
+    assert!(matches!(
+        outcome.receipt.events[0],
+        L2Event::FeeDistributed {
+            total_amount: 10,
+            sequencer_amount: 7,
+            operator_amount: 2,
+            treasury_amount: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn exact_gas_limit_is_accepted() {
     let executor = DeterministicExecutor;
     let mut state = State::default();
@@ -549,16 +669,24 @@ fn withdraw_emits_deterministic_receipt_event() {
 
     assert_eq!(outcome.receipt.status, ReceiptStatus::Applied);
     let withdrawal = outcome.withdrawals.first().expect("withdrawal leaf");
+    assert_eq!(outcome.receipt.events.len(), 2);
     assert_eq!(
-        outcome.receipt.events,
-        vec![L2Event::WithdrawalCreated {
+        outcome.receipt.events[0],
+        L2Event::WithdrawalCreated {
             withdrawal_id: withdrawal.withdrawal_id,
             asset_id: L2_NATIVE_GAS_ASSET,
             amount: 100,
             l2_sender: sender,
             l1_recipient,
-        }]
+        }
     );
+    assert!(matches!(
+        outcome.receipt.events[1],
+        L2Event::FeeDistributed {
+            total_amount: 20,
+            ..
+        }
+    ));
 }
 
 #[test]

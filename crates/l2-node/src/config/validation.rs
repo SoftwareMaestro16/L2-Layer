@@ -55,6 +55,9 @@ impl NodeConfig {
         self.executor_gas_schedule
             .validate()
             .map_err(|error| anyhow!("invalid executor gas schedule: {error}"))?;
+        self.fee_accounting
+            .validate()
+            .map_err(|error| anyhow!("invalid fee accounting config: {error}"))?;
         Ok(())
     }
 

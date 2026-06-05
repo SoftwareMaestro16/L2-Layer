@@ -97,6 +97,7 @@ impl AppState {
         let mut sequencer = Sequencer::new(SequencerConfig {
             chain_id: config.chain_id.clone(),
             gas_schedule: config.executor_gas_schedule,
+            fee_accounting: config.fee_accounting,
             max_internal_queue_len: config.internal_queue_max_len,
             max_internal_messages_per_block: config.internal_queue_max_per_block,
             internal_message_gas_limit: config.internal_message_gas_limit,
@@ -588,6 +589,7 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
     match result {
         Ok(Some(block)) => {
             state.metrics.record_block_produced(block.header.height);
+            state.metrics.record_fee_distribution_events(&block);
             Ok(Some(block))
         }
         Ok(None) => {

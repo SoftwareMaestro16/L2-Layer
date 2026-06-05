@@ -29,6 +29,7 @@ const STATUS_REJECTED = 0x02;
 const EVENT_CONTRACT_DEPLOYED = 0x01;
 const EVENT_CONTRACT_CALLED = 0x02;
 const EVENT_WITHDRAWAL_CREATED = 0x03;
+const EVENT_FEE_DISTRIBUTED = 0x04;
 
 export type ReceiptStatus = "Applied" | "Rejected";
 
@@ -55,6 +56,18 @@ export type L2Event =
         amount: string;
         l2_sender: Hash32;
         l1_recipient: string;
+      };
+    }
+  | {
+      FeeDistributed: {
+        asset_id: number;
+        total_amount: string;
+        sequencer_amount: string;
+        operator_amount: string;
+        treasury_amount: string;
+        sequencer_reward_account: Hash32;
+        operator_fee_account: Hash32;
+        treasury_fee_account: Hash32;
       };
     };
 
@@ -347,6 +360,16 @@ function writeL2Event(out: ConsensusWriter, event: L2Event) {
     out.u128(event.WithdrawalCreated.amount);
     out.hash(event.WithdrawalCreated.l2_sender);
     out.string(event.WithdrawalCreated.l1_recipient);
+  } else if ("FeeDistributed" in event) {
+    out.u8(EVENT_FEE_DISTRIBUTED);
+    out.u32(event.FeeDistributed.asset_id);
+    out.u128(event.FeeDistributed.total_amount);
+    out.u128(event.FeeDistributed.sequencer_amount);
+    out.u128(event.FeeDistributed.operator_amount);
+    out.u128(event.FeeDistributed.treasury_amount);
+    out.hash(event.FeeDistributed.sequencer_reward_account);
+    out.hash(event.FeeDistributed.operator_fee_account);
+    out.hash(event.FeeDistributed.treasury_fee_account);
   } else {
     const exhaustive: never = event;
     throw new Error(`unsupported L2 event ${JSON.stringify(exhaustive)}`);

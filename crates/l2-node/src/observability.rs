@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -57,6 +57,7 @@ impl ComponentReadiness {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct OperatorMetrics {
     pub block_production: BlockProductionMetrics,
+    pub economics: EconomicsMetrics,
     pub indexer: IndexerMetrics,
     pub relayer: RelayerMetrics,
     pub finalizer: FinalizerMetrics,
@@ -70,6 +71,15 @@ pub struct BlockProductionMetrics {
     pub empty: u64,
     pub errors: u64,
     pub last_height: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct EconomicsMetrics {
+    pub fee_events: u64,
+    pub total_fees: String,
+    pub sequencer_rewards: String,
+    pub operator_commissions: String,
+    pub treasury_fees: String,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -126,6 +136,7 @@ pub struct NodeMetrics {
     empty_blocks: AtomicU64,
     block_errors: AtomicU64,
     last_block_height_plus_one: AtomicU64,
+    economics: Mutex<EconomicsTotals>,
     indexer_polls: AtomicU64,
     indexer_errors: AtomicU64,
     indexer_fetched: AtomicU64,
@@ -168,6 +179,30 @@ impl NodeMetrics {
 
     pub fn record_block_error(&self) {
         self.block_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_fee_distribution_events(&self, block: &l2_core::L2Block) {
+        let mut totals = self.economics.lock().expect("economics metrics mutex");
+        for receipt in &block.receipts {
+            for event in &receipt.events {
+                if let l2_core::L2Event::FeeDistributed {
+                    total_amount,
+                    sequencer_amount,
+                    operator_amount,
+                    treasury_amount,
+                    ..
+                } = event
+                {
+                    totals.fee_events = totals.fee_events.saturating_add(1);
+                    totals.total_fees = totals.total_fees.saturating_add(*total_amount);
+                    totals.sequencer_rewards =
+                        totals.sequencer_rewards.saturating_add(*sequencer_amount);
+                    totals.operator_commissions =
+                        totals.operator_commissions.saturating_add(*operator_amount);
+                    totals.treasury_fees = totals.treasury_fees.saturating_add(*treasury_amount);
+                }
+            }
+        }
     }
 
     pub fn record_indexer_poll(&self, fetched: usize, accepted: usize, duplicates: usize) {
@@ -250,6 +285,11 @@ impl NodeMetrics {
 
     pub fn snapshot(&self) -> OperatorMetrics {
         let last_block_height_plus_one = self.last_block_height_plus_one.load(Ordering::Relaxed);
+        let economics = self
+            .economics
+            .lock()
+            .expect("economics metrics mutex")
+            .snapshot();
         OperatorMetrics {
             block_production: BlockProductionMetrics {
                 attempts: self.block_attempts.load(Ordering::Relaxed),
@@ -258,6 +298,7 @@ impl NodeMetrics {
                 errors: self.block_errors.load(Ordering::Relaxed),
                 last_height: last_block_height_plus_one.checked_sub(1),
             },
+            economics,
             indexer: IndexerMetrics {
                 polls: self.indexer_polls.load(Ordering::Relaxed),
                 errors: self.indexer_errors.load(Ordering::Relaxed),
@@ -289,6 +330,27 @@ impl NodeMetrics {
                 da_write: self.da_write_latency.snapshot(),
                 storage_save_block: self.storage_save_block_latency.snapshot(),
             },
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct EconomicsTotals {
+    fee_events: u64,
+    total_fees: u128,
+    sequencer_rewards: u128,
+    operator_commissions: u128,
+    treasury_fees: u128,
+}
+
+impl EconomicsTotals {
+    fn snapshot(&self) -> EconomicsMetrics {
+        EconomicsMetrics {
+            fee_events: self.fee_events,
+            total_fees: self.total_fees.to_string(),
+            sequencer_rewards: self.sequencer_rewards.to_string(),
+            operator_commissions: self.operator_commissions.to_string(),
+            treasury_fees: self.treasury_fees.to_string(),
         }
     }
 }

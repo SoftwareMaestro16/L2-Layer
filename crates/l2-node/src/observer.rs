@@ -1,7 +1,9 @@
 use crate::da::DynDa;
 use crate::signer::BatchCommitment;
 use crate::storage::{DynStorage, ObserverCheckpoint, StorageError};
-use l2_core::{GasSchedule, Hash32, SequencerConfig, TvmAdapterMode, L2_NATIVE_GAS_ASSET};
+use l2_core::{
+    FeeAccountingConfig, GasSchedule, Hash32, SequencerConfig, TvmAdapterMode, L2_NATIVE_GAS_ASSET,
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -17,6 +19,7 @@ pub struct ObserverReplayConfig {
     pub block_gas_limit: u64,
     pub gas_coin_asset: u32,
     pub gas_schedule: GasSchedule,
+    pub fee_accounting: FeeAccountingConfig,
     pub max_internal_messages: u32,
     pub tvm_adapter_mode: TvmAdapterMode,
     pub tvm_tonlib_library_path: Option<PathBuf>,
@@ -30,6 +33,7 @@ impl ObserverReplayConfig {
             block_gas_limit: config.block_gas_limit,
             gas_coin_asset: config.gas_coin_asset,
             gas_schedule: config.gas_schedule,
+            fee_accounting: config.fee_accounting,
             max_internal_messages: config.max_internal_messages,
             tvm_adapter_mode: config.tvm_adapter_mode.clone(),
             tvm_tonlib_library_path: config.tvm_tonlib_library_path.clone(),
@@ -45,6 +49,7 @@ impl Default for ObserverReplayConfig {
             block_gas_limit: 1_000_000,
             gas_coin_asset: L2_NATIVE_GAS_ASSET,
             gas_schedule: GasSchedule::default(),
+            fee_accounting: FeeAccountingConfig::default(),
             max_internal_messages: 1024,
             tvm_adapter_mode: TvmAdapterMode::Real,
             tvm_tonlib_library_path: None,

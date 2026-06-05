@@ -89,6 +89,7 @@ L2 event tags:
 0x01 ContractDeployed(contract:Hash32, deployer:Hash32, code_hash:Hash32, data_hash:Hash32)
 0x02 ContractCalled(contract:Hash32, caller:Hash32, body_hash:Hash32)
 0x03 WithdrawalCreated(withdrawal_id:Hash32, asset_id:uint32, amount:uint128, l2_sender:Hash32, l1_recipient:string)
+0x04 FeeDistributed(asset_id:uint32, total_amount:uint128, sequencer_amount:uint128, operator_amount:uint128, treasury_amount:uint128, sequencer_reward_account:Hash32, operator_fee_account:Hash32, treasury_fee_account:Hash32)
 ```
 
 The event vector is ordered exactly as emitted by deterministic execution and is
@@ -97,6 +98,9 @@ separate `event_root` field to `L2BlockHeader` because the current TON
 `RollupRoot` commitment schema already commits to events through `receipt_root`.
 A future header version may split events into a dedicated root after an L1 schema
 upgrade.
+`FeeDistributed` is emitted only when gas/rejection fees are actually charged;
+sequencer, operator, and treasury amounts are credited to the configured L2
+accounts before the receipt is finalized.
 
 Withdrawal leaf:
 

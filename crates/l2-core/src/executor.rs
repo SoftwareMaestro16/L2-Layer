@@ -1,7 +1,8 @@
 use crate::address::is_l2_zero_address;
 use crate::crypto::{decode_public_key, Hash32};
+use crate::economics::FeeAccountingConfig;
 use crate::gas::{GasFee, GasSchedule};
-use crate::state::{Account, AccountType, State};
+use crate::state::State;
 use crate::tvm::{
     decode_contract_cell_boc_base64, ContractCellField, TvmExecutionAdapter, TvmInternalMessage,
     DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES, DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES,
@@ -9,14 +10,23 @@ use crate::tvm::{
 };
 use crate::types::{
     L2Event, L2TransactionKind, Receipt, SignedL2Transaction, WithdrawalLeaf, L2_NATIVE_GAS_ASSET,
-    L2_TRANSACTION_KIND_VERSION_V1, L2_TX_DOMAIN_SEPARATOR, L2_TX_VERSION_V2,
 };
 use crate::withdrawal::validate_release_parts;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[path = "executor/auth.rs"]
+mod auth;
+#[path = "executor/fees.rs"]
+mod fees;
 #[path = "executor/tvm_call.rs"]
 mod tvm_call;
+
+use auth::{
+    authenticated_sender, can_increment_nonce, mark_sender_attempt, validate_execution_envelope,
+};
+use fees::{charge_rejection_fee, distribute_charged_fee, fee_events};
+use fees::{debit_total, validate_total_debit};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +46,7 @@ pub struct ExecutionConfig {
     pub max_tvm_boc_bytes: usize,
     pub max_contract_code_boc_bytes: usize,
     pub max_contract_data_boc_bytes: usize,
+    pub fee_accounting: FeeAccountingConfig,
     pub tvm_adapter_mode: TvmAdapterMode,
     pub tvm_tonlib_library_path: Option<PathBuf>,
 }
@@ -51,6 +62,7 @@ impl Default for ExecutionConfig {
             max_tvm_boc_bytes: DEFAULT_MAX_TVM_BOC_BYTES,
             max_contract_code_boc_bytes: DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES,
             max_contract_data_boc_bytes: DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES,
+            fee_accounting: FeeAccountingConfig::default(),
             tvm_adapter_mode: TvmAdapterMode::Real,
             tvm_tonlib_library_path: None,
         }
@@ -155,6 +167,7 @@ impl DeterministicExecutor {
                 {
                     return rejected_attempt(state, tx, from, config, reason);
                 }
+                let state_before = state.clone();
                 if !debit_total(state, from, *asset_id, *amount, tx.fee_asset_id, fee) {
                     return rejected_attempt(state, tx, from, config, "insufficient_balance");
                 }
@@ -168,9 +181,15 @@ impl DeterministicExecutor {
                     return rejected_attempt(state, tx, from, config, "balance_overflow");
                 }
                 recipient.last_lt = config.block_height;
+                let fee_distribution =
+                    match distribute_charged_fee(state, tx, config, fee.amount, &state_before) {
+                        Ok(distribution) => distribution,
+                        Err(reason) => return rejected(tx_hash, reason),
+                    };
 
                 ExecutionOutcome {
-                    receipt: Receipt::applied(tx_hash, fee.amount, None),
+                    receipt: Receipt::applied(tx_hash, fee.amount, None)
+                        .with_events(fee_events(fee_distribution)),
                     withdrawals: vec![],
                     internal_messages: vec![],
                 }
@@ -201,6 +220,7 @@ impl DeterministicExecutor {
                 {
                     return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                 }
+                let state_before = state.clone();
                 {
                     let sender = state.account_mut(from);
                     if !sender.debit(tx.fee_asset_id, fee.amount) {
@@ -209,9 +229,15 @@ impl DeterministicExecutor {
                     mark_sender_attempt(sender, tx, config.block_height);
                     sender.active_public_key = Some(Hash32::new(new_public_key));
                 }
+                let fee_distribution =
+                    match distribute_charged_fee(state, tx, config, fee.amount, &state_before) {
+                        Ok(distribution) => distribution,
+                        Err(reason) => return rejected(tx_hash, reason),
+                    };
 
                 ExecutionOutcome {
-                    receipt: Receipt::applied(tx_hash, fee.amount, None),
+                    receipt: Receipt::applied(tx_hash, fee.amount, None)
+                        .with_events(fee_events(fee_distribution)),
                     withdrawals: vec![],
                     internal_messages: vec![],
                 }
@@ -242,6 +268,7 @@ impl DeterministicExecutor {
                 {
                     return rejected_attempt(state, tx, from, config, reason);
                 }
+                let state_before = state.clone();
                 if !debit_total(state, from, *asset_id, *amount, tx.fee_asset_id, fee) {
                     return rejected_attempt(state, tx, from, config, "insufficient_balance");
                 }
@@ -252,16 +279,23 @@ impl DeterministicExecutor {
                     let sender = state.account_mut(from);
                     mark_sender_attempt(sender, tx, config.block_height);
                 }
+                let fee_distribution =
+                    match distribute_charged_fee(state, tx, config, fee.amount, &state_before) {
+                        Ok(distribution) => distribution,
+                        Err(reason) => return rejected(tx_hash, reason),
+                    };
+                let mut events = vec![L2Event::WithdrawalCreated {
+                    withdrawal_id: withdrawal.withdrawal_id,
+                    asset_id: withdrawal.asset_id,
+                    amount: withdrawal.amount,
+                    l2_sender: withdrawal.l2_sender,
+                    l1_recipient: withdrawal.l1_recipient.clone(),
+                }];
+                events.extend(fee_events(fee_distribution));
 
                 ExecutionOutcome {
                     receipt: Receipt::applied(tx_hash, fee.amount, Some(withdrawal.withdrawal_id))
-                        .with_events(vec![L2Event::WithdrawalCreated {
-                            withdrawal_id: withdrawal.withdrawal_id,
-                            asset_id: withdrawal.asset_id,
-                            amount: withdrawal.amount,
-                            l2_sender: withdrawal.l2_sender,
-                            l1_recipient: withdrawal.l1_recipient.clone(),
-                        }]),
+                        .with_events(events),
                     withdrawals: vec![withdrawal],
                     internal_messages: vec![],
                 }
@@ -329,6 +363,7 @@ impl DeterministicExecutor {
                 {
                     return rejected_attempt(state, tx, from, config, "insufficient_gas_coin");
                 }
+                let state_before = state.clone();
                 {
                     let sender = state.account_mut(from);
                     if !sender.debit(tx.fee_asset_id, fee.amount) {
@@ -344,16 +379,21 @@ impl DeterministicExecutor {
                 deployed.code_boc_base64 = Some(code_cell.boc_base64);
                 deployed.data_boc_base64 = Some(data_cell.boc_base64);
                 deployed.last_lt = config.block_height;
+                let fee_distribution =
+                    match distribute_charged_fee(state, tx, config, fee.amount, &state_before) {
+                        Ok(distribution) => distribution,
+                        Err(reason) => return rejected(tx_hash, reason),
+                    };
+                let mut events = vec![L2Event::ContractDeployed {
+                    contract: *contract,
+                    deployer: from,
+                    code_hash: code_cell.cell_hash,
+                    data_hash: data_cell.cell_hash,
+                }];
+                events.extend(fee_events(fee_distribution));
 
                 ExecutionOutcome {
-                    receipt: Receipt::applied(tx_hash, fee.amount, None).with_events(vec![
-                        L2Event::ContractDeployed {
-                            contract: *contract,
-                            deployer: from,
-                            code_hash: code_cell.cell_hash,
-                            data_hash: data_cell.cell_hash,
-                        },
-                    ]),
+                    receipt: Receipt::applied(tx_hash, fee.amount, None).with_events(events),
                     withdrawals: vec![],
                     internal_messages: vec![],
                 }
@@ -410,28 +450,6 @@ fn rejected(tx_hash: Hash32, reason: impl Into<String>) -> ExecutionOutcome {
     }
 }
 
-fn validate_execution_envelope(
-    tx: &SignedL2Transaction,
-    config: &ExecutionConfig,
-) -> Result<(), &'static str> {
-    if tx.tx_version != L2_TX_VERSION_V2 {
-        return Err("unsupported_tx_version");
-    }
-    if tx.domain_separator != L2_TX_DOMAIN_SEPARATOR {
-        return Err("invalid_domain_separator");
-    }
-    if tx.transaction_kind_version != L2_TRANSACTION_KIND_VERSION_V1 {
-        return Err("unsupported_transaction_kind_version");
-    }
-    if tx.valid_until_block < config.block_height {
-        return Err("tx_expired");
-    }
-    if !tx.is_system() && tx.fee_asset_id != config.gas_coin_asset {
-        return Err("unsupported_fee_asset");
-    }
-    Ok(())
-}
-
 fn rejected_attempt(
     state: &mut State,
     tx: &SignedL2Transaction,
@@ -440,9 +458,19 @@ fn rejected_attempt(
     reason: impl Into<String>,
 ) -> ExecutionOutcome {
     let tx_hash = tx.tx_hash();
-    let gas_charged = charge_rejection_fee(state, tx, from, config);
+    let (gas_charged, fee_distribution) = match charge_rejection_fee(state, tx, from, config) {
+        Ok(charged) => charged,
+        Err(reason) => {
+            return ExecutionOutcome {
+                receipt: Receipt::rejected(tx_hash, reason),
+                withdrawals: vec![],
+                internal_messages: vec![],
+            };
+        }
+    };
     ExecutionOutcome {
-        receipt: Receipt::rejected_with_gas(tx_hash, reason, gas_charged),
+        receipt: Receipt::rejected_with_gas(tx_hash, reason, gas_charged)
+            .with_events(fee_events(fee_distribution)),
         withdrawals: vec![],
         internal_messages: vec![],
     }
@@ -455,137 +483,6 @@ fn execution_fee(
     config
         .gas_schedule
         .execution_fee(&tx.kind, tx.gas_limit, tx.max_gas_price)
-}
-
-fn authenticated_sender(state: &State, tx: &SignedL2Transaction) -> Result<Hash32, &'static str> {
-    let from = tx.from.ok_or("missing_sender")?;
-    if is_l2_zero_address(from) {
-        return Err("reserved_zero_address");
-    }
-    let account = state.account(from).ok_or("unknown_sender")?;
-    if let Some(reason) = public_sender_rejection(account) {
-        return Err(reason);
-    }
-    Ok(from)
-}
-
-fn public_sender_rejection(account: &Account) -> Option<&'static str> {
-    if account.flags.disabled {
-        return Some("account_disabled");
-    }
-    if account.is_recovery_locked() {
-        return Some("account_recovery_locked");
-    }
-    if account.flags.system_only || matches!(account.account_type, AccountType::System) {
-        return Some("sender_system_only");
-    }
-    if account.flags.contract_only || matches!(account.account_type, AccountType::Contract) {
-        return Some("sender_contract_only");
-    }
-    if !account.can_send_public_transaction() {
-        return Some("sender_not_public");
-    }
-    None
-}
-
-fn can_increment_nonce(state: &State, from: Hash32) -> bool {
-    state
-        .account(from)
-        .is_some_and(|account| account.nonce < u64::MAX)
-}
-
-fn mark_sender_attempt(
-    account: &mut crate::state::Account,
-    tx: &SignedL2Transaction,
-    block_height: u64,
-) {
-    if account.active_public_key.is_none() {
-        if let Some(public_key) = tx
-            .public_key
-            .as_deref()
-            .and_then(|public_key| decode_public_key(public_key).ok())
-        {
-            account.active_public_key = Some(Hash32::new(public_key));
-        }
-    }
-    account.nonce += 1;
-    account.last_lt = block_height;
-}
-
-fn charge_rejection_fee(
-    state: &mut State,
-    tx: &SignedL2Transaction,
-    from: Hash32,
-    config: &ExecutionConfig,
-) -> u128 {
-    if !can_increment_nonce(state, from) {
-        return 0;
-    }
-    let fee = config
-        .gas_schedule
-        .rejection_fee(tx.gas_limit, tx.max_gas_price)
-        .map_or(0, |fee| fee.amount);
-    let account = state.account_mut(from);
-    let gas_charged = if fee > 0 && account.balance(tx.fee_asset_id) >= fee {
-        if account.debit(tx.fee_asset_id, fee) {
-            fee
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-    mark_sender_attempt(account, tx, config.block_height);
-    gas_charged
-}
-
-fn validate_total_debit(
-    state: &State,
-    from: Hash32,
-    asset_id: u32,
-    amount: u128,
-    gas_asset_id: u32,
-    fee: GasFee,
-) -> Result<(), &'static str> {
-    let Some(account) = state.account(from) else {
-        return Err("unknown_sender");
-    };
-    if asset_id == gas_asset_id {
-        let total = amount.checked_add(fee.amount).ok_or("fee_overflow")?;
-        if account.balance(asset_id) < total {
-            return Err("insufficient_balance");
-        }
-    } else {
-        if account.balance(gas_asset_id) < fee.amount {
-            return Err("insufficient_gas_coin");
-        }
-        if account.balance(asset_id) < amount {
-            return Err("insufficient_balance");
-        }
-    }
-    Ok(())
-}
-
-fn debit_total(
-    state: &mut State,
-    from: Hash32,
-    asset_id: u32,
-    amount: u128,
-    gas_asset_id: u32,
-    fee: GasFee,
-) -> bool {
-    let account = state.account_mut(from);
-    if asset_id == gas_asset_id {
-        let total = match amount.checked_add(fee.amount) {
-            Some(total) => total,
-            None => return false,
-        };
-        account.debit(asset_id, total)
-    } else if account.balance(gas_asset_id) >= fee.amount && account.balance(asset_id) >= amount {
-        account.debit(gas_asset_id, fee.amount) && account.debit(asset_id, amount)
-    } else {
-        false
-    }
 }
 
 #[cfg(test)]

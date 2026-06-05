@@ -8,6 +8,7 @@ of scope except where L2 commitments depend on their outputs.
 ## Scope
 
 - L2 transaction envelope, signatures, nonce, expiration, and fee asset checks.
+- Deterministic fee accounting for sequencer, operator, and treasury accounts.
 - Account lifecycle, contract deploy, contract calls, BoC validation, and TVM
   adapter boundaries.
 - Sequencer batch construction, state roots, receipt roots, withdrawal roots,
@@ -48,6 +49,13 @@ The MVP commits events through `receipt_root` and DA, not a separate
 - A separate event root requires a future block header and RollupRoot schema
   upgrade.
 
+L2 economics Phase A is accounting only.
+
+- Gas and rejection fees are credited to configured L2 accounts and emitted as
+  `fee_distributed` events.
+- Staking, delegation, unbonding, and slashing remain future deterministic state
+  modules and are not active consensus rules in this pass.
+
 ## Attack Matrix
 
 | Area | Result | Evidence |
@@ -57,6 +65,7 @@ The MVP commits events through `receipt_root` and DA, not a separate
 | Contract deploy overwrite | Covered | deploy overwrite and claimed-user-account rejection tests |
 | Malformed CallContract BoC | Covered | malformed and oversized call-body tests reject before adapter |
 | Gas griefing | Covered | gas limit, block gas limit, rejection gas, and fee asset tests |
+| Fee diversion | Covered | fee bps validation, zero-destination rejection, split/rounding tests, receipt events |
 | State root manipulation | Covered | deterministic batch build and observer tampered-root tests |
 | Internal message explosion | Covered | adapter message limit and queue-capacity rejection tests |
 | Mempool flood | Covered | global/per-account queue, rate limit, bad signature spam, payload-class limits |
@@ -69,6 +78,9 @@ The MVP commits events through `receipt_root` and DA, not a separate
 - `oversized_receipt_event_list_is_rejected_before_block_root`
 - SDK browser/admin split test: browser client has no admin faucet/deposit/block
   helpers and can create an EnWallet mnemonic account.
+- Fee accounting tests cover deterministic split, rejection-fee distribution,
+  invalid basis points, overflow, zero destinations, and SDK/Rust fee event
+  encoding.
 
 ## Residual Risks
 
@@ -78,6 +90,9 @@ The MVP commits events through `receipt_root` and DA, not a separate
   emulator fixtures for non-sample contracts.
 - Browser wallet UX must add explicit seed backup, encryption, lock/unlock, and
   clear testnet-only warnings before public wallet distribution.
+- Fee accounting currently has configured accounts but no staking/slashing
+  authorization model; operator commission and treasury policy must remain
+  explicit deployment config until staking is implemented.
 
 ## Launch Gate
 

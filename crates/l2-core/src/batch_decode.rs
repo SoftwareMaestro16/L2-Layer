@@ -26,6 +26,7 @@ const STATUS_REJECTED: u8 = 0x02;
 const EVENT_CONTRACT_DEPLOYED: u8 = 0x01;
 const EVENT_CONTRACT_CALLED: u8 = 0x02;
 const EVENT_WITHDRAWAL_CREATED: u8 = 0x03;
+const EVENT_FEE_DISTRIBUTED: u8 = 0x04;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DecodedBatchData {
@@ -190,6 +191,16 @@ fn decode_l2_event(reader: &mut Reader<'_>) -> Result<L2Event, BatchDataDecodeEr
             amount: reader.read_u128()?,
             l2_sender: reader.read_hash()?,
             l1_recipient: reader.read_string()?,
+        },
+        EVENT_FEE_DISTRIBUTED => L2Event::FeeDistributed {
+            asset_id: reader.read_u32()?,
+            total_amount: reader.read_u128()?,
+            sequencer_amount: reader.read_u128()?,
+            operator_amount: reader.read_u128()?,
+            treasury_amount: reader.read_u128()?,
+            sequencer_reward_account: reader.read_hash()?,
+            operator_fee_account: reader.read_hash()?,
+            treasury_fee_account: reader.read_hash()?,
         },
         _ => return Err(BatchDataDecodeError::InvalidTag),
     })
@@ -369,7 +380,17 @@ mod tests {
             sha256_bytes(b"recipient"),
             100,
         );
-        let receipt = Receipt::applied(tx.tx_hash(), 0, None);
+        let receipt =
+            Receipt::applied(tx.tx_hash(), 10, None).with_events(vec![L2Event::FeeDistributed {
+                asset_id: 0,
+                total_amount: 10,
+                sequencer_amount: 8,
+                operator_amount: 1,
+                treasury_amount: 1,
+                sequencer_reward_account: sha256_bytes(b"sequencer"),
+                operator_fee_account: sha256_bytes(b"operator"),
+                treasury_fee_account: sha256_bytes(b"treasury"),
+            }]);
         let decoded = decode_batch_data(&encode_batch_data(
             std::slice::from_ref(&tx),
             std::slice::from_ref(&receipt),

@@ -163,6 +163,18 @@ test("receipt events are consensus encoded", () => {
           body_hash: hash(0x03),
         },
       },
+      {
+        FeeDistributed: {
+          asset_id: L2_NATIVE_GAS_ASSET,
+          total_amount: "100",
+          sequencer_amount: "90",
+          operator_amount: "7",
+          treasury_amount: "3",
+          sequencer_reward_account: hash(0x04),
+          operator_fee_account: hash(0x05),
+          treasury_fee_account: hash(0x06),
+        },
+      },
     ],
   };
 

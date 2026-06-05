@@ -182,6 +182,11 @@ EXECUTOR_WITHDRAW_GAS=20
 EXECUTOR_CALL_CONTRACT_GAS=50
 EXECUTOR_REJECTED_EXECUTION_GAS=1
 EXECUTOR_MIN_GAS_PRICE=1
+L2_OPERATOR_COMMISSION_BPS=0
+L2_TREASURY_FEE_BPS=0
+L2_SEQUENCER_REWARD_ACCOUNT=
+L2_OPERATOR_FEE_ACCOUNT=
+L2_TREASURY_FEE_ACCOUNT=
 TVM_ADAPTER=real
 TVM_TONLIB_LIBRARY_PATH=
 ```
@@ -190,11 +195,17 @@ For user transactions, the charged fee is `gas_used * max_gas_price` in the
 configured gas coin asset, currently ENT asset id `0`. Transfers and withdrawals
 debit the moved asset and gas coin separately unless the moved asset is also the
 gas coin; in that case `amount + fee` is checked with overflow-safe arithmetic.
+After the debit, the executor deterministically credits the configured fee
+destinations and emits a `fee_distributed` receipt event. Empty destination env
+values use stable protocol accounts derived from L2 economics domains. The
+operator and treasury basis-point values must sum to no more than `10000`; any
+remainder, including rounding dust, goes to `L2_SEQUENCER_REWARD_ACCOUNT`.
 
 Rejected execution uses no-refund MVP semantics: if the transaction passed
 sequencer auth/nonce checks and reached the executor, the sender nonce advances
 and the executor attempts to charge `EXECUTOR_REJECTED_EXECUTION_GAS *
-max_gas_price`. Sequencer-level rejections such as bad signatures, wrong chain id,
+max_gas_price`. Charged rejection fees follow the same deterministic
+distribution. Sequencer-level rejections such as bad signatures, wrong chain id,
 or bad nonce are not charged because they are rejected before execution.
 
 `DeployContract` installs code/data/storage hashes for a new empty L2 contract

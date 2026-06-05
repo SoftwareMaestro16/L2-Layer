@@ -324,15 +324,23 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
     );
     assert_eq!(deploy.receipt.status, ReceiptStatus::Applied);
     assert_eq!(deploy.receipt.gas_charged, 100);
+    assert_eq!(deploy.receipt.events.len(), 2);
     assert_eq!(
-        deploy.receipt.events,
-        vec![L2Event::ContractDeployed {
+        deploy.receipt.events[0],
+        L2Event::ContractDeployed {
             contract,
             deployer: sender,
             code_hash: sample_counter_code_hash(),
             data_hash: sample_counter_data_hash(0),
-        }]
+        }
     );
+    assert!(matches!(
+        deploy.receipt.events[1],
+        L2Event::FeeDistributed {
+            total_amount: 100,
+            ..
+        }
+    ));
     assert_eq!(
         state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),
         870
@@ -354,7 +362,7 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
     );
     assert_eq!(call.receipt.status, ReceiptStatus::Applied);
     assert_eq!(call.receipt.gas_charged, 100);
-    assert_eq!(call.receipt.events.len(), 1);
+    assert_eq!(call.receipt.events.len(), 2);
     assert!(matches!(
         call.receipt.events[0],
         L2Event::ContractCalled {
@@ -362,6 +370,13 @@ fn ent_fees_are_charged_for_transfer_deploy_and_call_actions() {
             caller,
             ..
         } if called_contract == contract && caller == sender
+    ));
+    assert!(matches!(
+        call.receipt.events[1],
+        L2Event::FeeDistributed {
+            total_amount: 100,
+            ..
+        }
     ));
     assert_eq!(
         state.account(sender).unwrap().balance(L2_NATIVE_GAS_ASSET),

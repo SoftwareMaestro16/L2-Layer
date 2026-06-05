@@ -174,6 +174,7 @@ impl fmt::Debug for NodeConfig {
             .field("mempool_banned_ips", &self.mempool_banned_ips)
             .field("mempool_banned_accounts", &self.mempool_banned_accounts)
             .field("executor_gas_schedule", &self.executor_gas_schedule)
+            .field("fee_accounting", &self.fee_accounting)
             .finish()
     }
 }

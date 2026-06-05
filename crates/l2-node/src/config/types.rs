@@ -90,4 +90,5 @@ pub struct NodeConfig {
     pub mempool_banned_ips: Vec<IpAddr>,
     pub mempool_banned_accounts: Vec<Hash32>,
     pub executor_gas_schedule: l2_core::GasSchedule,
+    pub fee_accounting: l2_core::FeeAccountingConfig,
 }
