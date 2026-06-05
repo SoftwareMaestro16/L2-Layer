@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use l2_core::{DepositEvent, Hash32, L2Block, Receipt, SignedL2Transaction, WithdrawalProof};
+use l2_core::{
+    Account, DepositEvent, Hash32, L2Block, Receipt, SignedL2Transaction, WithdrawalProof,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -8,14 +10,17 @@ use tokio::sync::RwLock;
 
 use crate::config::NodeConfig;
 
+mod contracts;
 mod da_payload;
 mod observer;
 mod postgres;
+mod postgres_contracts;
 mod postgres_da;
 mod postgres_finalization;
 mod postgres_observer;
 mod postgres_util;
 
+pub use contracts::{StoredContractCodeCell, StoredContractDataCell, StoredContractState};
 pub use observer::ObserverCheckpoint;
 pub use postgres::PostgresStorage;
 
@@ -175,6 +180,16 @@ pub enum StorageError {
     InvalidStatus { field: &'static str, value: String },
     #[error("{resource} already exists with different data")]
     Conflict { resource: &'static str },
+    #[error("{field} is missing for contract state persistence")]
+    MissingContractCell { field: &'static str },
+    #[error("{field} is invalid for contract state persistence: {reason}")]
+    InvalidContractCell { field: &'static str, reason: String },
+    #[error("{field} hash mismatch: expected {expected}, actual {actual}")]
+    ContractCellHashMismatch {
+        field: &'static str,
+        expected: Hash32,
+        actual: Hash32,
+    },
 }
 
 #[async_trait]
@@ -243,6 +258,11 @@ pub trait Storage: Send + Sync {
         &self,
         block_height: u64,
     ) -> Result<Option<StoredBatchPayload>, StorageError>;
+    async fn save_contract_state(&self, record: StoredContractState) -> Result<(), StorageError>;
+    async fn get_contract_state(
+        &self,
+        account_id: Hash32,
+    ) -> Result<Option<StoredContractState>, StorageError>;
     async fn save_observer_checkpoint(
         &self,
         checkpoint: ObserverCheckpoint,
@@ -263,6 +283,9 @@ pub struct InMemoryStorage {
     batch_commits: RwLock<BTreeMap<u64, BatchCommitRecord>>,
     batch_finalizations: RwLock<BTreeMap<u64, BatchFinalizationRecord>>,
     batch_payloads: RwLock<BTreeMap<u64, StoredBatchPayload>>,
+    contract_code_cells: RwLock<BTreeMap<Hash32, StoredContractCodeCell>>,
+    contract_data_cells: RwLock<BTreeMap<Hash32, StoredContractDataCell>>,
+    contract_accounts: RwLock<BTreeMap<Hash32, (Account, u64)>>,
     observer_checkpoints: RwLock<BTreeMap<u64, ObserverCheckpoint>>,
     deposits: RwLock<BTreeMap<Hash32, DepositEvent>>,
     deposit_l1_keys: RwLock<BTreeSet<(Hash32, u64)>>,
@@ -536,6 +559,89 @@ impl Storage for InMemoryStorage {
         block_height: u64,
     ) -> Result<Option<StoredBatchPayload>, StorageError> {
         Ok(self.batch_payloads.read().await.get(&block_height).cloned())
+    }
+
+    async fn save_contract_state(&self, record: StoredContractState) -> Result<(), StorageError> {
+        {
+            let mut code_cells = self.contract_code_cells.write().await;
+            if let Some(existing) = code_cells.get(&record.code_cell.code_hash) {
+                if existing.code_boc_base64 != record.code_cell.code_boc_base64
+                    || existing.size_bytes != record.code_cell.size_bytes
+                {
+                    return Err(StorageError::Conflict {
+                        resource: "contract code cell",
+                    });
+                }
+            } else {
+                code_cells.insert(record.code_cell.code_hash, record.code_cell.clone());
+            }
+        }
+        {
+            let mut data_cells = self.contract_data_cells.write().await;
+            if let Some(existing) = data_cells.get(&record.data_cell.data_hash) {
+                if existing.data_boc_base64 != record.data_cell.data_boc_base64
+                    || existing.storage_root != record.data_cell.storage_root
+                    || existing.size_bytes != record.data_cell.size_bytes
+                {
+                    return Err(StorageError::Conflict {
+                        resource: "contract data cell",
+                    });
+                }
+            } else {
+                data_cells.insert(record.data_cell.data_hash, record.data_cell.clone());
+            }
+        }
+        let mut accounts = self.contract_accounts.write().await;
+        if accounts
+            .get(&record.account_id)
+            .is_none_or(|(_, height)| *height <= record.last_block_height)
+        {
+            accounts.insert(
+                record.account_id,
+                (record.account.clone(), record.last_block_height),
+            );
+        }
+        Ok(())
+    }
+
+    async fn get_contract_state(
+        &self,
+        account_id: Hash32,
+    ) -> Result<Option<StoredContractState>, StorageError> {
+        let Some((account, last_block_height)) = self
+            .contract_accounts
+            .read()
+            .await
+            .get(&account_id)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let Some(code_cell) = self
+            .contract_code_cells
+            .read()
+            .await
+            .get(&account.code_hash)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let Some(data_cell) = self
+            .contract_data_cells
+            .read()
+            .await
+            .get(&account.data_hash)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        Ok(Some(StoredContractState {
+            account_id,
+            account,
+            code_cell,
+            data_cell,
+            last_block_height,
+        }))
     }
 
     async fn save_observer_checkpoint(

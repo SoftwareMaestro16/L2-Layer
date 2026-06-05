@@ -441,6 +441,8 @@ fn mock_adapter_applies_contract_delta_and_returns_internal_messages() {
     let sender = account(b"sender");
     let contract = account(b"contract");
     let new_storage = account(b"new-storage");
+    let new_data_boc = valid_boc_base64();
+    let new_data_hash = boc_hash(&new_data_boc);
     fund_sender_and_contract(&mut state, sender, contract, 1_000);
     let output = TvmExecutionOutput {
         status: TvmExecutionStatus::Applied,
@@ -448,8 +450,8 @@ fn mock_adapter_applies_contract_delta_and_returns_internal_messages() {
             contract,
             code_hash: None,
             code_boc_base64: None,
-            data_hash: Some(account(b"new-data")),
-            data_boc_base64: None,
+            data_hash: Some(new_data_hash),
+            data_boc_base64: Some(new_data_boc.clone()),
             storage_root: Some(new_storage),
         }),
         emitted_internal_messages: vec![TvmInternalMessage {
@@ -474,8 +476,52 @@ fn mock_adapter_applies_contract_delta_and_returns_internal_messages() {
     assert_eq!(outcome.internal_messages.len(), 1);
     assert_eq!(state.account(sender).unwrap().balance(0), 978);
     assert_eq!(state.account(sender).unwrap().nonce, 1);
+    assert_eq!(state.account(contract).unwrap().data_hash, new_data_hash);
+    assert_eq!(
+        state.account(contract).unwrap().data_boc_base64.as_deref(),
+        Some(new_data_boc.as_str())
+    );
     assert_eq!(state.account(contract).unwrap().storage_root, new_storage);
     assert_eq!(state.account(contract).unwrap().last_lt, 7);
+}
+
+#[test]
+fn adapter_state_delta_hash_without_boc_is_rejected() {
+    let executor = DeterministicExecutor;
+    let mut state = State::default();
+    let sender = account(b"sender");
+    let contract = account(b"contract");
+    fund_sender_and_contract(&mut state, sender, contract, 1_000);
+    let original = state.account(contract).unwrap().clone();
+    let adapter = MockTvmAdapter {
+        output: Ok(TvmExecutionOutput {
+            status: TvmExecutionStatus::Applied,
+            state_delta: Some(TvmStateDelta {
+                contract,
+                code_hash: None,
+                code_boc_base64: None,
+                data_hash: Some(account(b"hash-without-cell")),
+                data_boc_base64: None,
+                storage_root: Some(account(b"new-storage")),
+            }),
+            emitted_internal_messages: vec![],
+            gas_used: 11,
+        }),
+    };
+
+    let outcome = executor.apply_with_tvm_adapter(
+        &mut state,
+        &call_tx(sender, contract, valid_boc_base64()),
+        &config(GasSchedule::default()),
+        &adapter,
+    );
+
+    assert_eq!(outcome.receipt.status, ReceiptStatus::Rejected);
+    assert_eq!(
+        outcome.receipt.reason.as_deref(),
+        Some("tvm_state_delta_data_hash_mismatch")
+    );
+    assert_eq!(state.account(contract).unwrap(), &original);
 }
 
 #[test]

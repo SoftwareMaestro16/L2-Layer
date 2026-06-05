@@ -4,6 +4,7 @@ use crate::gas::{GasFee, GasSchedule};
 use crate::state::{Account, AccountType, State};
 use crate::tvm::{
     decode_contract_cell_boc_base64, ContractCellField, TvmExecutionAdapter, TvmInternalMessage,
+    DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES, DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES,
     DEFAULT_MAX_TVM_BOC_BYTES,
 };
 use crate::types::{
@@ -27,6 +28,8 @@ pub struct ExecutionConfig {
     pub gas_schedule: GasSchedule,
     pub max_internal_messages: u32,
     pub max_tvm_boc_bytes: usize,
+    pub max_contract_code_boc_bytes: usize,
+    pub max_contract_data_boc_bytes: usize,
 }
 
 impl Default for ExecutionConfig {
@@ -38,6 +41,8 @@ impl Default for ExecutionConfig {
             gas_schedule: GasSchedule::default(),
             max_internal_messages: 1024,
             max_tvm_boc_bytes: DEFAULT_MAX_TVM_BOC_BYTES,
+            max_contract_code_boc_bytes: DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES,
+            max_contract_data_boc_bytes: DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES,
         }
     }
 }
@@ -258,7 +263,7 @@ impl DeterministicExecutor {
                 }
                 let code_cell = match decode_contract_cell_boc_base64(
                     code_boc_base64,
-                    config.max_tvm_boc_bytes,
+                    config.max_contract_code_boc_bytes,
                 ) {
                     Ok(cell) => cell,
                     Err(error) => {
@@ -273,7 +278,7 @@ impl DeterministicExecutor {
                 };
                 let data_cell = match decode_contract_cell_boc_base64(
                     data_boc_base64,
-                    config.max_tvm_boc_bytes,
+                    config.max_contract_data_boc_bytes,
                 ) {
                     Ok(cell) => cell,
                     Err(error) => {

@@ -48,7 +48,8 @@ pub use tvm::{
     TvmBoundaryError, TvmEmulatorAdapter, TvmEmulatorBackend, TvmEmulatorBackendError,
     TvmEmulatorConfig, TvmEmulatorRequest, TvmEmulatorResult, TvmExecutionAdapter,
     TvmExecutionContext, TvmExecutionInput, TvmExecutionOutput, TvmExecutionStatus,
-    TvmInternalMessage, TvmStateDelta, DEFAULT_MAX_TVM_BOC_BYTES, SAMPLE_COUNTER_INCREMENT_GAS,
+    TvmInternalMessage, TvmStateDelta, DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES,
+    DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES, DEFAULT_MAX_TVM_BOC_BYTES, SAMPLE_COUNTER_INCREMENT_GAS,
     SAMPLE_COUNTER_INCREMENT_OPCODE,
 };
 #[cfg(feature = "tonlib-tvm")]

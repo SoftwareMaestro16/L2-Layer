@@ -30,6 +30,8 @@ pub use sample_counter::{
 pub use emulator::{RealTvmAdapter, TonlibTvmBackend};
 
 pub const DEFAULT_MAX_TVM_BOC_BYTES: usize = 16 * 1024;
+pub const DEFAULT_MAX_CONTRACT_CODE_BOC_BYTES: usize = DEFAULT_MAX_TVM_BOC_BYTES;
+pub const DEFAULT_MAX_CONTRACT_DATA_BOC_BYTES: usize = DEFAULT_MAX_TVM_BOC_BYTES;
 const MAX_TVM_REASON_BYTES: usize = 64;
 
 /// Deterministic context passed to the TON TVM adapter.
@@ -330,11 +332,12 @@ fn validate_delta_cell(
     max_boc_bytes: usize,
     mismatch: TvmBoundaryError,
 ) -> Result<(), TvmBoundaryError> {
-    let Some(boc_base64) = boc_base64 else {
-        return Ok(());
-    };
-    let Some(expected_hash) = expected_hash else {
-        return Err(mismatch);
+    let (Some(boc_base64), Some(expected_hash)) = (boc_base64, expected_hash) else {
+        return if boc_base64.is_none() && expected_hash.is_none() {
+            Ok(())
+        } else {
+            Err(mismatch)
+        };
     };
     let cell =
         decode_contract_cell_boc_base64(boc_base64, max_boc_bytes).map_err(

@@ -1,5 +1,5 @@
 use super::*;
-use l2_core::{crypto::sha256_bytes, L2Block};
+use l2_core::{crypto::sha256_bytes, sample_counter_initial_state, Account, L2Block};
 
 fn deposit_event() -> DepositEvent {
     DepositEvent {
@@ -289,4 +289,61 @@ async fn memory_storage_cursor_roundtrip() {
         .unwrap();
     assert_eq!(storage.get_l1_cursor("vault").await.unwrap(), Some(cursor));
     assert!(storage.get_l1_cursor("missing").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn memory_storage_contract_state_roundtrip_uses_cell_registries() {
+    let storage = InMemoryStorage::default();
+    let contract = sha256_bytes(b"contract-state-roundtrip");
+    let sample = sample_counter_initial_state(3);
+    let mut account = Account::default();
+    account.mark_contract_account();
+    account.code_hash = sample.code_hash;
+    account.data_hash = sample.data_hash;
+    account.storage_root = sample.storage_root;
+    account.code_boc_base64 = Some(sample.code_boc_base64.clone());
+    account.data_boc_base64 = Some(sample.data_boc_base64.clone());
+    let record = StoredContractState::from_account(contract, &account, 12)
+        .unwrap()
+        .expect("contract record");
+
+    storage.save_contract_state(record.clone()).await.unwrap();
+    storage.save_contract_state(record.clone()).await.unwrap();
+
+    let loaded = storage
+        .get_contract_state(contract)
+        .await
+        .unwrap()
+        .expect("stored contract state");
+    assert_eq!(loaded.account_id, contract);
+    assert_eq!(loaded.account, account);
+    assert_eq!(loaded.code_cell.code_hash, sample.code_hash);
+    assert_eq!(loaded.code_cell.code_boc_base64, sample.code_boc_base64);
+    assert_eq!(loaded.data_cell.data_hash, sample.data_hash);
+    assert_eq!(loaded.data_cell.storage_root, sample.storage_root);
+    assert_eq!(loaded.data_cell.data_boc_base64, sample.data_boc_base64);
+    assert_eq!(loaded.last_block_height, 12);
+}
+
+#[tokio::test]
+async fn contract_state_record_rejects_hash_mismatched_boc() {
+    let contract = sha256_bytes(b"contract-state-mismatch");
+    let sample = sample_counter_initial_state(3);
+    let mut account = Account::default();
+    account.mark_contract_account();
+    account.code_hash = sha256_bytes(b"wrong-code-hash");
+    account.data_hash = sample.data_hash;
+    account.storage_root = sample.storage_root;
+    account.code_boc_base64 = Some(sample.code_boc_base64);
+    account.data_boc_base64 = Some(sample.data_boc_base64);
+
+    let error =
+        StoredContractState::from_account(contract, &account, 1).expect_err("hash mismatch");
+    assert!(matches!(
+        error,
+        StorageError::ContractCellHashMismatch {
+            field: "code_boc_base64",
+            ..
+        }
+    ));
 }

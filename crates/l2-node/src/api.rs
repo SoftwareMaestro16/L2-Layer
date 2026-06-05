@@ -7,16 +7,17 @@ use crate::mempool::MempoolService;
 use crate::observability::{DynTonReadinessProbe, NodeMetrics, ToncenterReadinessClient};
 use crate::relayer::{BatchRelayer, BatchRelayerConfig, ToncenterCommitProvider};
 use crate::signer::{RemoteCommitBatchSigner, RemoteFinalizeBatchSigner};
-use crate::storage::DynStorage;
+use crate::storage::{DynStorage, StoredContractState};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use l2_core::{
-    parse_l2_address, DepositEvent, Hash32, L2Block, Sequencer, SequencerConfig,
-    SignedL2Transaction, SubmitTxResponse,
+    parse_l2_address, DepositEvent, Hash32, L2Block, L2TransactionKind, ReceiptStatus, Sequencer,
+    SequencerConfig, SignedL2Transaction, SubmitTxResponse,
 };
+use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -27,6 +28,7 @@ use tower_http::trace::TraceLayer;
 mod account;
 mod auth;
 mod challenge;
+mod contract;
 mod da;
 mod error;
 mod explorer;
@@ -40,6 +42,7 @@ mod test_support;
 use account::get_account_metadata;
 use auth::AdminAuth;
 use challenge::{operator_observer_checkpoint, operator_observer_replay};
+use contract::get_contract_state;
 use da::{get_batch_da_payload, get_batch_da_payload_by_hash};
 use error::ApiError;
 use explorer::{
@@ -165,6 +168,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/account/:id", get(get_account))
         .route("/v1/account/:id/metadata", get(get_account_metadata))
         .route("/v1/sample-counter/:id", get(get_sample_counter))
+        .route("/v1/contract/:id/state", get(get_contract_state))
         .route("/v1/contract/:id/get/:method", get(get_contract_method))
         .route("/v1/da/batch/:height", get(get_batch_da_payload))
         .route(
@@ -516,6 +520,12 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
             }
             return Err(error.into());
         }
+        if let Err(error) = persist_contract_states(state, &block, &candidate).await {
+            for tx in queued {
+                sequencer.submit_tx(tx);
+            }
+            return Err(error);
+        }
         state
             .metrics
             .record_storage_save_block_latency(storage_started.elapsed());
@@ -539,6 +549,39 @@ async fn produce_block_once(state: &AppState) -> Result<Option<L2Block>, ApiErro
             Err(error)
         }
     }
+}
+
+async fn persist_contract_states(
+    state: &AppState,
+    block: &L2Block,
+    candidate: &Sequencer,
+) -> Result<(), ApiError> {
+    for account_id in touched_contract_accounts(block) {
+        let Some(account) = candidate.state.account(account_id) else {
+            continue;
+        };
+        let Some(record) =
+            StoredContractState::from_account(account_id, account, block.header.height)?
+        else {
+            continue;
+        };
+        state.storage.save_contract_state(record).await?;
+    }
+    Ok(())
+}
+
+fn touched_contract_accounts(block: &L2Block) -> BTreeSet<Hash32> {
+    block
+        .transactions
+        .iter()
+        .zip(block.receipts.iter())
+        .filter(|(_, receipt)| receipt.status == ReceiptStatus::Applied)
+        .filter_map(|(transaction, _)| match &transaction.kind {
+            L2TransactionKind::DeployContract { contract, .. }
+            | L2TransactionKind::CallContract { contract, .. } => Some(*contract),
+            _ => None,
+        })
+        .collect()
 }
 
 fn current_unix_time() -> u64 {
@@ -568,6 +611,9 @@ fn validate_deposit_event(deposit: &DepositEvent) -> Result<(), ApiError> {
     Ok(())
 }
 
+#[cfg(test)]
+#[path = "api_contract_tests.rs"]
+mod contract_tests;
 #[cfg(test)]
 #[path = "api_explorer_tests.rs"]
 mod explorer_tests;

@@ -5,10 +5,11 @@ use sqlx::Row;
 
 use super::{
     BatchCommitRecord, BatchCommitStatus, BatchFinalizationRecord, BatchFinalizationStatus,
-    L1Cursor, ObserverCheckpoint, Storage, StorageError, StoredBatchPayload, StoredTransaction,
+    L1Cursor, ObserverCheckpoint, Storage, StorageError, StoredBatchPayload, StoredContractState,
+    StoredTransaction,
 };
 use crate::storage::postgres_util::{batch_commit_record_from_row, checked_i32, checked_i64};
-use crate::storage::{postgres_da, postgres_finalization, postgres_observer};
+use crate::storage::{postgres_contracts, postgres_da, postgres_finalization, postgres_observer};
 
 #[derive(Clone, Debug)]
 pub struct PostgresStorage {
@@ -513,6 +514,17 @@ impl Storage for PostgresStorage {
         block_height: u64,
     ) -> Result<Option<StoredBatchPayload>, StorageError> {
         postgres_da::get_batch_payload(&self.pool, block_height).await
+    }
+
+    async fn save_contract_state(&self, record: StoredContractState) -> Result<(), StorageError> {
+        postgres_contracts::save_contract_state(&self.pool, record).await
+    }
+
+    async fn get_contract_state(
+        &self,
+        account_id: Hash32,
+    ) -> Result<Option<StoredContractState>, StorageError> {
+        postgres_contracts::get_contract_state(&self.pool, account_id).await
     }
 
     async fn save_observer_checkpoint(

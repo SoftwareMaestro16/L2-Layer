@@ -61,7 +61,7 @@ Transaction kind tags:
 0x02 Transfer(to:Hash32, asset_id:uint32, amount:uint128)
 0x03 Withdraw(asset_id:uint32, amount:uint128, l1_recipient:string)
 0x04 CallContract(contract:Hash32, body_boc_base64:string)
-0x05 DeployContract(contract:Hash32, code_hash:Hash32, data_hash:Hash32, storage_root:Hash32)
+0x05 DeployContract(contract:Hash32, code_boc_base64:string, data_boc_base64:string)
 ```
 
 Receipt:

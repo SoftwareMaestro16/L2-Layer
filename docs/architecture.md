@@ -85,12 +85,39 @@ messages.
 The default adapter is a bounded prototype. It recognizes only the sample L2
 counter code hash, decodes a Tolk-compatible `CounterIncrement` body, updates a
 deterministic sample storage root, and returns `tvm_adapter_not_implemented` for
-all other code hashes. The full TON TVM emulator remains future work because the
-current account model stores code/data hashes, not code/data cells. The executor
-validates adapter output before applying it: malformed BoCs are rejected before
-adapter entry, gas used must be in `1..=gas_limit`, internal messages are capped
-by `max_internal_messages`, internal message bodies are size-limited, and state
-deltas may only target the called contract.
+all other code hashes. Contract accounts store canonical code/data BoCs as well
+as hashes, so the optional `tonlib-tvm` feature can pass real cells into the
+emulator boundary. The executor validates adapter output before applying it:
+malformed BoCs are rejected before adapter entry, gas used must be in
+`1..=gas_limit`, internal messages are capped by `max_internal_messages`,
+internal message bodies are size-limited, and state deltas may only target the
+called contract.
+
+## Contract State Storage
+
+`DeployContract` carries `code_boc_base64` and `data_boc_base64`. The executor
+decodes each BoC as a single-root TON cell, enforces separate code/data size
+limits, derives `code_hash` and `data_hash` from the cell hashes, and rejects
+malformed or oversized cells. A successful deploy writes those BoCs into the L2
+account state and sets `storage_root` to the initial data cell hash.
+
+`l2-node` persists contract cells separately from block JSON:
+
+- `contract_code_cells`: `code_hash -> canonical code BoC`
+- `contract_data_cells`: `data_hash -> canonical data BoC + storage_root`
+- `contract_account_states`: `account_id -> latest contract account snapshot`
+
+The public read endpoint is `GET /v1/contract/{id}/state`. It serves live
+sequencer state when available and falls back to the persistent registry after a
+node restart. Hash mismatches between account state and BoC registry are rejected
+before persistence.
+
+Storage-proof compatibility plan: the account leaf commits to
+`code_hash`, `data_hash`, and `storage_root`; the registry binds those hashes to
+canonical BoCs. Future account/storage proofs can therefore prove an account leaf,
+then fetch or prove the code/data BoC by hash, and finally attach a cell/Merkle
+proof for deeper contract storage without changing the existing state-root
+fields.
 
 ## Deposit Indexing
 
