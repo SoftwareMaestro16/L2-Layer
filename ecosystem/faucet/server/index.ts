@@ -1,5 +1,3 @@
-import { createServer } from "node:http"
-
 import { createFaucetApp } from "./app.js"
 import { loadConfig } from "./config.js"
 import { GitHubOAuthClient } from "./github.js"
@@ -18,18 +16,21 @@ const githubClient =
     : null
 const nodeClient = new EntropisNodeClient(config)
 const worker = new FaucetBatchWorker(config, store, nodeClient)
-const app = createFaucetApp({ config, store, githubClient })
-const server = createServer(app)
+const app = await createFaucetApp({ config, store, githubClient })
 
 worker.start()
-server.listen(config.port, config.host, () => {
-  console.log(`entropis faucet listening on http://${config.host}:${config.port}`)
-})
+await app.listen({ host: config.host, port: config.port })
+console.log(`entropis faucet listening on http://${config.host}:${config.port}`)
 
-function shutdown() {
+async function shutdown() {
   worker.stop()
-  server.close(() => process.exit(0))
+  await app.close()
+  process.exit(0)
 }
 
-process.on("SIGINT", shutdown)
-process.on("SIGTERM", shutdown)
+process.on("SIGINT", () => {
+  void shutdown()
+})
+process.on("SIGTERM", () => {
+  void shutdown()
+})

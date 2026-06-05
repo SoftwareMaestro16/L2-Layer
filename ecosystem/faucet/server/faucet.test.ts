@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 
 import { AddressError, normalizeL2Address, rejectZeroAddress } from "./address.js"
+import { createFaucetApp } from "./app.js"
 import { loadConfig } from "./config.js"
 import { GitHubOAuthClient } from "./github.js"
 import { EntropisNodeClient } from "./node-client.js"
@@ -200,6 +201,28 @@ test("node client falls back to single faucet endpoint on missing batch route", 
   assert.equal(results[0]?.status, "granted")
   assert.equal(results[1]?.status, "failed")
   assert.equal(results[1]?.error, "node_claim_rejected")
+})
+
+test("fastify app exposes status and gates claims behind github session", async () => {
+  const app = await createFaucetApp({
+    config: loadConfig({}),
+    store: new FaucetStore(() => 1_000),
+    githubClient: null,
+  })
+
+  const status = await app.inject({ method: "GET", url: "/api/faucet/status" })
+  assert.equal(status.statusCode, 200)
+  assert.equal(status.json().session.authenticated, false)
+
+  const claim = await app.inject({
+    method: "POST",
+    url: "/api/faucet/claim",
+    payload: { account_id: ACCOUNT_A },
+  })
+  assert.equal(claim.statusCode, 401)
+  assert.equal(claim.json().error, "github_session_required")
+
+  await app.close()
 })
 
 function jsonResponse(body: unknown) {

@@ -1,6 +1,6 @@
 # Entropis Faucet
 
-Public faucet UI and service for Entropis testnet ENT grants.
+Public Vue frontend and Fastify TypeScript backend for Entropis testnet ENT grants.
 
 ```bash
 npm install
