@@ -54,7 +54,7 @@ export class EntropisNodeClient {
           claimId: claim.claimId,
           status: statusFromNode(result.status),
           depositId: result.deposit_id ?? null,
-          error: result.error_code ?? null,
+          error: result.error ?? result.error_code ?? null,
         }
       }
 
@@ -110,6 +110,7 @@ type NodeBatchClaim = {
   claim_id: string
   status?: string
   deposit_id?: string | null
+  error?: string | null
   error_code?: string | null
   faucet?: {
     granted: boolean

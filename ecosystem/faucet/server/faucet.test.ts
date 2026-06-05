@@ -169,7 +169,9 @@ test("node client uses batch endpoint and maps missing claim as failure", async 
     loadConfig({ ENTROPIS_API_URL: "http://node.test", L2_ADMIN_TOKEN: "admin-token" }),
     async () =>
       jsonResponse({
-        claims: [{ claim_id: "claim-a", faucet: { granted: true, deposit_id: "deposit-a" } }],
+        claims: [
+          { claim_id: "claim-a", status: "granted", deposit_id: "deposit-a", error: null },
+        ],
       }),
   )
   const results = await client.submitClaims([
@@ -180,6 +182,28 @@ test("node client uses batch endpoint and maps missing claim as failure", async 
   assert.equal(results[0]?.status, "granted")
   assert.equal(results[1]?.status, "failed")
   assert.equal(results[1]?.error, "node_batch_missing_claim")
+})
+
+test("node client maps duplicate and failed batch claim statuses safely", async () => {
+  const client = new EntropisNodeClient(
+    loadConfig({ ENTROPIS_API_URL: "http://node.test", L2_ADMIN_TOKEN: "admin-token" }),
+    async () =>
+      jsonResponse({
+        claims: [
+          { claim_id: "claim-a", status: "duplicate_account", deposit_id: "deposit-a" },
+          { claim_id: "claim-b", status: "invalid_account", error: "invalid_account" },
+        ],
+      }),
+  )
+  const results = await client.submitClaims([
+    { claimId: "claim-a", accountId: ACCOUNT_A },
+    { claimId: "claim-b", accountId: ACCOUNT_B },
+  ])
+
+  assert.equal(results[0]?.status, "duplicate")
+  assert.equal(results[0]?.depositId, "deposit-a")
+  assert.equal(results[1]?.status, "failed")
+  assert.equal(results[1]?.error, "invalid_account")
 })
 
 test("node client falls back to single faucet endpoint on missing batch route", async () => {

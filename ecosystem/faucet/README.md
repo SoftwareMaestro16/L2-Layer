@@ -26,3 +26,15 @@ cookie, and never exposes GitHub access tokens to browser code.
 
 For real grants, set `L2_ADMIN_TOKEN` and `ENTROPIS_API_URL`. The browser never
 calls admin endpoints directly.
+
+## Runtime defaults
+
+- `FAUCET_AMOUNT_ENT=100`
+- `FAUCET_BATCH_INTERVAL_MS=10000`
+- `FAUCET_MAX_BATCH_SIZE=100`
+- `FAUCET_COOLDOWN_SECONDS=7200`
+- `FAUCET_ENFORCE_COOLDOWN=false`
+
+All session, cooldown, queue, claim, and batch state is RAM-only for v1. Restart
+clears faucet state. Enable cooldown enforcement only when the public test mode
+should stop repeated claims by the same GitHub user or L2 account.
